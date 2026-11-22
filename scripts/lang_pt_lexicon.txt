@@ -7,6 +7,17 @@
 # NÃO acrescentes homógrafos PT/EN — `remove`, `media`, `data`, `base`, `no`,
 # `so`, `ate`, `ver`, `pos`, `seg` existem nas duas línguas e dariam falsos
 # positivos que tornam o número inútil. Ver o aprendizado LANG-01.
+#
+# E nem palavras que colidem com os NOSSOS próprios identificadores. `ao` saiu
+# a 2026-11-22 por isso: colide com a etiqueta de locale que este repo usa em
+# todo o lado (`pt-AO`, `pt_AO`, `docs/dev/pt-AO/`, `*.pt-AO.md`) e com o TLD
+# de Angola (`loja.exemplo.ao`). Medido antes de sair, com e sem a palavra:
+# dependiam SÓ dela 30 entradas — 26 em `docs` e 4 em `comments` — e lendo-as
+# uma a uma, 29 eram linhas em INGLÊS cuja única «palavra portuguesa» era a
+# etiqueta (`the pt-AO help strings are in the pt.po catalog`), contra 1 linha
+# genuína. É o caso do `nas`, não o do `num`: aqui perde-se 1 detecção real
+# para eliminar 29 falsas, e quanto mais o projecto documenta a sua própria
+# i18n, mais dívida a palavra inventava.
 aborta
 abre
 aceita
@@ -23,7 +34,6 @@ amostra
 ancora
 antes
 antigo
-ao
 aos
 apaga
 apagar

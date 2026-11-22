@@ -1,15 +1,16 @@
-# NAS-VM na SDN via Cloud Hypervisor (100% rootless, sem libvirt)
+# NAS-VM on the SDN via Cloud Hypervisor (100% rootless, no libvirt)
 
-Boot de uma VM na rede SDN delonix (sem firmware, sem AppArmor, sem qemu:///system),
-com IP descobrível pela DHCP da SDN e alcançável por qualquer container na mesma rede.
+Boot a VM on the delonix SDN network (no firmware, no AppArmor, no
+qemu:///system), with an IP discoverable via the SDN's DHCP and reachable by
+any container on the same network.
 
-## 1. Extrair kernel+initrd da cloud image (uma vez; sem download)
+## 1. Extract kernel+initrd from the cloud image (once; no download)
     export LIBGUESTFS_BACKEND=direct
     virt-get-kernel -a ~/.local/share/delonix/vm-images/delonix-vm-runtime-22.04-2026.06-amd64.qcow2 -o ./boot
-    # → boot/vmlinuz-5.15.0-1101-kvm  (kernel `-kvm`, virtio built-in — ideal p/ CH)
+    # → boot/vmlinuz-5.15.0-1101-kvm  (kernel `-kvm`, virtio built-in — ideal for CH)
     #   boot/initrd.img-5.15.0-1101-kvm
 
-## 2. Boot na SDN (direct kernel boot — dispensa firmware)
+## 2. Boot on the SDN (direct kernel boot — no firmware needed)
     delonix vm create nasvm \
       --disk ~/.local/share/delonix/vm-images/delonix-vm-runtime-22.04-2026.06-amd64.qcow2 \
       --memory 1G --vcpus 2 \
@@ -19,22 +20,22 @@ com IP descobrível pela DHCP da SDN e alcançável por qualquer container na me
       --cmdline "console=ttyS0 root=/dev/vda1 rw" \
       --hostname nasvm --ssh-key @~/.ssh/id_ed25519.pub
 
-    delonix describe vm nasvm    # Running, ip: 10.219.x.x (DHCP da SDN)
+    delonix describe vm nasvm    # Running, ip: 10.219.x.x (SDN's DHCP)
 
-## 3. Alcançar a VM (de qualquer container na mesma rede)
+## 3. Reach the VM (from any container on the same network)
     delonix container run --net pnet -d --name probe alpine sleep 300
-    delonix container exec probe ping -c2 <ip-da-vm>     # 0% loss
-    delonix container exec probe nc -zv <ip-da-vm> 22    # open
+    delonix container exec probe ping -c2 <vm-ip>     # 0% loss
+    delonix container exec probe nc -zv <vm-ip> 22     # open
 
-## Notas
-- O kernel `-kvm` do Ubuntu cloud tem virtio embutido → `root=/dev/vda1` sem módulos externos.
-- `--backend libvirt` daria uma VM NÃO-SDN (rede própria do libvirt); a SDN é o caminho nativo.
-- Para o HOST consumir um serviço da VM (ex.: SMB/NFS), publica-o pelo ingress (DNAT) — igual a um
-  container; L3 dentro da SDN já está provado.
+## Notes
+- Ubuntu cloud's `-kvm` kernel has virtio built in → `root=/dev/vda1` with no external modules.
+- `--backend libvirt` would give a NON-SDN VM (libvirt's own network); the SDN is the native path.
+- For the HOST to consume a service from the VM (e.g. SMB/NFS), publish it through the ingress (DNAT) — same as a
+  container; L3 inside the SDN is already proven.
 
-## 4. Storage SMB e2e — VM serve samba, container consome (PROVADO)
+## 4. SMB storage e2e — VM serves samba, container consumes it (PROVEN)
 
-VM provisionada com samba por cloud-init (`--user-data <ficheiro>`, egress da SDN faz o apt):
+VM provisioned with samba via cloud-init (`--user-data <file>`, the SDN's egress does the apt install):
 
     [global]
       map to guest = Bad User
@@ -45,17 +46,17 @@ VM provisionada com samba por cloud-init (`--user-data <ficheiro>`, egress da SD
       read only = no
       force user = root
 
-Como o `mount -t cifs` corre no netns do HOST, publica-se a porta SMB da VM para o host pelo
-ingress e monta-se por `127.0.0.1`:
+Since `mount -t cifs` runs in the HOST's netns, the VM's SMB port is published to the host through the
+ingress and mounted via `127.0.0.1`:
 
-    delonix net netns publish nasvm 4445:445 --ip <ip-da-vm>    # DNAT host:4445 → VM:445
-    sudo -E delonix volume create nastest \                    # mount precisa de CAP_SYS_ADMIN
+    delonix net netns publish nasvm 4445:445 --ip <vm-ip>       # DNAT host:4445 → VM:445
+    sudo -E delonix volume create nastest \                     # mount needs CAP_SYS_ADMIN
       --type cifs --server 127.0.0.1 --share delonixnas \
       --options "port=4445,guest,vers=3.0"
     sudo -E delonix container run -v nastest:/nas alpine \
-      sh -c 'cat /nas/hello.txt; echo novo > /nas/from-container.txt'
-      # LÊ o ficheiro criado dentro da VM E ESCREVE de volta — persistido na share da VM.
+      sh -c 'cat /nas/hello.txt; echo new > /nas/from-container.txt'
+      # READS the file created inside the VM AND writes back — persisted on the VM's share.
 
-Fluxo: `VM(samba, SDN) --smb--> ingress:4445 --cifs--> Storage vol --bind--> container`.
-Teardown liberta tudo (unpublish + volume rm desmonta; `--disk`/dados ficam): container rm,
+Flow: `VM(samba, SDN) --smb--> ingress:4445 --cifs--> Storage vol --bind--> container`.
+Teardown frees everything (unpublish + volume rm unmounts; `--disk`/data stay): container rm,
 volume rm, netns unpublish, vm rm.

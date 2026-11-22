@@ -1,0 +1,50 @@
+delonix spawn-profile [7344eaaecd0e5bb4 CHILD mounts] total=2.09ms | setup_rootfs=1.66ms confine_tail=0.42ms
+delonix spawn-profile [katyavala-namibe-51 net=host] total=17.38ms | pre_clone=0.17ms clone=0.24ms cgroup=16.95ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [4f4af5bdb7a0648d CHILD mounts] total=1.92ms | setup_rootfs=1.50ms confine_tail=0.42ms
+delonix spawn-profile [mandume-andulo-83 net=host] total=25.12ms | pre_clone=0.15ms clone=0.25ms cgroup=24.71ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [b9ec68077220ffa2 CHILD mounts] total=2.06ms | setup_rootfs=1.59ms confine_tail=0.47ms
+delonix spawn-profile [hoolo-saurimo-31 net=host] total=19.11ms | pre_clone=0.17ms clone=0.28ms cgroup=18.64ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [96919070e1536bbb CHILD mounts] total=1.88ms | setup_rootfs=1.40ms confine_tail=0.48ms
+delonix spawn-profile [kitamba-bengo-21 net=host] total=13.43ms | pre_clone=0.15ms clone=0.21ms cgroup=13.06ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [0e9a9635db4bbb9b CHILD mounts] total=1.82ms | setup_rootfs=1.41ms confine_tail=0.40ms
+delonix spawn-profile [kiluanji-cazenga-21 net=host] total=17.92ms | pre_clone=0.15ms clone=0.24ms cgroup=17.51ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [61c1c6ffc8d7e66b CHILD mounts] total=1.90ms | setup_rootfs=1.46ms confine_tail=0.44ms
+delonix spawn-profile [njinga-cazenga-09 net=host] total=13.32ms | pre_clone=0.13ms clone=0.20ms cgroup=12.97ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [f8bd6d616d194264 CHILD mounts] total=1.81ms | setup_rootfs=1.39ms confine_tail=0.41ms
+delonix spawn-profile [ngola-moxico-15 net=host] total=13.28ms | pre_clone=0.14ms clone=0.21ms cgroup=12.92ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [89846b4c217ebba1 CHILD mounts] total=161.15ms | setup_rootfs=1.46ms confine_tail=159.69ms
+delonix spawn-profile [kalandula-cunene-92 net=host] total=183.50ms | pre_clone=0.15ms clone=0.29ms cgroup=183.05ms net=0.00ms mounts=0.02ms
+delonix spawn-profile [cb10a5f6839d26de CHILD mounts] total=1.78ms | setup_rootfs=1.39ms confine_tail=0.40ms
+delonix spawn-profile [katyavala-lobito-07 net=host] total=22.09ms | pre_clone=0.13ms clone=0.24ms cgroup=21.72ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [7c706c6eff5e2cbc CHILD mounts] total=1.80ms | setup_rootfs=1.39ms confine_tail=0.41ms
+delonix spawn-profile [kitamba-dundo-82 net=host] total=25.73ms | pre_clone=0.14ms clone=0.22ms cgroup=25.36ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [7ca3778b3c0c93e1 CHILD mounts] total=2.12ms | setup_rootfs=1.66ms confine_tail=0.45ms
+delonix spawn-profile [katyavala-saurimo-95 net=host] total=12.06ms | pre_clone=0.09ms clone=0.22ms cgroup=11.75ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [345bb484256a342b CHILD mounts] total=145.99ms | setup_rootfs=1.55ms confine_tail=144.45ms
+delonix spawn-profile [soba-zaire-55 net=host] total=158.79ms | pre_clone=0.18ms clone=0.33ms cgroup=158.28ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [5c88f6d0c4d343d0 CHILD mounts] total=2.26ms | setup_rootfs=1.61ms confine_tail=0.64ms
+delonix spawn-profile [kitamba-benguela-24 net=host] total=14.90ms | pre_clone=0.14ms clone=0.22ms cgroup=14.54ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [140cd680f8df30d4 CHILD mounts] total=1.94ms | setup_rootfs=1.48ms confine_tail=0.46ms
+delonix spawn-profile [kiluanji-sumbe-07 net=host] total=15.05ms | pre_clone=0.13ms clone=0.22ms cgroup=14.69ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [e20cd417a30ebd1c CHILD mounts] total=2.09ms | setup_rootfs=1.61ms confine_tail=0.48ms
+delonix spawn-profile [samakaka-menongue-50 net=host] total=19.75ms | pre_clone=0.17ms clone=0.27ms cgroup=19.30ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [916a7f2485739eff CHILD mounts] total=2.16ms | setup_rootfs=1.63ms confine_tail=0.53ms
+delonix spawn-profile [ngola-ondjiva-33 net=host] total=2.65ms | pre_clone=0.15ms clone=0.31ms cgroup=0.72ms net=0.00ms mounts=1.46ms
+delonix spawn-profile [d515b43d8cb1f041 CHILD mounts] total=1.99ms | setup_rootfs=1.43ms confine_tail=0.56ms
+delonix spawn-profile [kiluanji-luanda-43 net=host] total=9.78ms | pre_clone=0.13ms clone=0.24ms cgroup=9.40ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [23eaa1febf88e133 CHILD mounts] total=145.24ms | setup_rootfs=1.42ms confine_tail=143.82ms
+delonix spawn-profile [kiluanji-menongue-24 net=host] total=152.40ms | pre_clone=0.15ms clone=0.28ms cgroup=151.96ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [a725abcc38a43d1c CHILD mounts] total=1.88ms | setup_rootfs=1.36ms confine_tail=0.52ms
+delonix spawn-profile [kalandula-catumbela-44 net=host] total=11.76ms | pre_clone=0.13ms clone=0.22ms cgroup=11.40ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [46160eac72123fc9 CHILD mounts] total=1.92ms | setup_rootfs=1.49ms confine_tail=0.42ms
+delonix spawn-profile [mutu-malanje-06 net=host] total=12.41ms | pre_clone=0.15ms clone=0.24ms cgroup=12.00ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [62223006de321c7d CHILD mounts] total=1.83ms | setup_rootfs=1.44ms confine_tail=0.39ms
+delonix spawn-profile [katyavala-sumbe-07 net=host] total=20.95ms | pre_clone=0.13ms clone=0.30ms cgroup=20.50ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [14fbf79e05a433c1 CHILD mounts] total=1.83ms | setup_rootfs=1.42ms confine_tail=0.41ms
+delonix spawn-profile [mandume-namibe-65 net=host] total=16.26ms | pre_clone=0.15ms clone=0.22ms cgroup=15.88ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [ae2084371351462e CHILD mounts] total=1.99ms | setup_rootfs=1.56ms confine_tail=0.43ms
+delonix spawn-profile [kiluanji-talatona-70 net=host] total=15.79ms | pre_clone=0.14ms clone=0.27ms cgroup=15.38ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [3e1ee6b0bdeaa5d2 CHILD mounts] total=2.04ms | setup_rootfs=1.60ms confine_tail=0.43ms
+delonix spawn-profile [katyavala-benguela-41 net=host] total=10.02ms | pre_clone=0.15ms clone=0.28ms cgroup=9.56ms net=0.00ms mounts=0.01ms
+delonix spawn-profile [c06bf43c2ccfad30 CHILD mounts] total=1.87ms | setup_rootfs=1.45ms confine_tail=0.42ms
+delonix spawn-profile [mutu-dundo-37 net=host] total=17.96ms | pre_clone=0.14ms clone=0.22ms cgroup=17.59ms net=0.00ms mounts=0.01ms

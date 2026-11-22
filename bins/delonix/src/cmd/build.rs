@@ -542,16 +542,17 @@ fn run_as(rootfs: &str, user: &str) -> Result<Option<(u32, Option<u32>)>> {
 /// so it can't be cleaned up via `runtime::remove`/a container list, only by
 /// its id. Every id — container-backed or not — is tracked here for exactly
 /// that reason.
-/// Título de uma instrução na linha de progresso — a instrução COMO ESTÁ ESCRITA
-/// no ficheiro, encurtada.
+/// Title of an instruction on the progress line — the instruction AS WRITTEN
+/// in the file, shortened.
 ///
-/// Reconstruir a linha em vez de a guardar é deliberado: o `Step` já perdeu a
-/// grafia original (um `ENV K V` e um `ENV K=V` chegam aqui iguais), e o que o
-/// leitor precisa é de reconhecer QUAL das suas instruções está a correr, não de
-/// uma citação fiel. Um `RUN` longo é cortado porque a linha tem de caber ao lado
-/// do tempo e do ícone; o corte é por CARACTERES e não por bytes — um `COPY` com
-/// acentos no caminho entraria em pânico a fatiar por índice de byte, que é a
-/// mesma armadilha que a auditoria já encontrou no resumo de respostas HTTP.
+/// Rebuilding the line instead of storing it is deliberate: the `Step` has
+/// already lost the original spelling (an `ENV K V` and an `ENV K=V` arrive here
+/// identical), and what the reader needs is to recognize WHICH of their
+/// instructions is running, not a faithful quote. A long `RUN` is truncated
+/// because the line has to fit next to the time and the icon; the cut is by
+/// CHARACTERS, not bytes — a `COPY` with accents in the path would panic slicing
+/// by byte index, the same trap the audit already found in the HTTP response
+/// summary.
 fn step_title(step: &Step) -> Option<String> {
     const MAX: usize = 60;
     let raw = match step {
@@ -578,10 +579,10 @@ fn step_title(step: &Step) -> Option<String> {
             }
             format!("{f} {src} {dst}")
         }
-        // `ENV`/`WORKDIR` não tocam no rootfs — mudam estado em memória e
-        // devolvem no mesmo instante. Um passo para elas seria um lampejo de
-        // cromagem sobre trabalho que ninguém esperou, o mesmo argumento que
-        // levou o `step_after` a existir.
+        // `ENV`/`WORKDIR` don't touch the rootfs — they change in-memory state
+        // and return instantly. A step for them would be a flash of chrome over
+        // work nobody waited on, the same argument that led `step_after` to
+        // exist.
         Step::Env { .. } | Step::Workdir(_) | Step::User(_) => return None,
     };
     let mut out: String = raw.chars().take(MAX).collect();
@@ -636,12 +637,12 @@ fn build_one_stage(
 
     let result = (|| -> Result<()> {
         for step in steps {
-            // Um passo por instrução que TOCA no rootfs. Sem spinner e sem fold
-            // (`with_verbose(true)` no chamador), porque o `runtime::exec` de um
-            // `RUN` escreve directamente no stdout herdado: um spinner por baixo
-            // de um `apt-get` a despejar linhas ficaria pior do que não ter
-            // nenhum. O que se ganha é a estrutura — plano à cabeça, e cada
-            // instrução a fechar com o seu tempo.
+            // One step per instruction that TOUCHES the rootfs. No spinner and
+            // no fold (`with_verbose(true)` in the caller), because a `RUN`'s
+            // `runtime::exec` writes directly to the inherited stdout: a spinner
+            // underneath an `apt-get` spewing lines would be worse than none at
+            // all. What you gain is the structure — the plan up front, and each
+            // instruction closing with its own time.
             if let Some(t) = step_title(step) {
                 p.step(&t, "");
             }
@@ -875,9 +876,10 @@ fn build_one_stage(
                     chain_hash = new_hash;
                 }
             }
-            // Fecha o passo com ✓ e o tempo. Um `?` acima sai daqui sem passar
-            // por esta linha e o `Drop`/`step` seguinte fecha-o com ✗ — que é o
-            // que se quer: a instrução que rebentou fica marcada como tal.
+            // Closes the step with ✓ and the time. A `?` above leaves here
+            // without reaching this line and the following `Drop`/`step` closes
+            // it with ✗ — which is what you want: the instruction that blew up
+            // stays marked as such.
             p.ok();
         }
         Ok(())
@@ -956,6 +958,12 @@ fn work_launch(rootfs: &str) -> delonix_compute::launch::Launch {
         pod: false,
         attached_ip: None,
         slirp_ports: vec![],
+        // The build's work container stays on the host netns (a `RUN` fetches
+        // packages) — it does NOT take the default slirp (rootless) or veth
+        // (rootful) uplink.
+        rootless_uplink: false,
+        rootful_uplink: false,
+        uplink_ip: None,
         pod_infra_pid: None,
         pod_shared_pid: false,
         pod_pidns_pid: None,
@@ -1261,31 +1269,32 @@ pub fn build_from_spec(
     let mut stages: HashMap<String, StageResult> = HashMap::new();
     let mut all_ids: Vec<String> = Vec::new();
 
-    // **`with_verbose(true)` é a escolha central deste bloco, e não é preguiça.**
+    // **`with_verbose(true)` is the central choice of this block, and it's not
+    // laziness.**
     //
-    // O modo verboso do `Progress` desliga DUAS coisas: o spinner e o fold do
-    // output. As duas têm de ficar desligadas aqui, porque o `runtime::exec` de
-    // um `RUN` escreve directamente no stdout/stderr herdado — não passa pelo
-    // `capture_line`, ao contrário do `vmimage`, que é o único consumidor do fold
-    // hoje. Com spinner, um `apt-get` a despejar centenas de linhas escreveria
-    // por cima dele; com fold declarado mas sem ninguém a alimentá-lo, o output
-    // sairia na mesma e a promessa de o esconder seria falsa.
+    // `Progress`'s verbose mode turns off TWO things: the spinner and the output
+    // fold. Both have to be off here, because a `RUN`'s `runtime::exec` writes
+    // directly to the inherited stdout/stderr — it doesn't go through
+    // `capture_line`, unlike `vmimage`, which is the only consumer of the fold
+    // today. With a spinner, an `apt-get` spewing hundreds of lines would write
+    // over it; with a fold declared but nobody feeding it, the output would come
+    // out anyway and the promise to hide it would be false.
     //
-    // O que sobra é exactamente o que se quer agora: o plano à cabeça e uma linha
-    // por instrução, com o tempo dela. Esconder a saída dos `RUN` como o GitHub
-    // Actions faz exige desviar o `runtime::exec` para o fold — trabalho no
-    // MOTOR, com vários outros chamadores a considerar, e não uma mudança de UI.
+    // What's left is exactly what you want now: the plan up front and one line
+    // per instruction, with its time. Hiding the `RUN` output the way GitHub
+    // Actions does requires diverting `runtime::exec` into the fold — work in the
+    // ENGINE, with several other callers to consider, not a UI change.
     let mut p = super::output::Progress::new().with_verbose(true);
-    // O plano: um `○` por instrução que toca no rootfs, estágio a estágio, mais o
-    // empacotamento final. Os `ENV`/`WORKDIR` ficam de fora aqui pela mesma razão
-    // que não abrem passo — ver `step_title`.
+    // The plan: one `○` per instruction that touches the rootfs, stage by stage,
+    // plus the final packaging. `ENV`/`WORKDIR` are left out here for the same
+    // reason they don't open a step — see `step_title`.
     // Stages after the target are never built — their instructions don't
     // belong in the plan (a progress bar promising steps that never run is
     // its own kind of dishonest reporting).
     let stages_built = target_idx.map_or(df.stages.len(), |idx| idx + 1);
     let final_stage_steps: &[delonix_oci::build::Step] =
         if target_idx.is_none() { &df.steps } else { &[] };
-    let plano: Vec<String> = df.stages[..stages_built]
+    let plan: Vec<String> = df.stages[..stages_built]
         .iter()
         .flat_map(|st| st.steps.iter())
         .chain(final_stage_steps.iter())
@@ -1294,7 +1303,7 @@ pub fn build_from_spec(
             super::po::t("Packaging the image").to_string(),
         ))
         .collect();
-    p.plan(&plano);
+    p.plan(&plan);
 
     let build_result: Result<Image> = (|| {
         for (idx, stage) in df.stages[..stages_built].iter().enumerate() {
@@ -1350,8 +1359,8 @@ pub fn build_from_spec(
             }
         };
         let id = final_state.id.clone();
-        // O último `○` do plano: empacotar é o passo mais demorado de um build
-        // com um rootfs grande, e era o único trecho sem sinal nenhum.
+        // The last `○` of the plan: packaging is the slowest step of a build
+        // with a large rootfs, and it was the only stretch with no signal at all.
         p.step(super::po::t("Packaging the image"), "📦");
 
         if rootless {
@@ -1402,10 +1411,10 @@ pub fn build_from_spec(
                     .as_ref()
                     .and_then(|i| i.config.healthcheck.clone())
             } else {
-                // O `HEALTHCHECK` do ficheiro, com a base como fallback — a
-                // mesma precedência que o caminho overlay (root) já usava em
-                // `build_image`. Sem isto, o mesmo Dockerfile dava imagens
-                // diferentes conforme o modo do motor.
+                // The file's `HEALTHCHECK`, with the base as fallback — the
+                // same precedence the overlay (root) path already used in
+                // `build_image`. Without it, the same Dockerfile produced
+                // different images depending on the engine's mode.
                 df.healthcheck.clone().or_else(|| {
                     final_state
                         .image
@@ -1475,18 +1484,18 @@ pub fn build_from_spec(
             Ok(images.build_image(base_image, layer, &df, tag, arch)?)
         }
     })();
-    // Fecha o passo do empacotamento em função do RESULTADO. Sem isto o `Drop`
-    // fechava-o sempre com ✗ — apanhado no primeiro build de validação, num
-    // build que tinha corrido bem e imprimiu o id da imagem logo a seguir. Um
-    // indicador que diz «falhou» sobre trabalho bem-sucedido é exactamente o
-    // relato desonesto que esta série passou a semana a tirar do motor, e teria
-    // entrado pela porta da funcionalidade que existe para o mostrar.
-    // No caminho de ERRO não há nada a fazer: o `Drop`/`close_line('✗')` do `p`
-    // marca-o como falhado ao sair do escopo. O ramo estava escrito
-    // `Err(_) => drop(&p)`, que larga a REFERÊNCIA e não faz absolutamente
-    // nada — o efeito pretendido vinha todo do `Drop` que acontecia a seguir de
-    // qualquer maneira. Dizia uma intenção que o código não executava, e o
-    // `clippy -D warnings` do CI reprovava-o.
+    // Closes the packaging step according to the RESULT. Without this the `Drop`
+    // always closed it with ✗ — caught on the first validation build, on a build
+    // that had run fine and printed the image id right afterwards. An indicator
+    // that says "failed" over successful work is exactly the dishonest reporting
+    // this series spent the week pulling out of the engine, and it would have
+    // come in through the very feature that exists to show it.
+    // On the ERROR path there's nothing to do: `p`'s `Drop`/`close_line('✗')`
+    // marks it as failed on scope exit. The branch was written
+    // `Err(_) => drop(&p)`, which drops the REFERENCE and does absolutely
+    // nothing — the intended effect came entirely from the `Drop` that happened
+    // right afterwards anyway. It stated an intent the code didn't carry out, and
+    // CI's `clippy -D warnings` rejected it.
     if build_result.is_ok() {
         p.ok();
     }
@@ -1764,6 +1773,15 @@ fn try_clone_cached(images: &ImageStore, hash: &str) -> Result<Option<(String, S
     if !cached.exists() {
         return Ok(None);
     }
+    // Reject an entry whose completion marker is gone: a `rm -rf` interrupted on
+    // subuid files can leave `rootfs/` present but INCOMPLETE, and cloning it
+    // produces a wrong image (#815). The marker is written last, before the
+    // atomic rename, so its absence means the entry is not trustworthy — discard
+    // it and rebuild the step.
+    if !entry.join("committed").exists() {
+        runtime::remove_tree_mapped(&entry);
+        return Ok(None);
+    }
     // Stamp the hit. Without it the cache has no notion of USE at all — only of
     // creation — and anything that later expires entries would be choosing by
     // age rather than by whether anyone still wants them, throwing out the hot
@@ -1814,6 +1832,12 @@ fn save_to_cache(hash: &str, rootfs: &str) {
         return;
     }
     if copy_tree(Path::new(rootfs), &tmp_rootfs) {
+        // Completion marker, sibling of `rootfs/` (NOT inside it — `clone_rootfs`
+        // would copy it into somebody's image). Written before the atomic rename
+        // so an entry is only ever trusted when its rootfs was copied in full;
+        // `try_clone_cached` rejects an entry that lost this marker to a partial
+        // external delete (#815).
+        let _ = std::fs::write(tmp_dir.join("committed"), b"1");
         let _ = std::fs::rename(&tmp_dir, &final_dir);
     } else if std::fs::remove_dir_all(&tmp_dir).is_err() {
         // A half-written copy can hold files of mapped users.
@@ -2513,12 +2537,12 @@ mod tests {
 }
 
 #[cfg(test)]
-mod progresso_tests {
+mod progress_tests {
     use super::*;
 
-    /// As instruções que TOCAM no rootfs abrem passo; as que só mudam estado em
-    /// memória não. Um passo por `ENV` seria um lampejo de cromagem sobre
-    /// trabalho instantâneo — o mesmo argumento que deu origem ao `step_after`.
+    /// Instructions that TOUCH the rootfs open a step; those that only change
+    /// in-memory state don't. A step per `ENV` would be a flash of chrome over
+    /// instant work — the same argument that gave rise to `step_after`.
     #[test]
     fn only_instructions_with_work_open_a_step() {
         assert!(step_title(&Step::Env {
@@ -2551,18 +2575,18 @@ mod progresso_tests {
         );
     }
 
-    /// **O corte é por CARACTERES, não por bytes.**
+    /// **The cut is by CHARACTERS, not bytes.**
     ///
-    /// Um `COPY` com acentos no caminho — `configuração/`, num repo português —
-    /// entraria em pânico a fatiar por índice de byte se este caiu no meio de um
-    /// carácter multi-byte. É a mesma armadilha que a auditoria de segurança
-    /// encontrou no resumo de respostas HTTP do cliente TrueNAS, e a razão de
-    /// este teste usar um título que só tem acentos.
+    /// A `COPY` with accents in the path — `configuração/`, in a Portuguese repo
+    /// — would panic slicing by byte index if that fell in the middle of a
+    /// multi-byte character. It's the same trap the security audit found in the
+    /// TrueNAS client's HTTP response summary, and the reason this test uses a
+    /// title made only of accented characters.
     #[test]
     fn a_long_title_with_accents_truncates_without_panicking() {
         let long_title = "ção".repeat(40); // 120 chars, 200 bytes
         let t = step_title(&Step::Workdir(long_title.clone()));
-        assert!(t.is_none(), "WORKDIR não abre passo");
+        assert!(t.is_none(), "WORKDIR does not open a step");
         let t = step_title(&Step::Copy {
             src: long_title.clone(),
             dst: "/x".into(),
@@ -2570,9 +2594,9 @@ mod progresso_tests {
             chmod: None,
             chown: None,
         })
-        .expect("COPY abre passo");
-        assert!(t.chars().count() <= 61, "cortado a 60 + reticências: {t}");
-        assert!(t.ends_with('…'), "o corte tem de se ver: {t}");
+        .expect("COPY opens a step");
+        assert!(t.chars().count() <= 61, "cut to 60 + ellipsis: {t}");
+        assert!(t.ends_with('…'), "the cut has to be visible: {t}");
     }
 }
 

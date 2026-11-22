@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "when": "2026-11-18T16:29:45Z",
+  "runs": 10,
+  "bench": {
+    "cpu": "13th Gen Intel(R) Core(TM) i9-13900H",
+    "threads": 20,
+    "mem": "62 GiB",
+    "kernel": "7.0.0-43-generic",
+    "load1": 3.16,
+    "threshold": 10.00,
+    "density": 0,
+    "publishable": true
+  },
+  "tools": {"docker": "Docker version 29.10.0, build fdd4b8e", "podman": "podman version 4.9.3", "delonix": "delonix 0.1.1"},
+  "lines": {
+    "4a": {
+      "docker": {"median_ms": 2409, "min_ms": 1489, "max_ms": 2695, "spread": 1.81, "samples_ms": [2695, 1489, 2369, 2471, 2340, 2441, 2390, 2400, 2419, 2504]},
+      "podman": {"median_ms": 233, "min_ms": 224, "max_ms": 969, "spread": 4.33, "samples_ms": [234, 241, 224, 233, 227, 227, 233, 234, 969, 646]},
+      "delonix": {"median_ms": 74, "min_ms": 69, "max_ms": 83, "spread": 1.20, "samples_ms": [75, 73, 77, 73, 83, 73, 69, 75, 74, 80]}
+    }
+  }
+}

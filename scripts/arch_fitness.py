@@ -62,9 +62,12 @@ LAYERS = {
     "delonix-storage": CONTEXT,  # ADR-0067 D1: the storage pool port, its registry and the allowlist
     "delonix-node": CONTEXT,
     "delonix-net-rules": FOUNDATION,  # → delonix-networking/domain (P2)
+    "delonix-spiffe": FOUNDATION,  # ADR-0102: the node's SPIFFE X.509-SVID identity as rustls material
     "delonix-security": CONTEXT,  # → delonix-security (P2)
     "delonix-host": ADAPTER,  # the host adapter: the delonix-node split's process/fs mechanism (R2)
     "delonix-pool-helper": ADAPTER,  # the storage pool helper protocol, lifted out of the storage context (R2c)
+    "delonix-warm": ADAPTER,  # the warm-plane runner pool (ADR-0095): OS process/socket orchestration, no engine knowledge
+
     "delonix-linux": ADAPTER,
     "delonix-sdn": ADAPTER,
     "delonix-oci": ADAPTER,
@@ -212,6 +215,24 @@ EXCEPTIONS = {
 # ITS OWN binary, which is the hidden cycle ADR-0040 removes — every one of these
 # becomes a call into a use case, or a typed spec handed to delonix-launcher.
 SELF_EXEC = re.compile(r"current_exe\(\)|\bcli_bin\(\)|\bdelonix_bin\(\)")
+# A library does not write to the terminal; it emits `tracing`, and whoever
+# prints is the interface. The number is high because two classes of print cannot
+# be paid by swapping the macro — measured 2026-11-22, when the count was 121:
+#
+#   * `delonix-linux` holds 59 of them, and the crate has NO `tracing` dependency
+#     on purpose: most of that code runs in the container child, after `clone()`
+#     and before `execve`, where a subscriber would allocate and take locks the
+#     parent held. `eprintln!` on the inherited stderr is the child's only way to
+#     say why it died. Paying those means moving the code, not the macro.
+#   * The interface crates' server processes (`delonix-mgmt` 6, `delonix-cri` 5)
+#     speak to the operator who launched them. That is the half of the rule that
+#     says "whoever prints is the interface".
+#
+# And 44 of the 121 are in `tests/`, where a live test's `println!` IS its
+# reporting channel (`cargo test` captures it and shows it on failure). That is a
+# third false-positive class, left measured rather than excluded: filtering it
+# would lower both sides of the ratchet by the same 44 and change no verdict, so
+# it is work for the campaign that pays this counter down, not for a gate pass.
 PRINTS = re.compile(r"\b(?:e?println!|print!)\s*[(\[]")
 # A context crate running an external program (ADR-0044 P4b.3b). The VM use
 # cases moved into `delonix-compute` precisely because `qemu-img`/`cloud-localds`
@@ -225,6 +246,15 @@ CONTEXT_DIRS = ("crates/contexts/",)
 # in the engine's own code a write is only sound in a single-threaded child. The
 # remaining sites are the `delonix-sdn` test guard, the container init, and tests
 # not yet moved to injected values — this number only goes down.
+# `set_var`/`remove_var` mutate state shared by the whole process, so a second
+# thread reading the same variable has no ordering to rely on. The accepted ones
+# are the engine's own re-exec contract: `DELONIX_REEXEC_ID`/`_IP` are how the
+# cold second pass learns the id and the IP, read in 11 places inside `cmd_run`
+# and its helpers. The warm plane's isolated path (ADR-0095,
+# `run_spec_resident_isolated`) sets the same two in-process to reuse exactly
+# those read sites — single-threaded by construction at that point, as its
+# doc-comment records. Paying that pair means threading `(id, ip)` explicitly
+# through `cmd_run` and all 11 sites: ADR-0095 follow-up work, not a gate tweak.
 ENV_WRITES = re.compile(r"\benv::(?:set_var|remove_var)\s*\(")
 # An adapter or provider importing the SHARED error as its own (ADR-0040 P3: errors
 # per crate, each converting into the `DX_*` class the foundation owns). A crate
@@ -246,6 +276,35 @@ RAW_VARIANT_MATCH = re.compile(
     + _VARIANTS + r"\b"
 )
 RAW_VARIANT_SKIP = ("crates/foundation/delonix-model/",)
+
+# Two of the patterns above match the anti-pattern they TEACH, so a sentence
+# explaining the rule counted as a breach of it. Measured 2026-11-22, before
+# `code_only` existed: `raw_error_variant_matches` was 1 of 1 a comment
+# (`bins/delonix/src/cmd/util.rs`, saying why the code asks `code()` instead of
+# `matches!(e, Error::NotFound(_))`) and `self_exec_sites` 2 of 37
+# (`delonix-node/src/app/host.rs`, `delonix-cri/src/spdy.rs`). A counter whose
+# only hit is the sentence describing the rule measures nothing — the same
+# defect the `build.rs` line in `count()` already fixed for PRINTS, and the one
+# AGENTS.md records for the language ratchet's `nas`.
+#
+# PRINTS and ENV_WRITES stay comment-SIGHTED, and that is a measurement, not an
+# omission: both scored 0 hits inside comments on the same day, so filtering
+# them would change no number today while widening what the gate stops seeing
+# tomorrow — a commented-out `println!` is code someone is about to restore.
+COMMENT_BLIND = (RAW_VARIANT_MATCH, SELF_EXEC)
+
+
+def code_only(text: str) -> str:
+    """`text` with every whole-line `//` comment blanked, lines kept so a
+    reported count still lines up with the file.
+
+    Only a line whose first non-space characters are `//` goes: a trailing
+    comment after real code stays, because the code before it is the thing the
+    patterns are looking for, and cutting at `//` would also cut inside a string
+    literal that contains it (`"https://…"`)."""
+    return "\n".join(
+        "" if line.lstrip().startswith("//") else line for line in text.splitlines()
+    )
 
 # ---------------------------------------------------------------------------
 # ADR-0040 R5 restructuring (owner amendment, R0 2026-11-04). The C1 fitness
@@ -293,6 +352,13 @@ CLI_DESTINATION = {
     # delonix-artifact (created in R4; vmimage's guestfs half goes to delonix-guestfs)
     "image": "delonix-artifact", "build": "delonix-artifact", "scan": "delonix-artifact",
     "app": "delonix-artifact", "vmfile": "delonix-artifact", "vmimage": "delonix-artifact",
+    # `distroless` straddles two consumers — `scaffold` (delonix-cli) reads the
+    # registry and the token it substitutes, `util` (delonix-engine) reads the
+    # fallback on the pull path — and the substance decides: the module IS a table
+    # of base images and the conventional base that carries the same runtime when
+    # the distroless one cannot be pulled. That is knowledge about images, so it
+    # extracts with `image`/`build`, not with the scaffold that happens to read it.
+    "distroless": "delonix-artifact",
     # delonix-cluster (created in R4)
     "cluster": "delonix-cluster", "kindmode": "delonix-cluster", "kindconfig": "delonix-cluster",
     "kubeadm_config": "delonix-cluster", "k8s_recipes": "delonix-cluster", "etcd": "delonix-cluster",
@@ -313,15 +379,30 @@ CLI_DESTINATION = {
     # delonix-cli (presentation; `serve` becomes the mode dispatcher, R5)
     "output": "delonix-cli", "po": "delonix-cli", "man": "delonix-cli", "manual": "delonix-cli",
     "manual_entries": "delonix-cli", "complete": "delonix-cli", "dash": "delonix-cli",
+    # `help` renders clap's own help and only regroups the flat command block into
+    # semantic sections — presentation, like `output` and `man`.
+    "help": "delonix-cli",
     "codes": "delonix-cli", "init": "delonix-cli", "scaffold": "delonix-cli",
     "compatibility": "delonix-cli", "features": "delonix-cli", "config": "delonix-cli",
     "net": "delonix-cli", "manifestcmd": "delonix-cli", "mod": "delonix-cli", "serve": "delonix-cli",
+    # node identity / enrollment (ADR-0097): a local bootstrap surface — the node
+    # CA, the enrollment authority and the member client. It holds no node data.
+    "node_enroll": "delonix-cli",
+    # `kind: Node` declarative apply (ADR-0101): the node-API command family's CLI
+    # glue, beside `node_enroll`/`serve`. The substance (the record shape, the merge
+    # and the version rule) lives in `delonix-model::node_meta`; this module is the
+    # reconcile glue that writes that shared record from a manifest.
+    "node": "delonix-cli",
     # delonix-engine (composition root, R3)
     "vmbackends": "delonix-engine", "providers_config": "delonix-engine", "provider": "delonix-engine",
     "util": "delonix-engine", "engine_vms": "delonix-engine",
     # adapters
     "mapped": "delonix-linux", "ingress_proxy": "delonix-l7proxy", "remote": "delonix-ssh",
     "gitops_git": "delonix-git", "cni_plugins": "delonix-sdn",
+    # warm plane (ADR-0095): the runner (`__poolrunner`) and the measurement bench
+    # (`__poolbench`) drive the `delonix-warm` pool; `prespawn` is the pre_spawn
+    # profiler that justified it (env-gated, a no-op by default).
+    "warmpool": "delonix-warm", "prespawn": "delonix-warm",
     # local surfaces
     "dockerapi": "delonix-docker-api", "mcp": "delonix-mcp",
     # tests
@@ -1013,7 +1094,10 @@ def count(
         # and a second proto-building crate would have read as new debt.
         if pattern is PRINTS and f.name == "build.rs":
             continue
-        n = len(pattern.findall(f.read_text(encoding="utf-8", errors="replace")))
+        text = f.read_text(encoding="utf-8", errors="replace")
+        if pattern in COMMENT_BLIND:
+            text = code_only(text)
+        n = len(pattern.findall(text))
         if n:
             total += n
             where.append(f"{rel}: {n}")

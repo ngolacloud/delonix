@@ -7,14 +7,14 @@
 
 | Layer | Crates | Lines | Share |
 | --- | ---: | ---: | ---: |
-| foundation | 2 | 6,462 | 1.7% |
-| context | 6 | 29,664 | 7.8% |
-| adapter | 10 | 88,008 | 23.2% |
-| provider | 10 | 55,075 | 14.5% |
-| interface | 4 | 36,951 | 9.7% |
+| foundation | 3 | 7,991 | 2.0% |
+| context | 6 | 29,802 | 7.6% |
+| adapter | 11 | 91,053 | 23.2% |
+| provider | 10 | 55,077 | 14.0% |
+| interface | 4 | 40,467 | 10.3% |
 | assembly | 1 | 1,132 | 0.3% |
-| bin | 6 | 161,916 | 42.7% |
-| **total** | **39** | **379,208** | 100% |
+| bin | 6 | 167,571 | 42.6% |
+| **total** | **41** | **393,093** | 100% |
 
 ## Lines per crate
 
@@ -22,17 +22,18 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-model | 5,341 |
+| delonix-model | 5,861 |
 | delonix-net-rules | 1,121 |
+| delonix-spiffe | 1,009 |
 
 ### context
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-compute | 13,134 |
+| delonix-compute | 13,314 |
 | delonix-networking | 5,559 |
 | delonix-security | 3,892 |
-| delonix-stack | 3,746 |
+| delonix-stack | 3,704 |
 | delonix-storage | 2,117 |
 | delonix-node | 1,216 |
 
@@ -40,23 +41,24 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-sdn ⚠️ >20k | 30,107 |
-| delonix-linux ⚠️ >20k | 24,607 |
-| delonix-oci | 15,365 |
-| delonix-vm | 5,402 |
-| delonix-volume | 3,583 |
-| delonix-state | 3,567 |
+| delonix-sdn ⚠️ >20k | 30,647 |
+| delonix-linux ⚠️ >20k | 25,900 |
+| delonix-oci | 15,503 |
+| delonix-vm | 5,427 |
+| delonix-volume | 3,579 |
+| delonix-state | 3,568 |
 | delonix-scanner | 2,637 |
 | delonix-pool-helper | 1,267 |
 | delonix-telemetry | 1,131 |
+| delonix-warm | 1,052 |
 | delonix-host | 342 |
 
 ### provider
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-provider-proxmox ⚠️ >20k | 31,653 |
-| delonix-provider-libvirt | 6,977 |
+| delonix-provider-proxmox ⚠️ >20k | 31,654 |
+| delonix-provider-libvirt | 6,978 |
 | delonix-provider-opnsense | 5,244 |
 | delonix-provider-cloud-hypervisor | 3,636 |
 | delonix-provider-ceph | 2,077 |
@@ -70,9 +72,9 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-node-api ⚠️ >20k | 20,972 |
-| delonix-cri | 11,145 |
-| delonix-mgmt | 2,872 |
+| delonix-node-api ⚠️ >20k | 24,277 |
+| delonix-cri | 11,277 |
+| delonix-mgmt | 2,951 |
 | delonix-mcp | 1,962 |
 
 ### assembly
@@ -85,10 +87,10 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-bin ⚠️ >20k | 159,133 |
-| delonix-node-api-bin | 1,231 |
+| delonix-bin ⚠️ >20k | 164,170 |
+| delonix-node-api-bin | 1,465 |
+| delonix-cri-bin | 838 |
 | delonix-storage-helper | 645 |
-| delonix-cri-bin | 454 |
 | delonix-mcp-bin | 236 |
 | delonix-mgmt-bin | 217 |
 
@@ -99,26 +101,27 @@ Context destinations (the `cli_context_lines` ratchet) come first.
 
 | Destination | Lines | Modules | Context? |
 | --- | ---: | ---: | :---: |
-| delonix-compute | 26,078 | 9 | ✓ |
-| delonix-stack | 23,205 | 10 | ✓ |
-| delonix-networking | 20,002 | 26 | ✓ |
-| delonix-artifact | 16,886 | 6 | ✓ |
-| delonix-cluster | 13,758 | 10 | ✓ |
-| delonix-storage | 10,105 | 9 | ✓ |
-| delonix-node | 7,340 | 4 | ✓ |
-| delonix-gateway | 5,352 | 2 | ✓ |
+| delonix-compute | 27,110 | 9 | ✓ |
+| delonix-stack | 23,730 | 10 | ✓ |
+| delonix-networking | 20,007 | 26 | ✓ |
+| delonix-artifact | 17,192 | 7 | ✓ |
+| delonix-cluster | 13,744 | 10 | ✓ |
+| delonix-storage | 10,108 | 9 | ✓ |
+| delonix-node | 7,449 | 4 | ✓ |
+| delonix-gateway | 5,351 | 2 | ✓ |
 | delonix-security | 3,216 | 4 | ✓ |
-| delonix-cli | 17,344 | 17 |  |
-| delonix-docker-api | 3,823 | 1 |  |
-| delonix-engine | 3,249 | 5 |  |
+| delonix-cli | 19,691 | 20 |  |
+| delonix-docker-api | 3,825 | 1 |  |
+| delonix-engine | 3,423 | 5 |  |
 | delonix-l7proxy | 2,052 | 1 |  |
-| delonix-linux | 1,238 | 1 |  |
+| delonix-linux | 1,236 | 1 |  |
 | delonix-sdn | 471 | 1 |  |
 | delonix-git | 449 | 1 |  |
+| delonix-warm | 414 | 2 |  |
 | delonix-ssh | 274 | 1 |  |
 | tests | 256 | 1 |  |
 | delonix-mcp | 36 | 1 |  |
-| **context total** | **125,942** | | |
+| **context total** | **127,907** | | |
 
 ## Ratchets
 
@@ -127,13 +130,13 @@ falls without the baseline lowered in the same commit.
 
 | Ratchet | Now | Baseline | Target |
 | --- | ---: | ---: | --- |
-| self_exec_sites | 37 | 37 | 0 (R5) |
-| library_prints | 114 | 114 | down |
-| env_writes | 23 | 23 | down |
+| self_exec_sites | 35 | 35 | 0 (R5) |
+| library_prints | 121 | 121 | down |
+| env_writes | 25 | 25 | down |
 | shared_error_imports | 3 | 3 | 0 |
 | raw_error_variant_matches | 0 | 0 | 0 |
 | context_spawns | 0 | 0 | 0 |
-| cli_context_lines | 125,942 | 125,942 | 0 (R4) |
+| cli_context_lines | 127,907 | 127,907 | 0 (R4) |
 | interface_mechanism_deps | 0 | 0 | 0 (R3) |
 | provider_namers | 17 | 17 | 0 (R3/R4) |
 | bin_crates | 6 | 6 | 1 (R1) |
@@ -199,6 +202,7 @@ graph LR
   delonix_scanner[delonix-scanner]
   delonix_sdn[delonix-sdn]
   delonix_security[delonix-security]
+  delonix_spiffe[delonix-spiffe]
   delonix_stack[delonix-stack]
   delonix_state[delonix-state]
   delonix_storage[delonix-storage]
@@ -206,6 +210,7 @@ graph LR
   delonix_telemetry[delonix-telemetry]
   delonix_vm[delonix-vm]
   delonix_volume[delonix-volume]
+  delonix_warm[delonix-warm]
   delonix_bin --> delonix_compute
   delonix_bin --> delonix_engine
   delonix_bin --> delonix_host
@@ -234,6 +239,7 @@ graph LR
   delonix_bin --> delonix_telemetry
   delonix_bin --> delonix_vm
   delonix_bin --> delonix_volume
+  delonix_bin --> delonix_warm
   delonix_compute --> delonix_model
   delonix_compute --> delonix_net_rules
   delonix_compute --> delonix_node
@@ -251,6 +257,7 @@ graph LR
   delonix_cri_bin --> delonix_model
   delonix_cri_bin --> delonix_sdn
   delonix_cri_bin --> delonix_telemetry
+  delonix_cri_bin --> delonix_warm
   delonix_engine --> delonix_compute
   delonix_engine --> delonix_linux
   delonix_engine --> delonix_model
@@ -409,6 +416,7 @@ graph LR
   class delonix_scanner adapter;
   class delonix_sdn adapter;
   class delonix_security context;
+  class delonix_spiffe foundation;
   class delonix_stack context;
   class delonix_state adapter;
   class delonix_storage context;
@@ -416,6 +424,7 @@ graph LR
   class delonix_telemetry adapter;
   class delonix_vm adapter;
   class delonix_volume adapter;
+  class delonix_warm adapter;
   classDef foundation fill:#e8f0fe,stroke:#4285f4;
   classDef context fill:#e6f4ea,stroke:#34a853;
   classDef adapter fill:#fef7e0,stroke:#fbbc04;

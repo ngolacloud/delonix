@@ -1,59 +1,59 @@
-# CNCF gap analysis — Delonix × Podman (diferenciais específicos)
+# CNCF gap analysis — Delonix × Podman (specific differentiators)
 
-> Leitura do código oficial do Podman (via `gh`). **Nota de org:** o projecto
-> renomeou-se de `containers/*` para **`podman-container-tools/*`**
-> (`podman`, `buildah`, `skopeo`); `crun`/`image`/`storage` continuam em
-> `containers/*`. Cruzado com o código do Delonix.
+> Read from Podman's official code (via `gh`). **Org note:** the project
+> renamed itself from `containers/*` to **`podman-container-tools/*`**
+> (`podman`, `buildah`, `skopeo`); `crun`/`image`/`storage` remain under
+> `containers/*`. Cross-referenced with the Delonix code.
 
-## Posicionamento
-O Delonix é **filosoficamente mais próximo do Podman** do que do Docker:
-daemonless, rootless-first, pods nativos. Por isso esta análise foca o que o
-Podman tem de **distinto** e que o Delonix ainda não — não repete o que já está
-em `CNCF_GAP_DOCKER.md`.
+## Positioning
+Delonix is **philosophically closer to Podman** than to Docker:
+daemonless, rootless-first, native pods. This analysis therefore focuses on what
+Podman has that is **distinctive** and that Delonix does not yet have — it does not repeat what is already
+in `CNCF_GAP_DOCKER.md`.
 
-## Já alinhado com o Podman (não refazer)
-- **Daemonless + rootless-first** — mesma arquitectura. ✔
-- **Pods nativos** — Delonix tem (declarativo, `kind: Pod`). ✔
-- **`policy.json` de runtime** — `delonix-security/src/domain/policy.rs` (`<root>/policy.json`, `RuntimePolicy`, admission). ✔
-- **Unit systemd** — `delonix serve` gera `delonix-node-api.service` (mas só para o próprio serviço — ver GAP-0016). ◑
+## Already aligned with Podman (do not redo)
+- **Daemonless + rootless-first** — same architecture. ✔
+- **Native pods** — Delonix has them (declarative, `kind: Pod`). ✔
+- **Runtime `policy.json`** — `delonix-security/src/domain/policy.rs` (`<root>/policy.json`, `RuntimePolicy`, admission). ✔
+- **systemd unit** — `delonix serve` generates `delonix-node-api.service` (but only for the service itself — see GAP-0016). ◑
 - **cosign verify** — `delonix-oci/sign.rs`. ✔
 
-## Diferenciais do Podman → GAPs novos
+## Podman differentiators → new GAPs
 
-| Diferencial Podman (evidência) | Delonix hoje | GAP | Área CNCF |
+| Podman differentiator (evidence) | Delonix today | GAP | CNCF area |
 |---|---|---|---|
-| **`podman kube play` / `kube generate` / `kube apply`** — corre e gera **YAML Kubernetes standard** (docs `podman-kube-*.md`) | kinds **próprios** (`compute.delonix.io/v1beta1`), `lower_application`; **não** consome/gera `apiVersion: v1`/`apps/v1` | **GAP-0015** | 2 (interop k8s) |
-| **Quadlet / `generate systemd`** — corre containers/pods do utilizador como **unidades systemd** (docs `podman-quadlet-*`, `podman-generate-systemd`) | gera unit só para o `node-api`, não para workloads do utilizador | **GAP-0016** | 5 (ops cloud-native) |
-| **Verificação por policy de confiança** — `containers/image` `containers-policy.json` + sigstore + GPG (trust declarativo por registo/repo) | tem `policy.json` de **admissão/runtime** e `sign.rs` (cosign verify por chave), mas **não** trust de assinatura declarativo por registo | **GAP-0017** | 4/8 (supply-chain) |
-| **Governança LFX madura** — LFX Health Score, releases **PGP-signed**, security mailing list, LTS, roadmap público | repo privado | reforça **GAP-0014** | 7 (governança) |
-| **Skopeo** — `copy`/`inspect`/`sign` entre registos **sem pull local nem privilégio** | sem copy registo→registo sem pull | nota (menor) | 5 |
+| **`podman kube play` / `kube generate` / `kube apply`** — runs and generates **standard Kubernetes YAML** (docs `podman-kube-*.md`) | **own** kinds (`compute.delonix.io/v1beta1`), `lower_application`; does **not** consume/generate `apiVersion: v1`/`apps/v1` | **GAP-0015** | 2 (k8s interop) |
+| **Quadlet / `generate systemd`** — runs the user's containers/pods as **systemd units** (docs `podman-quadlet-*`, `podman-generate-systemd`) | generates a unit only for `node-api`, not for user workloads | **GAP-0016** | 5 (cloud-native ops) |
+| **Trust-policy verification** — `containers/image` `containers-policy.json` + sigstore + GPG (declarative trust per registry/repo) | has an **admission/runtime** `policy.json` and `sign.rs` (cosign verify by key), but **no** declarative signature trust per registry | **GAP-0017** | 4/8 (supply-chain) |
+| **Mature LFX governance** — LFX Health Score, **PGP-signed** releases, security mailing list, LTS, public roadmap | private repo | reinforces **GAP-0014** | 7 (governance) |
+| **Skopeo** — `copy`/`inspect`/`sign` between registries **without a local pull or privilege** | no registry→registry copy without pull | note (minor) | 5 |
 
-## Impacto nas 8 áreas CNCF
-Os diferenciais Podman **não abrem uma 9ª área** — refinam as existentes:
-- **Área 2 (conformância/interop k8s):** GAP-0015 adiciona a dimensão «correr/gerar
-  YAML Kubernetes de *workloads*», distinta da conformância CRI. É o diferencial
-  CNCF mais forte do Podman (o k8s é o centro do ecossistema).
-- **Área 5 (ops cloud-native):** GAP-0016 (systemd/Quadlet) junta-se a GAP-0010.
-- **Áreas 4/8 (supply-chain):** GAP-0017 (trust por policy) junta-se a GAP-0008/09/13.
-- **Área 7 (governança):** GAP-0014 ganha critérios concretos (PGP releases, LFX,
-  security list, LTS, roadmap público).
+## Impact on the 8 CNCF areas
+The Podman differentiators **do not open a 9th area** — they refine the existing ones:
+- **Area 2 (k8s conformance/interop):** GAP-0015 adds the "run/generate
+  Kubernetes YAML of *workloads*" dimension, distinct from CRI conformance. It is Podman's strongest
+  CNCF differentiator (k8s is the centre of the ecosystem).
+- **Area 5 (cloud-native ops):** GAP-0016 (systemd/Quadlet) joins GAP-0010.
+- **Areas 4/8 (supply-chain):** GAP-0017 (policy-based trust) joins GAP-0008/09/13.
+- **Area 7 (governance):** GAP-0014 gains concrete criteria (PGP releases, LFX,
+  security list, LTS, public roadmap).
 
-## Fichas dos GAPs novos
+## New GAP cards
 
-### GAP-0015 — Interop Kubernetes YAML: `kube play` / `kube generate` (área 2)
-- **Current:** manifests próprios `compute.delonix.io/v1beta1`; `lower_application` baixa a Application a pods; não lê nem emite YAML Kubernetes standard de workloads.
-- **Expected (Podman):** `podman kube play <k8s.yaml>` corre um Pod/Deployment k8s; `podman kube generate` emite YAML k8s de um pod/container existente.
-- **Target 100%:** `delonix kube play <manifest.yaml>` corre workloads descritos em `apiVersion: v1`/`apps/v1` (Pod, no mínimo); `delonix kube generate <ref>` emite YAML k8s válido.
-- **Component:** `bins/delonix/src/cmd/` + `delonix-compute` (conversor k8s↔envelope). **Compl.:** L. **Dep.:** —.
+### GAP-0015 — Kubernetes YAML interop: `kube play` / `kube generate` (area 2)
+- **Current:** own manifests `compute.delonix.io/v1beta1`; `lower_application` lowers the Application to pods; it neither reads nor emits standard Kubernetes workload YAML.
+- **Expected (Podman):** `podman kube play <k8s.yaml>` runs a k8s Pod/Deployment; `podman kube generate` emits k8s YAML from an existing pod/container.
+- **Target 100%:** `delonix kube play <manifest.yaml>` runs workloads described in `apiVersion: v1`/`apps/v1` (Pod, at minimum); `delonix kube generate <ref>` emits valid k8s YAML.
+- **Component:** `bins/delonix/src/cmd/` + `delonix-compute` (k8s↔envelope converter). **Compl.:** L. **Dep.:** —.
 
-### GAP-0016 — Quadlet/systemd para workloads do utilizador (área 5)
-- **Current:** `delonix serve` gera unit só para o `node-api` (`cmd/serve.rs`).
-- **Expected (Podman):** Quadlet / `podman generate systemd` — correr containers/pods do utilizador como unidades systemd (arranque no boot, supervisão).
-- **Target 100%:** `delonix generate systemd <container|pod>` emite uma unit funcional; opcionalmente um formato Quadlet declarativo.
-- **Component:** `bins/delonix/src/cmd/` (reutiliza a mecânica de `serve.rs`). **Compl.:** M. **Dep.:** —.
+### GAP-0016 — Quadlet/systemd for user workloads (area 5)
+- **Current:** `delonix serve` generates a unit only for `node-api` (`cmd/serve.rs`).
+- **Expected (Podman):** Quadlet / `podman generate systemd` — run the user's containers/pods as systemd units (boot startup, supervision).
+- **Target 100%:** `delonix generate systemd <container|pod>` emits a working unit; optionally a declarative Quadlet format.
+- **Component:** `bins/delonix/src/cmd/` (reuses the `serve.rs` mechanics). **Compl.:** M. **Dep.:** —.
 
-### GAP-0017 — Trust de assinatura por policy declarativa (áreas 4/8)
-- **Current:** `sign.rs` verifica cosign por chave explícita; `policy.json` existe mas para admissão/runtime, não para trust de assinatura por registo.
-- **Expected (Podman):** `containers-policy.json` — confiança declarativa por registo/repo (sigstore + GPG), aplicada no pull/run.
-- **Target 100%:** estender o `policy.json` com regras de trust de assinatura por registo/repo (sigstore + chave); `delonix container run`/`image pull` recusa imagem não-assinada conforme a policy.
-- **Component:** `delonix-security/domain/policy.rs` + `delonix-oci/sign.rs` + `registry.rs`. **Compl.:** M. **Dep.:** GAP-0009 (formato de attestation).
+### GAP-0017 — Signature trust via declarative policy (areas 4/8)
+- **Current:** `sign.rs` verifies cosign by explicit key; `policy.json` exists but for admission/runtime, not for signature trust per registry.
+- **Expected (Podman):** `containers-policy.json` — declarative trust per registry/repo (sigstore + GPG), applied at pull/run.
+- **Target 100%:** extend `policy.json` with signature-trust rules per registry/repo (sigstore + key); `delonix container run`/`image pull` refuses an unsigned image per the policy.
+- **Component:** `delonix-security/domain/policy.rs` + `delonix-oci/sign.rs` + `registry.rs`. **Compl.:** M. **Dep.:** GAP-0009 (attestation format).

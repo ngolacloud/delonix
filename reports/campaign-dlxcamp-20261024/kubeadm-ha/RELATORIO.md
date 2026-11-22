@@ -1,33 +1,33 @@
-# Ronda kubeadm offline/HA — §13 da campanha dlxcamp-20261024
+# kubeadm offline/HA round — §13 of the dlxcamp-20261024 campaign
 
-**Data:** 2026-10-24 · **Branch:** develop (HEAD 34f7afd5 no fim) · **Binário:** delonix 5.1.1 (+260 commits desde v5.1.1, cópia estável no scratchpad) · **Host:** rootless-first, libvirt + Cloud Hypervisor, 20 CPU / 62 GiB.
+**Date:** 2026-10-24 · **Branch:** develop (HEAD 34f7afd5 at the end) · **Binary:** delonix 5.1.1 (+260 commits since v5.1.1, stable copy in the scratchpad) · **Host:** rootless-first, libvirt + Cloud Hypervisor, 20 CPU / 62 GiB.
 
-## Veredicto
+## Verdict
 
-O percurso `delonix cluster kubeadm` provisiona e faz bootstrap de um **plano de controlo HA completo** (3 control-planes com etcd stacked + 1 worker + HAProxy), mas **nenhum nó chega a Ready**: um **bug no caminho CRI** (`compose_command`) impede qualquer CNI que sobreponha o `command` de uma imagem com `ENTRYPOINT`. Além disso, `--cni-offline` **não** torna o bootstrap offline. Os critérios 1 e 2 ficam **bloqueados**; o critério 3 (falha/recuperação HA + destroy limpo) foi **cumprido**.
+The `delonix cluster kubeadm` path provisions and bootstraps a **full HA control plane** (3 control-planes with stacked etcd + 1 worker + HAProxy), but **no node reaches Ready**: a **bug in the CRI path** (`compose_command`) prevents any CNI that overrides the `command` of an image with an `ENTRYPOINT`. In addition, `--cni-offline` does **not** make the bootstrap offline. Criteria 1 and 2 are **blocked**; criterion 3 (HA failure/recovery + clean destroy) was **met**.
 
-| Critério | Estado | Nota |
+| Criterion | State | Note |
 |---|---|---|
-| 1. Nós Ready, offline/egress bloqueado | ❌ BLOQUEADO | nós NotReady (bug CNI); offline inviável (imagens flannel vêm de ghcr.io) |
-| 2. Endpoint HA + CNI + Pod-to-Service/DNS | ⚠️ PARCIAL | HAProxy activo e a servir a API ✔; CNI/DNS/app ✗ (bug CNI) |
-| 3. Falha de CP + recuperação + destroy limpo | ✅ CUMPRIDO | API 8/8 com 1 CP em baixo; etcd rejoin 3/3; virsh limpo, dono preservado |
+| 1. Nodes Ready, offline/egress blocked | ❌ BLOCKED | nodes NotReady (CNI bug); offline unfeasible (flannel images come from ghcr.io) |
+| 2. HA endpoint + CNI + Pod-to-Service/DNS | ⚠️ PARTIAL | HAProxy active and serving the API ✔; CNI/DNS/app ✗ (CNI bug) |
+| 3. CP failure + recovery + clean destroy | ✅ MET | API 8/8 with 1 CP down; etcd rejoin 3/3; virsh clean, owner's VMs preserved |
 
-## O que FUNCIONA (provado ao vivo)
+## What WORKS (proven live)
 
-- Provisionamento de 5 VMs a partir de `k8s-golden` (3×CP, 1×worker, 1×HAProxy) em libvirt NAT (rede `dlxha-cfdff4dd`, virbr4, 10.240.0.0/16 — sem colisão com pod/service).
-- `kubeadm init` + **join HA de 3 control-planes** com **etcd stacked (quórum 3/3 Running)** + join do worker. Todos os nós registados `v1.34.12`, runtime `delonix://5.1.1`.
-- Componentes do plano de controlo todos `Running`: etcd ×3, kube-apiserver ×3, kube-controller-manager ×3, kube-scheduler ×3, kube-proxy ×4.
-- **Endpoint HA = HAProxy** (NÃO kube-vip — este motor não tem kube-vip; `ensure_haproxy` em cluster.rs:3973). kubeconfig server = `https://10.240.84.84:6443` (VM `dlxha-lb`). `kubectl`/`/readyz` servidos através dele.
-- **Falha/recuperação HA** (ver `evidence/ha-failover.txt`): `delonix vm stop dlxha-cp1` → `/readyz` 8/8 OK via HAProxy (quórum 2/3); `delonix vm start dlxha-cp1` → volta com o mesmo IP, etcd reentra (3/3), API disponível na recuperação (7/8, 1 blip).
-- **Destroy limpo**: `cluster destroy --force` removeu 5 VMs + rede + contexto kube; `virsh` sem VMs/redes/discos dlxha; VMs do dono (opnsense, pve92) e `k8s-golden` intactas.
+- Provisioning of 5 VMs from `k8s-golden` (3×CP, 1×worker, 1×HAProxy) on libvirt NAT (network `dlxha-cfdff4dd`, virbr4, 10.240.0.0/16 — no collision with pod/service).
+- `kubeadm init` + **HA join of 3 control-planes** with **stacked etcd (quorum 3/3 Running)** + worker join. All nodes registered `v1.34.12`, runtime `delonix://5.1.1`.
+- Control-plane components all `Running`: etcd ×3, kube-apiserver ×3, kube-controller-manager ×3, kube-scheduler ×3, kube-proxy ×4.
+- **HA endpoint = HAProxy** (NOT kube-vip — this engine has no kube-vip; `ensure_haproxy` in cluster.rs:3973). kubeconfig server = `https://10.240.84.84:6443` (VM `dlxha-lb`). `kubectl`/`/readyz` served through it.
+- **HA failure/recovery** (see `evidence/ha-failover.txt`): `delonix vm stop dlxha-cp1` → `/readyz` 8/8 OK via HAProxy (quorum 2/3); `delonix vm start dlxha-cp1` → comes back with the same IP, etcd rejoins (3/3), API available on recovery (7/8, 1 blip).
+- **Clean destroy**: `cluster destroy --force` removed 5 VMs + network + kube context; `virsh` with no dlxha VMs/networks/disks; owner's VMs (opnsense, pve92) and `k8s-golden` intact.
 
-## BUG 1 (BLOQUEADOR) — CRI: o `command` do pod é apensado ao ENTRYPOINT da imagem
+## BUG 1 (BLOCKER) — CRI: the pod's `command` is appended to the image's ENTRYPOINT
 
-**Sintoma:** com flannel (`--cni flannel --experimental-cni --cni-offline`), todos os nós ficam `NotReady`. Os pods `kube-flannel-ds-*` ficam eternamente em `Init:1/2`: o init container `install-cni` (spec `command:[cp] args:[-f, /etc/kube-flannel/cni-conf.json, /etc/cni/net.d/10-flannel.conflist]`) **corre `/opt/bin/flanneld`** (o ENTRYPOINT da imagem `flannel:v0.28.10`) em modo etcd, como daemon que nunca sai → init nunca completa → nó nunca Ready.
+**Symptom:** with flannel (`--cni flannel --experimental-cni --cni-offline`), all nodes stay `NotReady`. The `kube-flannel-ds-*` pods are stuck forever in `Init:1/2`: the `install-cni` init container (spec `command:[cp] args:[-f, /etc/kube-flannel/cni-conf.json, /etc/cni/net.d/10-flannel.conflist]`) **runs `/opt/bin/flanneld`** (the ENTRYPOINT of the `flannel:v0.28.10` image) in etcd mode, as a daemon that never exits → the init never completes → the node never becomes Ready.
 
-**Reprodução mínima (caminho exacto kubelet→delonix-cri):** Pod com `command:["echo"] args:["ENTRYPOINT_OVERRIDE_OK"]` sobre a imagem `flannel:v0.28.10` → correu `flanneld` (modo etcd), não o `echo`. O override foi **apensado ao**, não substituiu, o ENTRYPOINT.
+**Minimal reproduction (exact kubelet→delonix-cri path):** Pod with `command:["echo"] args:["ENTRYPOINT_OVERRIDE_OK"]` over the `flannel:v0.28.10` image → ran `flanneld` (etcd mode), not the `echo`. The override was **appended to**, not a replacement for, the ENTRYPOINT.
 
-**Raiz (vivo em develop HEAD):**
+**Root cause (live in develop HEAD):**
 - `crates/contexts/delonix-compute/src/run.rs:294` `compose_command(entrypoint, cmd, user)`:
   ```rust
   let mut v = entrypoint.to_vec();          // começa SEMPRE pelo entrypoint da imagem
@@ -35,24 +35,24 @@ O percurso `delonix cluster kubeadm` provisiona e faz bootstrap de um **plano de
   else { v.extend(user) }                   // COM override → entrypoint + command do pod  (APENSA!)
   ```
 - `run.rs:192`: `image_command = compose_command(&config.entrypoint, &config.cmd, &o.command)`.
-- `crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs:1861`: `o.command = rec.command.chain(rec.args)` e o CRI **nunca** define `o.entrypoint` (grep vazio em delonix-cri/src).
-- Resultado: argv efectivo = `image.entrypoint ++ pod.command ++ pod.args`.
+- `crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs:1861`: `o.command = rec.command.chain(rec.args)` and the CRI **never** sets `o.entrypoint` (empty grep in delonix-cri/src).
+- Result: effective argv = `image.entrypoint ++ pod.command ++ pod.args`.
 
-**Correcto (contrato CRI/K8s):** o `command` do pod **substitui** o `ENTRYPOINT`; os `args` substituem o `CMD`. O caminho docker-like (`build_record`/`--entrypoint`, run.rs:324-332) está correcto; o defeito é o CRI não mapear `pod.command → RunOpts.entrypoint` e `pod.args → RunOpts.command`.
+**Correct (CRI/K8s contract):** the pod's `command` **replaces** the `ENTRYPOINT`; the `args` replace the `CMD`. The docker-like path (`build_record`/`--entrypoint`, run.rs:324-332) is correct; the defect is that the CRI does not map `pod.command → RunOpts.entrypoint` and `pod.args → RunOpts.command`.
 
-**Impacto:** qualquer workload que sobreponha `command` numa imagem com `ENTRYPOINT` corre o programa errado. critest não apanha (usa imagens em que command==entrypoint ou sem entrypoint). Bloqueia flannel e, muito provavelmente, os passos de instalação de cilium/calico.
+**Impact:** any workload that overrides `command` on an image with an `ENTRYPOINT` runs the wrong program. critest does not catch it (it uses images where command==entrypoint or with no entrypoint). It blocks flannel and, very likely, the install steps for cilium/calico.
 
-**Fix sugerido (fora do escopo desta sessão — não aplicado):** no CRI, `o.entrypoint = Some(rec.command)` quando `rec.command` não-vazio e `o.command = rec.args`; `build_record` já trata `Some(argv)` correctamente.
+**Suggested fix (out of scope for this session — not applied):** in the CRI, `o.entrypoint = Some(rec.command)` when `rec.command` is non-empty and `o.command = rec.args`; `build_record` already handles `Some(argv)` correctly.
 
-## BUG 2 — `--cni-offline` não cobre as imagens do CNI
+## BUG 2 — `--cni-offline` does not cover the CNI images
 
-`delonix cluster network fetch --cni flannel` só traz o **manifesto** (`net-profiles/kube-flannel-v0.28.10.yml`). O DaemonSet continua a referenciar `ghcr.io/flannel-io/flannel-cni-plugin:v1.9.1-flannel3` e `ghcr.io/flannel-io/flannel:v0.28.10`, **puxados ao vivo de ghcr.io** no bootstrap (eventos `Pulling`/`Successfully pulled`, não "already present"). A `k8s-golden` **não** pré-carrega estas imagens. Logo, com egress bloqueado o bootstrap do CNI **falha** — o critério "offline/egress bloqueado" é inatingível por este caminho. `cluster network fetch` precisaria de descarregar também as imagens OCI e o bootstrap de as importar no store CRI de cada nó (como `cluster load` faz no modo kind).
+`delonix cluster network fetch --cni flannel` only brings the **manifest** (`net-profiles/kube-flannel-v0.28.10.yml`). The DaemonSet still references `ghcr.io/flannel-io/flannel-cni-plugin:v1.9.1-flannel3` and `ghcr.io/flannel-io/flannel:v0.28.10`, **pulled live from ghcr.io** at bootstrap (`Pulling`/`Successfully pulled` events, not "already present"). `k8s-golden` does **not** pre-load these images. So, with egress blocked, the CNI bootstrap **fails** — the "offline/egress blocked" criterion is unreachable by this path. `cluster network fetch` would need to also download the OCI images and the bootstrap to import them into each node's CRI store (as `cluster load` does in kind mode).
 
-## Nota operacional — corrida de rebuild do dono
+## Operational note — owner's rebuild race
 
-A 1ª tentativa abortou em `install_cli` com `DX-1000 resolving this CLI's own binary path: No such file or directory`: `std::env::current_exe().canonicalize()` falhou porque o dono recompilou `target/release/delonix` (mtime 15:24:07) **durante** o bootstrap, substituindo o inode em uso. Mitigação: correr sempre de uma **cópia estável** do binário (scratchpad), imune aos rebuilds. Fragilidade menor do produto: `cluster kubeadm` aborta duro se o seu binário for movido/substituído a meio (registado, não corrigido).
+The 1st attempt aborted at `install_cli` with `DX-1000 resolving this CLI's own binary path: No such file or directory`: `std::env::current_exe().canonicalize()` failed because the owner rebuilt `target/release/delonix` (mtime 15:24:07) **during** the bootstrap, replacing the in-use inode. Mitigation: always run from a **stable copy** of the binary (scratchpad), immune to rebuilds. Minor product fragility: `cluster kubeadm` aborts hard if its binary is moved/replaced midway (recorded, not fixed).
 
-## Ponteiros de evidência
+## Evidence pointers
 
 - `evidence/nodes.txt`, `evidence/etcd-pods.txt`, `evidence/kubeconfig-server.txt`, `evidence/haproxy-lb-ip.txt`, `evidence/ha-failover.txt`
-- `bootstrap.log` (1ª tentativa, falha de binário), `bootstrap2.log` (2ª, chega a NotReady)
+- `bootstrap.log` (1st attempt, binary failure), `bootstrap2.log` (2nd, reaches NotReady)

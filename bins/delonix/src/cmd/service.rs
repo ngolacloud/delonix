@@ -823,20 +823,20 @@ mod tests {
     use super::*;
     use crate::cmd::reconcile::{plan, Action, Actual};
 
-    fn doc(nome: &str, ns: &str, labels: &[(&str, &str)], port: u16) -> ManifestDoc {
+    fn doc(name: &str, ns: &str, labels: &[(&str, &str)], port: u16) -> ManifestDoc {
         let sel = labels
             .iter()
             .map(|(k, v)| format!("      {k}: {v}"))
             .collect::<Vec<_>>()
             .join("\n");
         serde_yaml::from_str(&format!(
-            "apiVersion: delonix.io/v1\nkind: Service\nmetadata:\n  name: {nome}\n  namespace: {ns}\n\
+            "apiVersion: delonix.io/v1\nkind: Service\nmetadata:\n  name: {name}\n  namespace: {ns}\n\
              spec:\n  selector:\n    matchLabels:\n{sel}\n  port: {port}\n"
         ))
         .unwrap()
     }
 
-    fn actual_de(nome: &str, labels: &[(&str, &str)], port: u16, dono: Option<&str>) -> Actual {
+    fn actual_of(name: &str, labels: &[(&str, &str)], port: u16, owner: Option<&str>) -> Actual {
         let mut f = BTreeMap::new();
         f.insert(
             "matchLabels".into(),
@@ -849,16 +849,16 @@ mod tests {
         f.insert("port".into(), port.to_string());
         Actual {
             kind: "Service".into(),
-            name: nome.into(),
+            name: name.into(),
             fields: f,
-            owner: dono.map(String::from),
+            owner: owner.map(String::from),
             last_applied: None,
             protect: false,
         }
     }
 
     #[test]
-    fn um_servico_declarado_e_desejado_com_a_selector_ordenada() {
+    fn a_declared_service_is_desired_with_an_ordered_selector() {
         let d = doc("web", "teamA", &[("app", "web")], 8080);
         let des = desired(&d).unwrap();
         assert_eq!(des.kind, "Service");
@@ -868,14 +868,14 @@ mod tests {
         assert!(des.converges);
     }
 
-    /// Um `Service` retirado do manifesto é candidato a remoção — o mesmo
-    /// contrato que `NetworkRoute`/`NetworkAccessRule` já garantem, aqui pela
-    /// primeira vez para este Kind.
+    /// A `Service` removed from the manifest is a deletion candidate — the same
+    /// contract `NetworkRoute`/`NetworkAccessRule` already guarantee, here for
+    /// the first time for this Kind.
     #[test]
-    fn um_servico_tirado_do_manifesto_e_candidato_a_remocao() {
+    fn a_service_dropped_from_the_manifest_is_a_deletion_candidate() {
         let p = plan(
             &[],
-            &[actual_de("web", &[("app", "web")], 8080, Some("s"))],
+            &[actual_of("web", &[("app", "web")], 8080, Some("s"))],
             "s",
         );
         assert_eq!(p.len(), 1, "{p:?}");
@@ -883,13 +883,13 @@ mod tests {
         assert_eq!(p[0].name, "web");
     }
 
-    /// `ownable: true` é o que faz um `Service` sem dono passar a `Adopt` em
-    /// vez de `NoOp` — sem isto nunca ganha carimbo e nunca é podável.
+    /// `ownable: true` is what makes an ownerless `Service` become `Adopt`
+    /// instead of `NoOp` — without it it never gets a stamp and is never prunable.
     #[test]
-    fn um_servico_ja_existente_e_adoptado_pela_stack_que_o_declara() {
+    fn an_already_existing_service_is_adopted_by_the_stack_that_declares_it() {
         let p = plan(
             &[desired(&doc("web", "teamA", &[("app", "web")], 8080)).unwrap()],
-            &[actual_de("teamA/web", &[("app", "web")], 8080, None)],
+            &[actual_of("teamA/web", &[("app", "web")], 8080, None)],
             "s",
         );
         assert_eq!(p.len(), 1, "{p:?}");
@@ -937,7 +937,7 @@ mod tests {
     /// and its lease for nothing.
     #[test]
     fn changing_the_vip_or_the_type_plans_an_update_not_a_replace() {
-        let mut current = actual_de("teamA/web", &[("app", "web")], 8080, Some("s"));
+        let mut current = actual_of("teamA/web", &[("app", "web")], 8080, Some("s"));
         let p = plan(&[desired(&vip_doc(None)).unwrap()], &[current.clone()], "s");
         assert_eq!(p.len(), 1, "{p:?}");
         assert_eq!(p[0].action, Action::Update, "{p:?}");
@@ -990,13 +990,13 @@ mod tests {
         );
     }
 
-    /// Mudar a porta é uma alteração REAL — `converges: true` tem de a fazer
-    /// planear `Update`, não `NoOp`.
+    /// Changing the port is a REAL change — `converges: true` has to make it
+    /// plan an `Update`, not a `NoOp`.
     #[test]
-    fn mudar_a_porta_planeia_um_update() {
+    fn changing_the_port_plans_an_update() {
         let p = plan(
             &[desired(&doc("web", "teamA", &[("app", "web")], 9090)).unwrap()],
-            &[actual_de("teamA/web", &[("app", "web")], 8080, Some("s"))],
+            &[actual_of("teamA/web", &[("app", "web")], 8080, Some("s"))],
             "s",
         );
         assert_eq!(p.len(), 1, "{p:?}");

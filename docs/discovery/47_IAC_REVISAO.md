@@ -1,160 +1,160 @@
-# 47 — Revisão de IaC: o que falta ao Delonix para ser gerido por Terraform e Ansible
+# 47 — IaC review: what Delonix is missing to be managed by Terraform and Ansible
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
-| Data | 2026-08-10 |
-| Linha de base | `0.46.0` (commit `c097d0d`, ramo `ciclo-v046-bloco-a`) |
-| Âmbito | **Só IaC.** Modelo declarativo, convergência, API de gestão, contrato e documentação. Não é auditoria de segurança nem de runtime. |
-| Método | Leitura de código + do site de documentação. Nenhuma alteração de produção. |
+| Date | 2026-08-10 |
+| Baseline | `0.46.0` (commit `c097d0d`, branch `ciclo-v046-bloco-a`) |
+| Scope | **IaC only.** Declarative model, convergence, management API, contract and documentation. Not a security or runtime audit. |
+| Method | Code reading + the documentation site. No production changes. |
 
-> **Aviso de leitura.** Cada afirmação abaixo aponta para o ficheiro e a linha que a
-> sustenta. Onde a conclusão vem de ausência (não existe rota, não existe comando),
-> está dito como foi procurada. Nada é inferido da documentação — este repo já
-> registou pelo menos dois casos em que a documentação afirmava o contrário do código.
+> **Reading notice.** Every statement below points to the file and line that backs it.
+> Where the conclusion comes from an absence (a route doesn't exist, a command doesn't
+> exist), it says how it was searched for. Nothing is inferred from the documentation — this
+> repo has already recorded at least two cases where the documentation claimed the opposite
+> of the code.
 
-## ESTADO — actualizado a 2026-08-10, depois de executar o roteiro
+## STATUS — updated 2026-08-10, after running the checklist
 
-Esta secção existe porque este repo já pagou por não a ter. O `AUDITORIA-E2E.md`
-ficou meses a listar 27 achados corrigidos como se fossem dívida viva, e o
-`AGENTS.md` regista a lição: **uma tabela de achados que não é actualizada mente
-nos dois sentidos.** Cada achado leva o seu estado real.
+This section exists because this repo already paid for not having one. `AUDITORIA-E2E.md`
+spent months listing 27 fixed findings as if they were live debt, and
+`AGENTS.md` records the lesson: **a findings table that isn't kept up to date lies
+in both directions.** Every finding below carries its real status.
 
-| | Achado | Estado |
+| | Finding | Status |
 |---|---|---|
-| 🔴 | **F1** `apply` não actualiza | ✅ **FECHADO** — `cmd/reconcile.rs`, diff de 3 vias; 11 dos 12 Kinds aplicáveis convergem |
-| 🔴 | **F2** sem `destroy`/prune | ✅ **FECHADO** — `stack destroy` + `apply --prune`, posse por `delonix.io/stack` |
-| 🔴 | **F3** sem drift nem `plan` | ✅ **FECHADO** — `stack plan`, `--detailed-exitcode` (0/2/1) |
-| 🟠 | **F4** API de gestão é uma fatia | ⬜ **EM ABERTO, e correctamente** — alargá-la só vale a pena depois de o F5 estar decidido; superfície de API acrescentada antes disso é superfície que depois se tem de manter |
-| 🟠 | **F5** API sem contrato nem acesso remoto | 🟨 **ENQUADRADO** — [ADR-0010](../adr/0010-remote-management-api.md) escreve a decisão em vez de a tomar, e a resposta que espera é que a API **não** deve ficar remota: o consumidor que a justificaria é uma control-plane de frota, e essa é do `delonix-paas`. Entretanto documentada como local e não-estável |
-| 🟠 | **F6** saída de `apply` não máquina-legível | ✅ **FECHADO** — `plan -o json` com `action`/`changed` estáveis |
-| 🟡 | **F7** `--dry-run` só no `stack apply` | 🟨 **PARCIAL** — o `plan` cobre o declarativo; os comandos imperativos continuam sem check-mode |
-| 🟡 | **F8** identidade e leitura não uniformes | 🟨 **PARCIAL** — a identidade foi corrigida onde estava ERRADA (a de uma `Image` é a ref, não o nome do documento — era bug), mas `inspect`/`describe`/`ls -o json` continuam três formas |
-| 🟡 | **F9** sem concorrência optimista | ⬜ **EM ABERTO** — dois `apply` em paralelo continuam a sobrepor-se |
-| 🟡 | **F10** ordem por Kind, não por grafo | ⬜ **EM ABERTO** — sem `dependsOn` por recurso; o `stack wait` cobre o «espera que esteja de pé» a jusante |
-| 🟡 | **F11** schema declarado não estável | ✅ **FECHADO** — promovido a estável, com `scripts/schema-diff.sh` como gate |
-| 🟡 | **F12** sem `explain`, schema à mão | ✅ **FECHADO** — ADR-0007: gerados do código, com teste a garantir que o publicado É o gerado |
+| 🔴 | **F1** `apply` doesn't update | ✅ **CLOSED** — `cmd/reconcile.rs`, 3-way diff; 11 of the 12 applicable Kinds converge |
+| 🔴 | **F2** no `destroy`/prune | ✅ **CLOSED** — `stack destroy` + `apply --prune`, ownership via `delonix.io/stack` |
+| 🔴 | **F3** no drift or `plan` | ✅ **CLOSED** — `stack plan`, `--detailed-exitcode` (0/2/1) |
+| 🟠 | **F4** management API is a thin slice | ⬜ **OPEN, and rightly so** — widening it is only worth it once F5 is decided; API surface added before that is surface that has to be maintained afterward |
+| 🟠 | **F5** API has no contract and no remote access | 🟨 **FRAMED** — [ADR-0010](../adr/0010-remote-management-api.md) writes down the decision instead of making it, and the answer it expects is that the API **should not** become remote: the consumer that would justify it is a fleet control plane, and that's `delonix-paas`'s job. Meanwhile documented as local and unstable |
+| 🟠 | **F6** `apply` output isn't machine-readable | ✅ **CLOSED** — `plan -o json` with stable `action`/`changed` |
+| 🟡 | **F7** `--dry-run` only on `stack apply` | 🟨 **PARTIAL** — `plan` covers the declarative path; imperative commands still have no check-mode |
+| 🟡 | **F8** identity and reads aren't uniform | 🟨 **PARTIAL** — identity was fixed where it was WRONG (an `Image`'s identity is the ref, not the document's name — that was a bug), but `inspect`/`describe`/`ls -o json` remain three different shapes |
+| 🟡 | **F9** no optimistic concurrency | ⬜ **OPEN** — two parallel `apply`s still clobber each other |
+| 🟡 | **F10** order by Kind, not by graph | ⬜ **OPEN** — no per-resource `dependsOn`; `stack wait` covers "wait until it's up" downstream |
+| 🟡 | **F11** declared schema not stable | ✅ **CLOSED** — promoted to stable, with `scripts/schema-diff.sh` as a gate |
+| 🟡 | **F12** no `explain`, schema written by hand | ✅ **CLOSED** — ADR-0007: generated from the code, with a test guaranteeing that what's published IS what's generated |
 
-**Sobre o veredicto do §7.** Dizia que faltava «o motor de convergência» e que os
-blocos 1 e 2 eram maioritariamente ligação. Confirmou-se em parte: a ligação
-existia (`cmd_update`, `-o json`, `conditions.rs`), mas o trabalho real foi a
-**normalização** — fazer os dois lados produzirem a mesma string. Cada Kind tem
-hoje um teste a provar que um manifesto inalterado dá zero diferenças, e a
-maioria dos bugs desta série veio daí.
+**About the §7 verdict.** It said the "convergence engine" was missing and that
+blocks 1 and 2 were mostly wiring. That was partly confirmed: the wiring did
+exist (`cmd_update`, `-o json`, `conditions.rs`), but the real work was
+**normalisation** — getting both sides to produce the same string. Every Kind now
+has a test proving that an unchanged manifest yields zero diffs, and
+most of this series's bugs came from exactly there.
 
-**O que a revisão não previu**, e só apareceu a executar: sete bugs reais, todos
-por medição — a identidade de uma `Image`; duas `FirewallPolicy` a apagarem-se
-em silêncio; o `env: {K: v}` descartado num exemplo publicado; dois Kinds
-aplicados que o `ls` nunca mostrava; a condição de montagem que ficou muda
-depois de uma fusão; e três listas de Kinds convergentes que derivaram. A
-revisão dos Kinds que se seguiu, e que reordenou o trabalho, está em
+**What the review didn't anticipate**, and only showed up on execution: seven real bugs, all
+found by measurement — an `Image`'s identity; two `FirewallPolicy` records silently
+deleting each other; the `env: {K: v}` dropped in a published example; two applied Kinds
+that `ls` never showed; the mount condition that went silent after a
+merge; and three lists of converging Kinds that had drifted. The Kinds review that
+followed, and that reordered the work, is in
 [48_REVISAO_KINDS.md](48_REVISAO_KINDS.md).
 
 ---
 
-## 0. O critério
+## 0. The criterion
 
-Uma ferramenta de IaC «completa» não é um formato declarativo. São seis coisas, e o
-Delonix tem duas inteiras, duas a meio e duas por começar:
+A "complete" IaC tool is not a declarative format. It's six things, and
+Delonix has two fully, two halfway, and two not yet started:
 
-| # | Capacidade | Estado |
+| # | Capability | Status |
 |---|---|---|
-| 1 | **Descrever** o estado desejado num ficheiro versionável | ✅ forte |
-| 2 | **Prever** o que vai mudar antes de mudar (`plan`) | 🟡 parcial (`--dry-run` mostra o desejado, não a diferença) |
-| 3 | **Convergir** — criar *e actualizar* até bater com o declarado | ❌ **só cria** |
-| 4 | **Remover** o que saiu do ficheiro | ❌ inexistente |
-| 5 | **API** com contrato, para uma ferramenta externa conduzir tudo isto | 🟡 fatia pequena, local, sem contrato publicado |
-| 6 | **Documentação** que dispensa decorar | ✅ forte para a CLI, ❌ ausente para a API |
+| 1 | **Describe** the desired state in a versionable file | ✅ strong |
+| 2 | **Predict** what will change before changing it (`plan`) | 🟡 partial (`--dry-run` shows the desired state, not the diff) |
+| 3 | **Converge** — create *and update* until it matches the declared state | ❌ **create only** |
+| 4 | **Remove** what dropped out of the file | ❌ non-existent |
+| 5 | **API** with a contract, for an external tool to drive all of this | 🟡 small slice, local, with no published contract |
+| 6 | **Documentation** that frees you from memorising anything | ✅ strong for the CLI, ❌ absent for the API |
 
-O ponto 3 é o defeito estrutural. Tudo o resto é trabalho; o 3 é a diferença entre
-«um instalador declarativo» e «IaC».
+Point 3 is the structural defect. Everything else is work; 3 is the difference between
+"a declarative installer" and "IaC".
 
 ---
 
-## 1. Pontos fortes (medidos, não assumidos)
+## 1. Strengths (measured, not assumed)
 
-### 1.1 O modelo declarativo é largo e coerente
+### 1.1 The declarative model is broad and coherent
 
-18 Kinds com a forma k8s (`apiVersion`/`kind`/`metadata`/`spec`), documentados em
-`docs/kinds.html` e com 26 exemplos YAML em `examples/`:
+18 Kinds in the k8s shape (`apiVersion`/`kind`/`metadata`/`spec`), documented in
+`docs/kinds.html` and with 26 YAML examples under `examples/`:
 
 ```
 Container · Pod · Vm · Workload · Image · Volume · Storage · ShareVolume · Network
 Secret · Ingress · Egress · FirewallPolicy · HTTPRoute · Dependency · Tunnel · Cluster · Stack
 ```
 
-`kind: Stack` agrega tudo num documento e expande-se no `load`
-([manifest.rs:145](../../crates/delonix-runtime-bin/src/cmd/manifest.rs#L145)); `kind:
-Workload` unifica container/vm/pod/microvm (ADR-0001, ADR-0006). Ambos são **açúcar
-que baixa** para os Kinds base — não são um segundo motor a divergir. É a decisão
-certa e está tomada.
+`kind: Stack` aggregates everything in one document and expands on
+`load` ([manifest.rs:145](../../crates/delonix-runtime-bin/src/cmd/manifest.rs#L145)); `kind:
+Workload` unifies container/vm/pod/microvm (ADR-0001, ADR-0006). Both are **sugar
+on top** of the base Kinds — not a second engine diverging on its own. It's the
+right decision, and it's made.
 
-Cobertura: `ContainerSpec` tem ~35 campos, `VmSpec` 32. Não é um subconjunto de
-brinquedo do que a CLI faz.
+Coverage: `ContainerSpec` has ~35 fields, `VmSpec` has 32. This isn't a toy
+subset of what the CLI does.
 
-### 1.2 `stack validate` — resolve as referências cruzadas antes de tocar em nada
+### 1.2 `stack validate` — resolves cross-references before touching anything
 
-[stack.rs:74](../../crates/delonix-runtime-bin/src/cmd/stack.rs#L74) resolve
-`Container.network`/`.volumes`, `Vm.network`, alvos de `Ingress`/`Egress` contra o que
-o manifesto declara **mais** o que já existe nos stores, e sai com erro se sobrar uma
-referência por resolver. É a rede de segurança contra um `apply` fail-fast sem
-rollback. Poucos projectos deste tamanho têm isto.
+[stack.rs:74](../../crates/delonix-runtime-bin/src/cmd/stack.rs#L74) resolves
+`Container.network`/`.volumes`, `Vm.network`, `Ingress`/`Egress` targets against what
+the manifest declares **plus** what already exists in the stores, and exits with an error if a
+reference is left unresolved. It's the safety net against an `apply` that fails fast with no
+rollback. Few projects of this size have this.
 
-### 1.3 `--dry-run` materializa os defaults
+### 1.3 `--dry-run` materialises the defaults
 
 `render_with_defaults`
-([manifest.rs:56](../../crates/delonix-runtime-bin/src/cmd/manifest.rs#L56)) faz
-round-trip de cada spec pelo struct tipado, por isso o YAML impresso mostra o que
-**realmente** vai ser aplicado, com os `#[serde(default)]` visíveis, os Stacks já
-expandidos e os Kinds canonicalizados. Cobre todos os Kinds excepto `Secret`
-(deliberado). É o `kubectl apply --dry-run=client -o yaml`, e funciona.
+([manifest.rs:56](../../crates/delonix-runtime-bin/src/cmd/manifest.rs#L56)) round-trips
+each spec through the typed struct, so the printed YAML shows what will
+**actually** be applied, with the `#[serde(default)]`s visible, Stacks already
+expanded, and Kinds canonicalised. It covers every Kind except `Secret`
+(deliberately). It's `kubectl apply --dry-run=client -o yaml`, and it works.
 
-### 1.4 `conditions.rs` — o recurso é proibido de mentir por omissão
+### 1.4 `conditions.rs` — a resource is forbidden to lie by omission
 
-[conditions.rs](../../crates/delonix-runtime-bin/src/cmd/conditions.rs) computa, a
-partir do spec mais uma sonda ao ambiente, condições estilo kubectl (`ok` + `reason`
-estável + mensagem accionável) para os casos em que um recurso é criado mas **não faz
-o que aparenta**: `Storage` NFS em rootless que não monta, quota que é só monitorada,
-`Network` macvlan que fica no registo sem plano físico, `restartPolicy` numa VM Cloud
-Hypervisor que ninguém supervisiona.
+[conditions.rs](../../crates/delonix-runtime-bin/src/cmd/conditions.rs) computes, from
+the spec plus a probe of the environment, kubectl-style conditions (`ok` + stable
+`reason` + actionable message) for cases where a resource is created but **doesn't do
+what it appears to**: an NFS `Storage` in rootless that doesn't mount, a quota that is
+only monitored, a macvlan `Network` that sits in the record with no physical plan, a
+`restartPolicy` on a Cloud Hypervisor VM that nobody supervises.
 
-**Isto é uma vantagem competitiva genuína e vale a pena dizê-lo em voz alta.** É
-precisamente o que o Terraform *não* faz: um `terraform apply` diz `Creation complete`
-sobre um recurso que ficou inerte. O Delonix já sabe distinguir «criado» de «criado e
-a funcionar». O problema é que hoje isso só aparece no `stack describe` — não é um
-campo de estado que uma ferramenta externa consiga ler.
+**This is a genuine competitive advantage and it's worth saying out loud.** It's
+exactly what Terraform *doesn't* do: a `terraform apply` says `Creation complete`
+over a resource that ended up inert. Delonix already knows how to tell "created" apart from "created
+and working". The problem is that today it only shows up in `stack describe` — it's not a
+state field an external tool can read.
 
-### 1.5 `-o json` com contrato escrito (ADR-0005)
+### 1.5 `-o json` with a written contract (ADR-0005)
 
-Dez comandos de listagem emitem um array JSON de linhas tipadas, com **nomes de campo
-em `snake_case` independentes da língua** — explicitamente nunca os cabeçalhos de
-tabela traduzidos. A ADR raciocina sobre isto pelas três lentes (Platform/DevOps/SRE) e
-o compromisso está fixado: campos podem ser acrescentados, nunca removidos nem com o
-tipo mudado.
+Ten listing commands emit a JSON array of typed rows, with **field names in
+`snake_case` independent of language** — explicitly never the translated
+table headers. The ADR reasons about this through three lenses (Platform/DevOps/SRE) and
+the compromise is fixed: fields can be added, never removed or have their type changed.
 
-### 1.6 Uma promessa de estabilidade escrita
+### 1.6 A written stability promise
 
-[docs/cli-stability.md](../cli-stability.md) diz o que quebra e o que não quebra dentro
-do `0.x`, e a regra de como uma quebra é feita («falhar alto, sem aliases»). Isto é
-raro em 0.x e é **exactamente** o documento que quem escreve um provider precisa de
-ler antes de decidir adoptar.
+[docs/cli-stability.md](../cli-stability.md) says what breaks and what doesn't within
+`0.x`, and the rule for how a break is made ("fail loud, no aliases"). This is
+rare in 0.x and it is **exactly** the document anyone writing a provider needs to
+read before deciding to adopt it.
 
-### 1.7 Higiene declarativa que já está feita
+### 1.7 Declarative hygiene already in place
 
-- `apiVersion` desconhecida **recusa** em vez de avançar
+- an unknown `apiVersion` **refuses** instead of proceeding
   ([manifest.rs:120](../../crates/delonix-runtime-bin/src/cmd/manifest.rs#L120)).
-- `warn_unknown_fields` avisa sobre um campo mal escrito **antes** do early-continue,
-  para que um typo continue a aparecer em re-applies e não só na primeira criação
+- `warn_unknown_fields` warns about a misspelled field **before** the early-continue,
+  so a typo keeps showing up on re-applies and not just on first creation
   ([container.rs:1709](../../crates/delonix-runtime-bin/src/cmd/container.rs#L1709)).
-- `canonical_kind` é case-insensitive por inteiro — meia-medida deixaria `kind: vm` a
-  ser ignorado em silêncio.
-- Idempotência sem ficheiro de estado no `cluster apply` (cada passo tem `check` e
-  `apply`) — nunca dessincroniza de um `.tfstate` porque não há nenhum.
+- `canonical_kind` is case-insensitive throughout — a half-measure would leave `kind: vm`
+  silently ignored.
+- Idempotency with no state file in `cluster apply` (each step has a `check` and
+  an `apply`) — it never drifts out of sync with a `.tfstate` because there isn't one.
 
 ---
 
-## 2. Pontos fracos, por severidade
+## 2. Weaknesses, by severity
 
-### 🔴 F1 — `apply` **não actualiza**. Só cria.
+### 🔴 F1 — `apply` **doesn't update**. Create only.
 
 ```rust
 // container.rs:1717
@@ -164,99 +164,101 @@ if store.list()?.iter().any(|c| &c.name == name) {
 }
 ```
 
-Muda a imagem no manifesto, muda a memória, acrescenta uma porta, corre `stack apply`:
-**não acontece nada, e o comando devolve 0**. O mesmo padrão em
-[volume.rs:165](../../crates/delonix-runtime-bin/src/cmd/volume.rs#L165) e
-[network.rs](../../crates/delonix-runtime-bin/src/cmd/network.rs) («ensure present»,
-como o próprio doc-comment do `manifest.rs` assume à cabeça).
+Change the image in the manifest, change the memory, add a port, run `stack apply`:
+**nothing happens, and the command returns 0**. The same pattern in
+[volume.rs:165](../../crates/delonix-runtime-bin/src/cmd/volume.rs#L165) and
+[network.rs](../../crates/delonix-runtime-bin/src/cmd/network.rs) ("ensure present",
+as the `manifest.rs` doc-comment itself assumes up front).
 
-Isto é a versão IaC do **relato desonesto** que a v0.37.0 corrigiu no CLI imperativo:
-reportar sucesso sobre uma operação que não fez nada. Aqui é pior porque o utilizador
-mudou o ficheiro *de propósito* — o sinal de intenção é explícito e é descartado.
+This is the IaC version of the **dishonest reporting** that v0.37.0 fixed in the
+imperative CLI: reporting success for an operation that did nothing. Here it's worse because
+the user changed the file *on purpose* — the signal of intent is explicit and it's discarded.
 
-Agrava-o o facto de o motor **já ter** a capacidade: `container update` reconfigura
-portas, volumes, redes, memória e CPU **a quente, sem mudar o PID** — a diferença de
-fundo deste motor para o Docker. O `apply` simplesmente não lhe chama. É a mesma
-família de armadilha que este repo já pagou quatro vezes (`mount_live`, `set_net_rate`,
-`update_limits`, `JsonStore::update`): a capacidade existe, testada, sem chamador.
+It's made worse by the fact that the engine **already has** the capability:
+`container update` reconfigures ports, volumes, networks, memory and CPU **live, without
+changing the PID** — this engine's fundamental difference from Docker. `apply` simply
+doesn't call it. It's the same family of pitfall this repo has already paid for four times
+(`mount_live`, `set_net_rate`, `update_limits`, `JsonStore::update`): the capability exists, tested,
+with no caller.
 
-**Sem isto não há provider de Terraform possível.** O ciclo do Terraform é
-Create/Read/**Update**/Delete; um `Update` que não faz nada e devolve sucesso produz
-drift permanente e silencioso — o pior modo de falha que uma ferramenta de IaC tem.
+**Without this there is no possible Terraform provider.** Terraform's cycle is
+Create/Read/**Update**/Delete; an `Update` that does nothing and returns success produces
+permanent, silent drift — the worst failure mode an IaC tool can have.
 
-### 🔴 F2 — Não há forma declarativa de remover
+### 🔴 F2 — There is no declarative way to remove
 
-`StackCmd` tem `Init`/`Apply`/`Ls`/`Describe`/`Validate`
-([stack.rs:17](../../crates/delonix-runtime-bin/src/cmd/stack.rs#L17)). Não há
-`destroy`, não há `prune`, não há `--prune`. Um recurso retirado do manifesto fica vivo
-para sempre e nada o assinala — nem o `describe`, que só olha para o que o ficheiro
-declara.
+`StackCmd` has `Init`/`Apply`/`Ls`/`Describe`/`Validate`
+([stack.rs:17](../../crates/delonix-runtime-bin/src/cmd/stack.rs#L17)). There is no
+`destroy`, no `prune`, no `--prune`. A resource dropped from the manifest stays alive
+forever and nothing flags it — not even `describe`, which only looks at what the file
+declares.
 
-Consequência prática: o manifesto deixa de ser a fonte de verdade no momento em que
-alguém apaga um bloco. E o teardown de um ambiente é hoje um script de `rm` à mão, na
-ordem inversa, escrito pelo utilizador — exactamente o que o IaC existe para eliminar.
+Practical consequence: the manifest stops being the source of truth the moment
+someone deletes a block. And tearing down an environment today is a hand-written `rm`
+script, in reverse order, written by the user — exactly what IaC exists to eliminate.
 
-### 🔴 F3 — Não há detecção de drift, nem `plan`
+### 🔴 F3 — There is no drift detection, nor `plan`
 
-`stack describe` responde **presença** (existe / não existe), não **conformidade**
-(o que está lá é o que foi declarado?). O doc-comment é honesto sobre isso: «a coluna
-que interessa é PRESENÇA». `--dry-run` imprime o estado desejado, não a diferença
-contra o real.
+`stack describe` answers **presence** (does it exist / doesn't it), not **conformance**
+(does what's there match what was declared?). The doc-comment is honest about it: "the
+column that matters is PRESENCE". `--dry-run` prints the desired state, not the diff
+against the real one.
 
-Falta a operação central do IaC: `delonix stack plan` → «container `web`: imagem
-`nginx:1.24` → `nginx:1.27`, memória `256M` → `512M`; volume `dados`: sem alteração;
-rede `interna`: **em falta**». Sem isto não há revisão em PR, não há aprovação antes de
-aplicar, não há CI que falhe por drift.
+The central IaC operation is missing: `delonix stack plan` → "container `web`: image
+`nginx:1.24` → `nginx:1.27`, memory `256M` → `512M`; volume `dados`: no change;
+network `interna`: **missing**". Without this there is no PR review, no
+approval before applying, no CI that fails on drift.
 
-### 🟠 F4 — A API de gestão é uma fatia pequena do motor
+### 🟠 F4 — The management API is a small slice of the engine
 
-Rotas existentes ([lib.rs:186-229](../../crates/delonix-mgmt/src/lib.rs#L186)):
+Existing routes ([lib.rs:186-229](../../crates/delonix-mgmt/src/lib.rs#L186)):
 
-| Recurso | Create | Read (get) | List | Update | Delete |
+| Resource | Create | Read (get) | List | Update | Delete |
 |---|---|---|---|---|---|
 | Volume | ✅ | ✅ | ✅ | ❌ | ✅ |
-| Container | ✅ | ✅ | ✅ | 🟡 só `publish-add/rm` | ✅ |
+| Container | ✅ | ✅ | ✅ | 🟡 only `publish-add/rm` | ✅ |
 | Image | 🟡 pull/build | ❌ | ✅ | ❌ | ✅ |
 | Network | ✅ | ❌ | ❌ | ❌ | ✅ |
-| VM | ❌ | ❌ | ❌ | ❌ | 🟡 só `action` |
+| VM | ❌ | ❌ | ❌ | ❌ | 🟡 only `action` |
 | Pod, Secret, Storage, ShareVolume, HTTPRoute, Ingress, Egress, FirewallPolicy, Dependency, Workload, Cluster | ❌ | ❌ | ❌ | ❌ | ❌ |
 
-**Nenhuma rota aplica um manifesto.** A API é imperativa (POST `/containers` reconstrói
-uma linha de comando) enquanto o modelo declarativo vive só na CLI — são duas
-superfícies com poderes diferentes.
+**No route applies a manifest.** The API is imperative (POST `/containers` rebuilds
+a command line) while the declarative model lives only in the CLI — they're two
+surfaces with different powers.
 
-E a fidelidade da que existe é baixa: `RunSpecBody` tem **11 campos** (`image`, `name`,
+And the fidelity of what exists is low: `RunSpecBody` has **11 fields** (`image`, `name`,
 `ports`, `env`, `network`, `memory`, `restart`, `command`, `volumes`, `knows`,
-`knows_none`) contra **71 flags** de `container run` e ~35 campos de `ContainerSpec`.
-Sem labels, sem CPU, sem user/workdir/entrypoint, sem secrets, sem healthcheck, sem
-namespace, sem capabilities, sem devices/GPU, sem tmpfs/sysctl/ulimits.
+`knows_none`) against **71 flags** of `container run` and ~35 fields of `ContainerSpec`.
+No labels, no CPU, no user/workdir/entrypoint, no secrets, no healthcheck, no
+namespace, no capabilities, no devices/GPU, no tmpfs/sysctl/ulimits.
 
-Um provider de Terraform escrito sobre esta API exprimiria **menos** do que o YAML já
-exprime hoje. A falta de `Read` para redes e VMs é bloqueante por si só: o Terraform
-faz `Read` a cada refresh de *todos* os recursos, e sem ele não há `import` nem
-detecção de alteração fora-de-banda.
+A Terraform provider written on top of this API would express **less** than the YAML already
+expresses today. The missing `Read` for networks and VMs is a blocker on its own: Terraform
+does a `Read` on every refresh of *every* resource, and without it there's no `import` or
+detection of out-of-band changes.
 
-### 🟠 F5 — A API não é remota, nem autenticada, nem tem contrato publicado
+### 🟠 F5 — The API isn't remote, isn't authenticated, and has no published contract
 
-- **Transporte**: só socket unix, sem opção de TCP/TLS
+- **Transport**: unix socket only, no TCP/TLS option
   ([serve.rs:26](../../crates/delonix-runtime-bin/src/cmd/serve.rs#L26)).
-- **Autenticação**: `SO_PEERCRED` e o par tem de ser o **mesmo euid** do servidor. Não
-  há token, mTLS, nem qualquer noção de identidade. Isto está **certo** para o modelo
-  actual (é a superfície de maior privilégio do runtime — `/exec` é execução arbitrária
-  dentro de qualquer container) e a decisão está bem argumentada no código.
-- **Contrato**: zero OpenAPI, zero JSON-Schema (procurado por `openapi|schemars|
-  JsonSchema` em todo o repo — nenhuma ocorrência). Zero documentação de rotas no site:
-  o único vestígio no `README.rst` é uma linha numa tabela de crates.
-- **Estabilidade**: `docs/cli-stability.md` classifica `serve api` explicitamente como
-  **NÃO estável** — «pode mudar em qualquer versão».
+- **Authentication**: `SO_PEERCRED`, and the peer must be the server's **same euid**. There
+  is no token, no mTLS, no notion of identity whatsoever. This is **correct** for the
+  current model (it's the runtime's highest-privilege surface — `/exec` is arbitrary
+  execution inside any container) and the decision is well argued in the code.
+- **Contract**: zero OpenAPI, zero JSON-Schema (searched via `openapi|schemars|
+  JsonSchema` across the whole repo — no occurrences). Zero route documentation on the site:
+  the only trace in `README.rst` is one line in a crate table.
+- **Stability**: `docs/cli-stability.md` explicitly classifies `serve api` as
+  **NOT stable** — "may change in any version".
 
-Somando: Terraform e Ansible correm tipicamente **de fora** do nó gerido. Hoje o único
-caminho é `ssh nó -- delonix ...`, e a API não ajuda. O objectivo «API pronta para ser
-gerida por Terraform» exige decidir onde vive o plano remoto — e essa decisão colide
-com a fronteira do PaaS (multi-tenant/authz é do `delonix-paas`). **É uma decisão de
-arquitectura, não uma tarefa; merece um ADR antes de qualquer código.**
+Adding it up: Terraform and Ansible typically run **from outside** the managed node.
+Today the only path is `ssh node -- delonix ...`, and the API doesn't help. The goal "API
+ready to be managed by Terraform" requires deciding where the remote plane lives — and
+that decision collides with the PaaS boundary (multi-tenant/authz belongs to
+`delonix-paas`). **It's an architecture decision, not a task; it deserves an ADR
+before any code.**
 
-### 🟠 F6 — A saída dos `apply` não é máquina-legível, e é traduzida a meio
+### 🟠 F6 — `apply` output isn't machine-readable, and is only partly translated
 
 ```
 volume.rs:179     println!("volume/{name}: {}", po::t("ensured"));       ← traduzido
@@ -264,190 +266,191 @@ network.rs:203    println!("network/{name}: {}", po::t("created"));      ← tra
 container.rs:1718 println!("container/{name}: already exists, ...");     ← EN cru
 ```
 
-Duas consequências:
+Two consequences:
 
-1. **Inconsistência de i18n** — parte da saída de `apply` muda com `--l18n=pt` e parte
-   não. É a mesma classe do bug que a v0.32.2 corrigiu em 380 strings, sobrevivente
-   neste caminho.
-2. **Não há sinal `changed`/`unchanged` estruturado.** O `-o json` da ADR-0005 cobre
-   listagens; **as mutações ficaram de fora**. Um módulo Ansible vive de saber se
-   mudou alguma coisa (`changed_when`) — hoje teria de fazer `grep` a uma string que
-   muda com o idioma do operador.
+1. **i18n inconsistency** — part of `apply`'s output changes with `--l18n=pt` and part
+   doesn't. It's the same class of bug v0.32.2 fixed in 380 strings, surviving
+   on this path.
+2. **There is no structured `changed`/`unchanged` signal.** ADR-0005's `-o json`
+   covers listings; **mutations were left out.** An Ansible module lives on knowing whether
+   something changed (`changed_when`) — today it would have to `grep` a string that
+   changes with the operator's language.
 
-### 🟡 F7 — `--dry-run` só existe no `stack apply`
+### 🟡 F7 — `--dry-run` only exists on `stack apply`
 
-Nenhum comando imperativo tem check-mode. O `--check` do Ansible não teria para onde
-mapear em `container run`, `network create`, `volumes create`, `vm create`.
+No imperative command has check-mode. Ansible's `--check` would have nowhere to
+map to in `container run`, `network create`, `volumes create`, `vm create`.
 
-### 🟡 F8 — Identidade e leitura não são uniformes entre Kinds
+### 🟡 F8 — Identity and reads aren't uniform across Kinds
 
-O `import` do Terraform exige, para cada tipo, «dá-me este recurso por id, em JSON».
-Hoje: containers têm id **e** nome; volumes/redes/secrets/storage são por nome; VMs por
-nome; membros de pod derivam de labels; stacks e clusters **não têm registo próprio** —
-derivam do ficheiro e das labels. E a leitura tem três formas (`inspect` JSON,
-`describe` texto, `ls -o json` resumo) que não coincidem.
+Terraform's `import` requires, for every type, "give me this resource by id, in JSON".
+Today: containers have id **and** name; volumes/networks/secrets/storage are by name; VMs by
+name; pod members are derived from labels; stacks and clusters **have no dedicated
+record** — they're derived from the file and the labels. And reads have three forms
+(`inspect` JSON, `describe` text, `ls -o json` summary) that don't match.
 
-Não é errado — a decisão de não inventar registos que dessincronizam está bem tomada e
-é defensável. Mas significa que um provider tem de tratar `stack` e `cluster` como
-recursos sem identidade estável, e isso tem de ser dito à partida.
+It's not wrong — the decision not to invent registries that drift out of sync is well made
+and defensible. But it means a provider has to treat `stack` and `cluster` as
+resources with no stable identity, and that has to be said up front.
 
-### 🟡 F9 — Sem versionamento de recurso nem concorrência optimista
+### 🟡 F9 — No resource versioning or optimistic concurrency
 
-Não há `resourceVersion`/`generation`/ETag. O `flock` do `Store` protege o **ficheiro**
-contra escritas concorrentes; não protege a **intenção**. Dois `apply` em paralelo — ou
-um Terraform e um operador com a CLI — sobrepõem-se sem detecção. Para um único
-operador é irrelevante; para uma pipeline de CI partilhada, não é.
+There is no `resourceVersion`/`generation`/ETag. The `Store`'s `flock` protects the
+**file** against concurrent writes; it doesn't protect **intent**. Two parallel `apply`s — or
+a Terraform run and an operator using the CLI — clobber each other undetected. For a single
+operator it's irrelevant; for a shared CI pipeline, it isn't.
 
-### 🟡 F10 — Ordem por Kind, não por grafo de dependências
+### 🟡 F10 — Order by Kind, not by a dependency graph
 
-`stack apply` corre numa ordem **fixa de 13 Kinds**
-([stack.rs:126](../../crates/delonix-runtime-bin/src/cmd/stack.rs#L126)). Dentro de um
-Kind, a ordem é a do ficheiro. Não existe `dependsOn` por recurso nem porta de
-prontidão entre recursos — e `spec.detach` tem default `true`, por isso o `apply` não
-espera que nada fique saudável antes de seguir.
+`stack apply` runs in a **fixed order of 13 Kinds**
+([stack.rs:126](../../crates/delonix-runtime-bin/src/cmd/stack.rs#L126)). Within a
+Kind, the order is the file's order. There is no per-resource `dependsOn` or
+readiness gate between resources — and `spec.detach` defaults to `true`, so `apply` doesn't
+wait for anything to become healthy before moving on.
 
-Comparar com o `compose`, que **já tem** ordenação topológica com as três condições de
-`depends_on` e espera pelo healthcheck real. A capacidade existe no repo; o caminho
-declarativo nativo não a tem. (`kind: Dependency` é alcançabilidade de rede, não
-ordenação — nomes parecidos, coisas diferentes.)
+Compare with `compose`, which **already has** topological ordering with the three
+`depends_on` conditions and waits for the real healthcheck. The capability exists in the
+repo; the native declarative path doesn't have it. (`kind: Dependency` is network
+reachability, not ordering — similar names, different things.)
 
-### 🟡 F11 — O schema dos manifestos está declarado **não estável**
+### 🟡 F11 — The manifest schema is declared **not stable**
 
-`cli-stability.md`: «o schema dos manifestos (`kind: *`) — campos são aditivos na
-prática, mas não é uma promessa». Para IaC isto é exactamente ao contrário do que é
-preciso: o schema **é** o artefacto que os utilizadores põem em git e revêem em PR. A
-CLI está mais protegida que o formato declarativo, quando devia ser o inverso.
+`cli-stability.md`: "the manifest schema (`kind: *`) — fields are additive in
+practice, but it's not a promise." For IaC this is exactly backwards from what's
+needed: the schema **is** the artefact users put in git and review in a PR. The
+CLI is better protected than the declarative format, when it should be the other way around.
 
-### 🟡 F12 — Não há `explain`, e o schema é documentado à mão
+### 🟡 F12 — There's no `explain`, and the schema is documented by hand
 
-Não existe `delonix explain container.spec.ports`. O schema dos 18 Kinds vive em dois
-sítios independentes — nos structs Rust e em `docs/kinds.html` escrito à mão — sem
-geração de um a partir do outro. Este repo já registou o custo dessa divergência
-(páginas que descreviam `serve docker-api` como só-leitura, `cluster kubeadm` sem HA,
-`network` sem overlay). É a mesma armadilha, num sítio onde o utilizador não tem como
-verificar.
+There is no `delonix explain container.spec.ports`. The schema for the 18 Kinds lives in two
+independent places — in the Rust structs and in the hand-written `docs/kinds.html` — with no
+generation of one from the other. This repo has already recorded the cost of that
+divergence (pages describing `serve docker-api` as read-only, `cluster kubeadm` with no HA,
+`network` with no overlay). It's the same pitfall, in a place where the user has no way to
+verify it.
 
 ---
 
-## 3. O que falta especificamente para o Terraform
+## 3. What's specifically missing for Terraform
 
-Ordem obrigatória — cada linha depende da anterior:
+Required order — each line depends on the previous one:
 
-| # | Requisito do provider | Estado | Bloqueado por |
+| # | Provider requirement | Status | Blocked by |
 |---|---|---|---|
-| 1 | Read de **todos** os tipos, por id, em JSON | 🟡 parcial | F4, F8 |
-| 2 | **Update** (in-place ou replace declarado) | ❌ | **F1** |
-| 3 | Delete por id | 🟡 CLI sim, API parcial | F2, F4 |
-| 4 | Diferença calculável antes de aplicar (`plan`) | ❌ | F3 |
-| 5 | Contrato de API versionado e estável | ❌ | F5 |
-| 6 | Acesso remoto autenticado | ❌ | F5 |
-| 7 | `import` de recursos pré-existentes | ❌ | F8 |
-| 8 | Concorrência segura (lock/versão) | ❌ | F9 |
+| 1 | Read of **every** type, by id, in JSON | 🟡 partial | F4, F8 |
+| 2 | **Update** (in-place or declared replace) | ❌ | **F1** |
+| 3 | Delete by id | 🟡 CLI yes, API partial | F2, F4 |
+| 4 | Calculable diff before applying (`plan`) | ❌ | F3 |
+| 5 | Versioned, stable API contract | ❌ | F5 |
+| 6 | Authenticated remote access | ❌ | F5 |
+| 7 | `import` of pre-existing resources | ❌ | F8 |
+| 8 | Safe concurrency (lock/version) | ❌ | F9 |
 
-**O atalho pragmático, e é uma boa opção:** um provider que não fale HTTP nenhum e
-execute a CLI local por SSH — o mesmo modelo do provider `null`/`external` ou do
-`terraform-provider-shell`. Precisa apenas de (1), (2) e (4), ou seja: **`-o json` nas
-mutações, `apply` que actualiza, e `stack plan`**. Nada de API remota, nada de
-autenticação, nada que colida com a fronteira do PaaS. Fica funcional muito antes de a
-decisão de arquitectura do F5 estar tomada.
+**The pragmatic shortcut, and it's a good option:** a provider that speaks no HTTP at
+all and runs the local CLI over SSH — the same model as the `null`/`external` provider or
+`terraform-provider-shell`. It only needs (1), (2) and (4), i.e.: **`-o json` on
+mutations, an `apply` that updates, and `stack plan`**. No remote API, no
+authentication, nothing colliding with the PaaS boundary. It becomes functional well before
+F5's architecture decision is made.
 
-## 4. O que falta especificamente para o Ansible
+## 4. What's specifically missing for Ansible
 
-O Ansible é **mais fácil** do que o Terraform aqui, porque já corre por SSH e não guarda
-estado. Faltam três coisas, e só três:
+Ansible is **easier** than Terraform here, because it already runs over SSH and keeps no
+state. Three things are missing, and only three:
 
-1. **Sinal `changed` estruturado.** Cada mutação devia emitir, com `-o json`,
+1. **Structured `changed` signal.** Every mutation should emit, with `-o json`,
    `{"kind","name","action":"created|updated|unchanged|deleted","changed":true|false}`.
-   É o coração de um módulo Ansible e hoje não existe (F6).
-2. **Check-mode.** `--dry-run` nos comandos imperativos, não só no `stack apply` (F7).
-3. **Convergência.** Um módulo Ansible é idempotente por definição: correr duas vezes
-   dá o mesmo resultado, e correr depois de uma alteração **converge**. Hoje converge
-   para «já existe, nada a fazer» (F1).
+   It's the heart of an Ansible module and it doesn't exist today (F6).
+2. **Check-mode.** `--dry-run` on the imperative commands, not just on `stack apply` (F7).
+3. **Convergence.** An Ansible module is idempotent by definition: running it twice
+   gives the same result, and running it after a change **converges**. Today it converges
+   to "already exists, nothing to do" (F1).
 
-Com estas três, uma colecção `angolardevops.delonix` com módulos `delonix_container`,
-`delonix_network`, `delonix_volume`, `delonix_stack` escreve-se em dias, não em meses —
-cada módulo é um wrapper fino sobre a CLI. Sem elas, cada módulo teria de fazer parsing
-de texto traduzível, que é o anti-padrão que o `-o json` da ADR-0005 existe para matar.
-
----
-
-## 5. Documentação
-
-### Forte
-
-- **26 páginas de comandos** + `kinds.html` (1171 linhas, os 18 Kinds) + `cheatsheet` +
-  `comparacao` + `c4`/`arquitectura` + `cloud`/`labs`, geradas por `docs/gen.py`
-  (4670 linhas), **bilingues EN/PT** com alternador.
-- **26 exemplos YAML** em `examples/`, um por Kind, executáveis.
-- **6 ADRs** com alternativas consideradas e consequências — o rasto de *porquê*, que é
-  o que falta a 90% dos projectos e é o que faz alguém confiar no formato.
-- `docs/cli-stability.md` — o contrato.
-- `stack init --template` gera um projecto **já preenchido**, o que é a melhor
-  documentação que existe (funciona sem ler nada).
-
-### Fraco — e é aqui que o objectivo «não decorar nada» falha
-
-1. **A API de gestão não está documentada em lado nenhum.** Nem uma página, nem uma
-   lista de rotas, nem um exemplo de `curl`. Quem quiser automatizar via API tem de ler
-   `crates/interfaces/delonix-mgmt/src/lib.rs`. Isto é o oposto do objectivo declarado.
-2. **Não há referência de campos gerada a partir do código.** `kinds.html` é escrito à
-   mão; os structs são a verdade. Enquanto forem duas fontes, divergem — e o repo já
-   tem historial disso. O remédio é geração (um `delonix explain`, ou um JSON-Schema
-   emitido pelo binário e consumido pelo `gen.py`), não mais revisões manuais.
-3. **Falta a página que responde «como é que eu opero isto a sério».** Existem páginas
-   por comando; falta o guia transversal: GitOps com o Delonix, o que meter em CI, como
-   fazer rollback quando o `apply` falha a meio (hoje a resposta é «não há — corre
-   `stack describe` e limpa à mão», e isso devia estar escrito).
-4. **Não há changelog de schema.** `RELEASES.md` é grande e detalhado, mas quem versiona
-   manifestos precisa de «o que mudou nos Kinds na v0.46» separado do resto.
-5. **Sem catálogo de erros.** As mensagens são boas e accionáveis (mérito real), mas não
-   há uma página onde se procure o texto de um erro. Numa CLI com ~208 subcomandos, é
-   isso que evita ficar preso.
+With these three, an `angolardevops.delonix` collection with `delonix_container`,
+`delonix_network`, `delonix_volume`, `delonix_stack` modules gets written in days, not months —
+each module is a thin wrapper over the CLI. Without them, every module would have to parse
+translatable text, which is the anti-pattern ADR-0005's `-o json` exists to kill.
 
 ---
 
-## 6. Roteiro proposto, por ordem de valor
+## 5. Documentation
 
-Cada bloco é entregável sozinho e desbloqueia os seguintes.
+### Strong
 
-**Bloco 1 — Convergência.** `apply` passa a diferenciar spec-declarado de estado-real e
-a chamar o `container update` que já existe. Onde não for possível a quente, recriar
-**só com opt-in explícito** (`--replace`), nunca em silêncio. Fecha F1. É a peça sem a
-qual nada mais conta.
+- **26 command pages** + `kinds.html` (1171 lines, the 18 Kinds) + `cheatsheet` +
+  `comparacao` + `c4`/`arquitectura` + `cloud`/`labs`, generated by `docs/gen.py`
+  (4670 lines), **bilingual EN/PT** with a switcher.
+- **26 YAML examples** under `examples/`, one per Kind, runnable.
+- **6 ADRs** with alternatives considered and consequences — the *why* trail, which is
+  what 90% of projects lack and what makes someone trust the format.
+- `docs/cli-stability.md` — the contract.
+- `stack init --template` generates a project that's **already filled in**, which is the
+  best documentation there is (it works without reading anything).
 
-**Bloco 2 — `stack plan` + `-o json` nas mutações.** O `plan` cai quase de graça do
-Bloco 1 (o diff já tem de ser calculado para converger — só falta imprimi-lo em vez de
-o aplicar). O `-o json` estende a ADR-0005 às mutações com o campo `changed`. Fecha F3
-e F6. **Com os blocos 1 e 2 o Ansible torna-se viável.**
+### Weak — and this is where the "nothing to memorise" goal fails
 
-**Bloco 3 — `stack destroy` + `apply --prune`.** Fecha F2. Exige decidir o que é
-«pertence a este stack» sem inventar um registo — a resposta provável é a mesma que
-`compose` e `cluster` já usam: uma label determinística.
-
-**Bloco 4 — ADR da API remota.** Não escrever código antes. Decidir: transporte, modelo
-de identidade, e onde fica a fronteira com o PaaS. Só depois expandir rotas, publicar
-OpenAPI e promover `serve api` a estável em `cli-stability.md`. Fecha F5, e só então F4
-vale o esforço.
-
-**Bloco 5 — `delonix explain` gerado do código**, com o `gen.py` a consumir o mesmo
-JSON-Schema. Fecha F12 e os pontos 2 e 5 da documentação de uma vez.
-
-**Transversal, barato, fazer já:** promover o schema dos manifestos a estável no
-`cli-stability.md` (F11) — é o compromisso que os utilizadores precisam e que na prática
-já está a ser cumprido.
+1. **The management API is documented nowhere.** Not a page, not a route
+   list, not a `curl` example. Anyone wanting to automate via the API has to read
+   `crates/interfaces/delonix-mgmt/src/lib.rs`. This is the opposite of the stated goal.
+2. **There's no field reference generated from the code.** `kinds.html` is hand
+   written; the structs are the source of truth. As long as they're two sources, they'll
+   diverge — and the repo already has a history of that. The remedy is generation (a
+   `delonix explain`, or a JSON-Schema emitted by the binary and consumed by `gen.py`),
+   not more manual reviews.
+3. **The page that answers "how do I actually operate this" is missing.** There are
+   per-command pages; the cross-cutting guide is missing: GitOps with Delonix, what to
+   put in CI, how to roll back when `apply` fails halfway (today the answer is "there
+   isn't one — run `stack describe` and clean up by hand", and that should be written down).
+4. **There's no schema changelog.** `RELEASES.md` is large and detailed, but anyone
+   versioning manifests needs "what changed in the Kinds in v0.46" separate from the rest.
+5. **No error catalogue.** The messages are good and actionable (a real merit), but there's
+   no page where you can look up an error's text. In a CLI with ~208 subcommands, that's
+   what keeps you from getting stuck.
 
 ---
 
-## 7. Veredicto
+## 6. Proposed roadmap, in order of value
 
-O Delonix tem o **modelo** de uma boa ferramenta de IaC — 18 Kinds coerentes, validação
-de grafo, dry-run com defaults materializados, condições de honestidade que o Terraform
-não tem, e um contrato de estabilidade escrito. O que lhe falta é o **motor de
-convergência**: hoje é um instalador declarativo idempotente-por-presença, não um
-reconciliador.
+Every block ships on its own and unblocks the next ones.
 
-A boa notícia é que a distância é menor do que parece, e não passa por API nenhuma: as
-peças difíceis (reconfiguração a quente sem mudar o PID, ordenação topológica com espera
-por saúde, `-o json` com contrato) **já estão escritas e testadas neste repo** — estão
-noutros caminhos. Os blocos 1 e 2 são maioritariamente ligação, não invenção, e são o
-que separa «Delonix é interessante» de «Delonix é gerível por Terraform e Ansible».
+**Block 1 — Convergence.** `apply` starts distinguishing declared spec from real state and
+calls the `container update` that already exists. Where a live update isn't possible, recreate
+**only with explicit opt-in** (`--replace`), never silently. Closes F1. It's the piece without
+which nothing else counts.
+
+**Block 2 — `stack plan` + `-o json` on mutations.** `plan` falls out of Block 1 almost
+for free (the diff already has to be computed to converge — all that's missing is printing it
+instead of applying it). `-o json` extends ADR-0005 to mutations with the `changed`
+field. Closes F3 and F6. **With blocks 1 and 2, Ansible becomes viable.**
+
+**Block 3 — `stack destroy` + `apply --prune`.** Closes F2. Requires deciding what
+"belongs to this stack" means without inventing a registry — the likely answer is the same one
+`compose` and `cluster` already use: a deterministic label.
+
+**Block 4 — Remote API ADR.** Don't write code before this. Decide: transport, identity
+model, and where the PaaS boundary sits. Only then expand routes, publish
+OpenAPI, and promote `serve api` to stable in `cli-stability.md`. Closes F5, and only then
+is F4 worth the effort.
+
+**Block 5 — `delonix explain` generated from the code**, with `gen.py` consuming the same
+JSON-Schema. Closes F12 and documentation points 2 and 5 in one go.
+
+**Cross-cutting, cheap, do it now:** promote the manifest schema to stable in
+`cli-stability.md` (F11) — it's the commitment users need, and in practice it's
+already being honoured.
+
+---
+
+## 7. Verdict
+
+Delonix has the **model** of a good IaC tool — 18 coherent Kinds, graph
+validation, dry-run with materialised defaults, honesty conditions Terraform
+doesn't have, and a written stability contract. What it's missing is the **convergence
+engine**: today it's a declarative installer that's idempotent-by-presence, not a
+reconciler.
+
+The good news is the distance is smaller than it looks, and it doesn't go through any API: the
+hard pieces (live reconfiguration without changing the PID, topological ordering with
+health waits, `-o json` with a contract) **are already written and tested in this repo** — on
+other paths. Blocks 1 and 2 are mostly wiring, not invention, and they are
+what separates "Delonix is interesting" from "Delonix is manageable by Terraform and Ansible".

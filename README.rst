@@ -21,53 +21,119 @@ to Docker/Podman, with **rootless operation as a first-class design goal** rathe
 than an afterthought, and it ships its own Kubernetes CRI so a ``kubelet`` can
 talk to it with no containerd in between.
 
-Not a low-level OCI *runtime* (that's ``runc``/``crun``): Delonix is a full
-container **and** VM engine — build, run, network, firewall, store, and
-bootstrap Kubernetes clusters, from one binary.
-
 :Docs: https://ngolacloud.github.io/delonix/
 :Contributor handbook: https://ngolacloud.github.io/delonix/handbook/ (English, Português de Angola, Français)
 :Rust tutorial: https://angolardevops.github.io/delonix-rust-tutorial/ (Português de Angola — Rust, containers, OCI/CRI and a from-scratch rootless runtime)
 :Repo: https://github.com/ngolacloud/delonix
 
-The problem it solves
-=====================
+----
 
-Running the whole cloud-native unit — a container, a pod, a microVM, a Kubernetes
-node, declarative infrastructure, a signed supply chain — usually means
-assembling several tools, each with its own daemon, its own root, and its own
-configuration surface. Podman already showed that containers and pods need
-neither a daemon nor root; Delonix takes that same stance all the way up to the
-node: the one rootless, daemonless binary that runs a container **is** a
-Kubernetes node (it serves its own CRI) and **runs microVMs**.
+What Delonix actually is
+========================
 
-- **Docker** carries the Kubernetes lineage but is bound to a root daemon, and
-  stops at the container — a shared kernel.
-- **Podman** is daemonless and rootless, but stops at the container and the pod.
-- **Delonix** keeps Podman's stance — no daemon, rootless by default — and adds a
-  conformant Kubernetes node and first-class microVMs, from the same binary.
+An **execution engine** — not a low-level OCI *runtime* (that is ``runc``/``crun``)
+and not a platform. It is the layer that creates, runs, networks, protects and
+stores containers and microVMs on one node, and that *is* a Kubernetes node while
+doing it. What normally means assembling Docker plus containerd plus a CNI plus a
+hypervisor plus Terraform, done from one binary, with no daemon and no root.
 
-The differentiator is **architecture, measured** — not a benchmark win:
+**What it does, concretely**
 
-- A **Kubernetes node without Docker**: ``delonix cluster`` bootstraps with
-  ``kubeadm`` on Delonix's own CRI; conformance is reproducible at **79 of 103
-  upstream ``critest`` specs** (v1.36.0). Most of the remaining specs need
-  ``CAP_MAC_ADMIN`` in the *initial* user namespace, which Docker and Podman also
-  fail rootless. See `Kubernetes CRI conformance`_.
-- **microVM isolation** — a separate kernel — for workloads that need more than a
-  namespace, declared the same way as a container.
-- Container start in its default config is **91 ms**, against Docker's 208 ms and
-  Podman's 268 ms (median of 10, one machine). The honest other side is in the
-  same table: with isolated per-container networking the figure rises to ~216 ms
-  (a tie with Docker) and ~344 ms when the network plane is built from cold — the
-  *secure* path is the slower one, and it is the first item on the optimization
-  list. See `docs/comparacao-medida.md <docs/comparacao-medida.md>`_.
+- **Runs containers by talking straight to the kernel** — ``clone()``, namespaces,
+  cgroups v2, ``pivot_root``, seccomp, capabilities. No residing process: every
+  command is an ephemeral process that speaks to the kernel and exits, state is
+  JSON under ``$DELONIX_ROOT``, and a detached container gets a short-lived
+  supervisor (the same model as ``conmon``) — which is what makes its exit code
+  knowable and runs its health probe without systemd.
+- **Brings a rootless SDN of its own** — a holder network namespace, the
+  ``delonix0`` bridge, one shared ``slirp4netns`` and nftables: port publishing by
+  DNAT, a per-container L4 firewall, namespace isolation, a VXLAN/WireGuard
+  overlay between nodes, internal DNS (``<name>.<namespace>.delonix.internal``), an
+  L7 reverse proxy and an L4 service VIP with readiness. Because the dataplane does
+  not belong to the process lifecycle, ports, volumes and networks swap **hot, with
+  the PID unchanged** — the structural difference from Docker.
+- **Runs declarative microVMs** — ``kind: VirtualMachine`` over a pluggable
+  ``VmBackend``: Cloud Hypervisor, libvirt/KVM, or a remote Proxmox VE node. With
+  per-instance cloud-init, system checkpoints, pause/resume, and its own golden
+  images and appliances (``delonix vm image build``).
+- **Is a Kubernetes node** — it serves its own CRI to a ``kubelet``, with no
+  containerd in between, and ``delonix cluster kubeadm`` provisions the VMs,
+  prepares the hosts over SSH, runs ``init``/``join``, puts HAProxy in front for
+  HA and installs a pod-network profile (Cilium, Calico or Flannel).
+- **Converges declarative infrastructure without a state file** — 34 Kinds across
+  seven API groups, ``delonix stack plan``/``apply``/``destroy`` with a three-way
+  diff against the ``delonix.io/last-applied`` stamp on the resource itself,
+  ownership by label, hot convergence, ``delonix drift``, and a GitOps pull pass on
+  a systemd timer.
+- **Reaches third-party infrastructure through typed ports** — Proxmox VE (VMs,
+  SDN, system containers, per-VM firewall), TrueNAS (datasets, quotas, exports),
+  OPNsense (perimeter firewall), PowerDNS; and storage pools on btrfs, ZFS,
+  LVM-thin and Ceph.
+- **Speaks the ecosystem's protocols** — ``docker-compose.yml`` natively
+  (``delonix compose up``), a published subset of the Docker Engine API
+  (``delonix serve docker-api``), and a Model Context Protocol server
+  (``delonix mcp serve``) for AI agents.
 
-What it is **not**: a young line (``0.1.x``), without Docker's or Podman's
-ecosystem, registry reach, or years of production hardening. The pitch is not
-"faster than Docker" or "better at everything" — it is the **integrated,
-daemonless, rootless path from a container to a production Kubernetes node with
-VM-grade isolation, without stitching half a dozen tools together**.
+**The size of it**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 76
+
+   * - Dimension
+     - Measured in this tree
+   * - Rust
+     - **392 788** lines across 41 workspace members (35 library crates + 6
+       binaries) — the layer-by-layer census is generated into
+       `reports/architecture.md <reports/architecture.md>`_
+   * - Tests
+     - **4 360** ``#[test]`` / ``#[tokio::test]``
+   * - CLI surface
+     - **272 of 280** leaves executed *and asserted* by the E2E battery
+       (``scripts/cli_exec_trace.tsv``, 2026-10-22)
+   * - Decisions
+     - **107** ADRs, **313** documentation pages
+   * - CI
+     - **21** jobs, running **23** of the repository's gate scripts
+   * - Kubernetes
+     - **79 of 103** upstream ``critest`` specs — see `Kubernetes CRI conformance`_
+
+**Measured, not asserted.** The doctrine this repository runs on is that only the
+*verified effect* counts — ``exit 0`` is not enough. The benchmarks measure the
+bench before they measure the engine, and refuse to publish when the machine's
+contention would contaminate the number. Every "supported" in the capability
+catalogue has to cite the evidence that exists, or it stays ``partial``
+(``delonix provider ls``). The gates are ratchets: they fail when the debt rises
+**and** when it falls without the baseline falling in the same commit. And
+``reports/`` carries dated measurements with what failed written out in full,
+rather than a summary of what went well.
+
+**And the honest verdict.** This is a ``0.1.x`` line, with one maintainer. The
+``delonix-runtime`` line (v1.0.0 … v5.1.1) is frozen history and the Delonix line
+opens at ``0.1.0`` — a new line, not a regression (see
+`VERSIONING.md <VERSIONING.md>`_). **GO** for a single node without failover:
+development, CI, edge, and a *Kubernetes node without Docker*, where the
+daemonless/rootless model and the integrated CRI are a real advantage today.
+**NO-GO** as a drop-in Docker/Podman replacement for high-criticality production —
+not because of a benchmark, but because the operational guarantees are not proven
+yet. Each gap is tracked with its way out in `Production readiness`_, and a good
+part of the surface — the privileged and remote paths above all — is ``partial`` in
+the engine's own capability matrix rather than claimed.
+
+----
+
+**Get started in one command** — the binary *and* every runtime dependency on
+the host (Debian/Ubuntu, Fedora/RHEL, openSUSE, Arch):
+
+.. code-block:: bash
+
+   curl -fsSL https://github.com/ngolacloud/delonix/releases/latest/download/install.sh | bash
+
+Then a container — rootless, no daemon, no root:
+
+.. code-block:: bash
+
+   delonix container run -d -p 8080:80 nginx && curl localhost:8080
 
 Why it's different
 ==================
@@ -122,98 +188,179 @@ Why it's different
      - needs a delegated cgroup
      - needs a delegated cgroup — see `Resource limits need a delegated cgroup`_
 
-Resource limits need a delegated cgroup
-=======================================
+The problem it solves
+=====================
 
-``-m`` / ``--cpus`` / ``--pids-limit`` only take effect when the process that
-starts the container owns a **delegated cgroup**. From an ordinary SSH session
-they are silently inert — and that is a cgroup v2 rule, not a limitation of this
-engine: ``rootless Podman has exactly the same requirement``.
+Running the whole cloud-native unit — a container, a pod, a microVM, a Kubernetes
+node, declarative infrastructure, a signed supply chain — usually means
+assembling several tools, each with its own daemon, its own root, and its own
+configuration surface. Podman already showed that containers and pods need
+neither a daemon nor root; Delonix takes that same stance all the way up to the
+node: the one rootless, daemonless binary that runs a container **is** a
+Kubernetes node (it serves its own CRI) and **runs microVMs**.
 
-Measured on a clean Ubuntu 24.04 VM over plain SSH, with ``-m 128M --cpus 0.5``::
+- **Docker** carries the Kubernetes lineage but is bound to a root daemon, and
+  stops at the container — a shared kernel.
+- **Podman** is daemonless and rootless, but stops at the container and the pod.
+- **Delonix** keeps Podman's stance — no daemon, rootless by default — and adds a
+  conformant Kubernetes node and first-class microVMs, from the same binary.
 
-    cgroup: /user.slice/user-1000.slice/session-40.scope   (shared with sshd)
-    memory.max=max   cpu.max=max   pids.max=max
+The differentiator is **architecture, measured** — not a benchmark win:
 
-The reason is that an SSH session scope is a **sibling** of
-``user@<uid>.service``, not a child, and moving a process between them needs
-write access to their common ancestor ``user-<uid>.slice``, which belongs to
-root. Namespace and seccomp isolation are unaffected — only the resource
-ceilings.
+- A **Kubernetes node without Docker**: ``delonix cluster`` bootstraps with
+  ``kubeadm`` on Delonix's own CRI; conformance is reproducible at **79 of 103
+  upstream ``critest`` specs** (v1.36.0). Most of the remaining specs need
+  ``CAP_MAC_ADMIN`` in the *initial* user namespace, which Docker and Podman also
+  fail rootless. See `Kubernetes CRI conformance`_.
+- **microVM isolation** — a separate kernel — for workloads that need more than a
+  namespace, declared the same way as a container.
+- Container start in its default config is **91 ms**, against Docker's 208 ms and
+  Podman's 268 ms (median of 10, one machine). The honest other side is in the
+  same table: with isolated per-container networking the figure rises to ~216 ms
+  (a tie with Docker) and ~344 ms when the network plane is built from cold — the
+  *secure* path is the slower one, and it is the first item on the optimization
+  list. See `docs/measured-comparison.md <docs/measured-comparison.md>`_.
 
-``delonix system setup`` diagnoses it. It gives **two** remedies, in this
-order, because most answers online jump straight to the second one and it is
-usually not the one you need:
+What it is **not**: a young line (``0.1.x``), without Docker's or Podman's
+ecosystem, registry reach, or years of production hardening. The pitch is not
+"faster than Docker" or "better at everything" — it is the **integrated,
+daemonless, rootless path from a container to a production Kubernetes node with
+VM-grade isolation, without stitching half a dozen tools together**.
 
-**1. A delegated scope.** No root, no reboot, works in the shell you are
-typing in. Try this first — on a distro that already delegates ``cpu`` (Ubuntu
-24.04 ships ``Delegate=pids memory cpu`` on ``user@.service``) it is the whole
-fix, and editing ``/etc`` would only restate what is already there::
+Install
+=======
 
-    systemd-run --user --scope -p Delegate=yes -- delonix container run -d -m 512M myapp
-
-…or, for anything long-lived, from a systemd **user** unit, which already gets a
-delegated cgroup::
-
-    [Service]
-    Delegate=yes
-    ExecStart=/usr/local/bin/delonix container run ...
-
-**2. A drop-in on** ``user@.service`` (``sudo delonix system setup --delegate``).
-Needs root and survives reboots. Worth writing when step 1 still reports
-``cpu`` missing, or when you need ``--cpuset``, ``--io-weight`` or the
-``--device-*`` limits: ``container run`` refuses those (exit 69) while the
-container's cgroup lacks ``cpuset``/``io``, and a scope cannot bring a
-controller ``user@.service`` itself lacks. Under ``sudo`` the command reports
-on *your* ``user@<uid>.service``, writes the drop-in and runs
-``daemon-reload`` — then restart the user manager, which ends your sessions::
-
-    sudo systemctl restart user@$(id -u).service
-
-``daemon-reload`` alone is a false green: ``user@.service`` lists the
-controllers while a new scope is still born without them. Logging out is not
-enough either when the user lingers or has another session open. And an SSH
-``session-N.scope`` is a **sibling** of ``user@.service`` and inherits nothing
-from it, so you still enter a scope afterwards.
-
-Verify it took effect — this is the check worth putting in your provisioning::
-
-    systemd-run --user --scope -p Delegate=yes -- \
-      delonix container run -d --name t -m 128M alpine sleep 60
-    # memory.max must read 134217728, not "max"
-
-With delegation in place the engine applies the whole set: the per-container
-``memory.max`` / ``cpu.max`` / ``pids.max``, ``memory.swap.max=0`` (so a limit
-bounds real memory and not just the resident set), ``memory.oom.group=1`` (so an
-OOM kills the container, not one process inside it), **and** an aggregate ceiling
-on the parent sized from the host — the thing that stops N containers, none of
-which carry ``-m``, from summing to more than the machine has.
-
-Golden VM images ship no password
-=================================
-
-The golden VM images (``delonix vm image pull`` / ``delonix vm image build``) ship
-**no password on any account**: ``root`` and the ``delonix`` user are locked
-(``passwd -l``), and ``delonix`` has passwordless ``sudo``. A password written
-in a public build recipe is not a secret, so none is baked into the published
-artefact.
-
-Every supported way in authenticates with keys: cloud-init injects your
-``--ssh-key`` on first boot, and ``delonix cluster kubeadm`` generates and uses
-its own. SSH password login is also disabled (``PasswordAuthentication no``,
-``PermitRootLogin prohibit-password``).
-
-If you need the serial console (``delonix vm console <name>``) to accept a login
-— the case where a VM never got its network — that is your choice, made for
-your image or your VM, never a default:
+One command — installs the binary **and** everything the runtime needs on the
+host (slirp4netns, uidmap/subuid ranges, nftables, VM backend), so a fresh
+machine is fully functional with no manual steps. It is **runtime only** — no
+toolchain, no editor. Works on Debian/Ubuntu, Fedora/RHEL, openSUSE and Arch
+families (uses ``sudo`` for packages):
 
 .. code-block:: bash
 
-   # at build time, only for the image you build
-   delonix vm image build --root-password '<your password>' ...
+   curl -fsSL https://github.com/ngolacloud/delonix/releases/latest/download/install.sh | bash
 
-   # or per VM, in the cloud-init user-data you pass with --user-data
-   #   chpasswd: { expire: false, users: [{name: root, password: <...>, type: text}] }
+The **VS Code extension** is a separate, optional installer (it needs no root
+and is not a runtime dependency) — see `Manifests`_:
+
+.. code-block:: bash
+
+   curl -fsSL https://github.com/ngolacloud/delonix/releases/latest/download/install-vscode.sh | bash
+
+The installer detects your hardware (CPU features, RAM, disk, GPU) and picks
+the best binary for it — on x86-64, an ``x86-64-v3`` (AVX2) build on modern
+CPUs and the generic ``x86-64`` everywhere else; on ``aarch64`` (arm64), the
+single native build — and applies the kernel tuning that containers,
+Kubernetes and VMs need (inotify limits, ip_forward, ``br_netfilter``,
+``overlay``/``tun`` modules, ...).
+
+Before installing anything it **verifies the release**: ``SHA256SUMS`` is
+checked against its minisign signature with the public key embedded in the
+installer (``minisign`` is installed if missing, and a missing tool or a bad
+signature **aborts**), and every downloaded binary is then checked against
+that ``SHA256SUMS``. The script itself, run as ``curl … | bash``, is not
+covered by this — download it first and check it against the signed
+``SHA256SUMS`` if that matters to you (see
+`docs/SECURITY-RELEASES.md <docs/SECURITY-RELEASES.md>`_).
+
+Flags (pass after ``bash -s --``):
+
+- ``--no-vm`` skips the microVM stack; ``--no-tune`` skips kernel tuning.
+- ``--vm-provider <libvirt|cloud-hypervisor>`` is the node's default VM
+  provider (default ``libvirt``), written to ``/etc/delonix/providers.yaml``
+  (``~/.config/delonix/`` with ``--user``) only when that file does not exist
+  yet — an existing file, written by hand or by your provisioning, is never
+  rewritten. A Proxmox VE node is added to that same file (ADR-0054).
+- ``--no-gpu`` skips accelerator setup (the NVIDIA CDI spec, the ``render``
+  group). It is on by default and does nothing on a host without a GPU.
+- ``--no-delegate`` does not write the cgroup delegation drop-in for
+  ``user@.service``. Without delegation ``-m``/``--cpus``/``--pids-limit``
+  are inert; the installer already skips the drop-in when the distribution
+  delegates ``cpu`` on its own.
+- ``--no-binary`` configures dependencies and the host only, keeping the
+  ``delonix`` already installed.
+- ``--with-cri`` also installs ``delonix-cri`` (Kubernetes node).
+- ``--low-ports`` allows publishing ports below 1024 (see below).
+- ``--with-image-build`` installs what BUILDING VM images needs
+  (libguestfs, a DHCP client for its appliance) and makes
+  ``/boot/vmlinuz-*`` readable — that last step lowers a host security
+  boundary, which is why it is opt-in and says how to revert it.
+- ``--production`` raises the limits a busy node hits under load: conntrack
+  table and hash size, ARP table, ephemeral ports, backlogs, pids, file
+  descriptors, and ``LimitNOFILE``/``TasksMax`` on ``user@.service``
+  (rootless containers are its children). Written to
+  ``/etc/sysctl.d/99-delonix-production.conf`` and a drop-in.
+- ``--performance`` applies, without asking, the CPU performance mode
+  (governor, EPP, power profile), transparent hugepages in ``madvise`` plus
+  irqbalance, and a disk GC timer (``system prune --auto`` at 75% full,
+  never touching volumes). Without it — and without ``--no-performance`` —
+  the installer ASKS for each (Enter = yes); with no terminal the answer is
+  no. The CPU and hugepage settings live in ``delonix-performance.service``,
+  which restores the boot-time values on stop:
+  ``systemctl disable --now delonix-performance`` reverts them.
+- ``--insecure-skip-signature`` skips the signature check — only for
+  debugging, or a release from before signing existed. You lose the only
+  proof that the binary came from this project.
+- ``--user`` installs to ``~/.local/bin``; ``--version vX.Y.Z`` pins a release.
+
+Publishing port 80 or 443 (``-p 80:80``) needs ``--low-ports``:
+
+.. code-block:: bash
+
+   curl -fsSL .../install.sh | bash -s -- --low-ports
+
+Without it, ``-p 80:80`` is refused — the host-side bind is done by
+``slirp4netns`` as your unprivileged user, and the kernel reserves ports below
+``net.ipv4.ip_unprivileged_port_start`` (1024 by default). Rootless Podman and
+Docker hit the same wall. The flag is **opt-in** because it lowers that
+threshold to 80 for the *whole host*: from then on any local program can bind
+80-1023. On a workstation that is a fair trade; on a shared or production
+machine, the alternative that lowers nothing is a root-owned proxy on port 80
+(nginx/haproxy/systemd socket activation) forwarding to a high port. It writes
+``/etc/sysctl.d/99-delonix-lowports.conf`` — delete it to revert.
+
+Manual alternative (binaries only — you install the runtime deps yourself).
+``delonix`` is one of four binaries: ``delonix mcp`` runs ``delonix-mcp``,
+``delonix serve api`` runs ``delonix-mgmt`` and ``delonix serve cri`` runs
+``delonix-cri``, each looked up next to ``delonix`` first and then on the
+``PATH``, and a server from another release refuses to start. Without them
+those three commands refuse; everything else works with ``delonix`` alone. Check the signature and the checksums before
+installing — the public key is the ``MINISIGN_PUBKEY`` line of the release's
+``install.sh`` (take it from a copy you already trust, not from the same
+download you are verifying):
+
+.. code-block:: bash
+
+   BASE=https://github.com/ngolacloud/delonix/releases/latest/download
+   ARCH=x86_64      # or aarch64
+   cd "$(mktemp -d)"
+   for f in SHA256SUMS SHA256SUMS.minisig \
+            delonix-$ARCH-linux delonix-mcp-$ARCH-linux delonix-mgmt-$ARCH-linux; do
+     curl -fsSLO "$BASE/$f"
+   done
+   minisign -Vm SHA256SUMS -P '<MINISIGN_PUBKEY from install.sh>'
+   sha256sum -c SHA256SUMS --ignore-missing
+   install -m 0755 delonix-$ARCH-linux      ~/.local/bin/delonix
+   install -m 0755 delonix-mcp-$ARCH-linux  ~/.local/bin/delonix-mcp
+   install -m 0755 delonix-mgmt-$ARCH-linux ~/.local/bin/delonix-mgmt
+   echo 'source <(delonix completion shell bash)' >> ~/.bashrc
+
+Add ``delonix-cri-$ARCH-linux`` the same way for a Kubernetes node.
+
+Quickstart
+==========
+
+.. code-block:: bash
+
+   # a web service on host port 8080 — no root, no daemon
+   delonix container run -d --name web -p 8080:80 nginx
+   curl localhost:8080
+
+   delonix container stats            # CPU / memory / PIDs (cgroup v2)
+   delonix container logs -f web      # follow logs
+   delonix container update web --publish-add 9090:80   # hot re-publish
+   delonix container stop web         # the port closes by itself
+   delonix container start web        # restart with the same state
 
 Highlights
 ==========
@@ -327,6 +474,8 @@ There is also a Docker Engine API compatibility layer, whose coverage is
 published the same way — ``delonix serve docker-api --matrix`` prints the routes
 that exist and the ones that deliberately do not, with the reason for each.
 
+.. _Production readiness:
+
 Production readiness — where it fits, and where it does not yet
 ===============================================================
 
@@ -399,139 +548,104 @@ This is a ``0.1.x`` line. The gaps are tracked, each with the way out:
      - ongoing
 
 None of these are hidden behind the latency numbers: the measured bench
-(`docs/comparacao-medida.md <docs/comparacao-medida.md>`_) spells out the places
+(`docs/measured-comparison.md <docs/measured-comparison.md>`_) spells out the places
 Delonix is slower, and this table spells out the places it is not production-ready
 yet. The pitch is the integrated, daemonless, rootless path from a container to a
 Kubernetes node with VM-grade isolation — not "ready to replace Docker in a bank
 tomorrow".
 
-Install
-=======
+Resource limits need a delegated cgroup
+=======================================
 
-One command — installs the binary **and** everything the runtime needs on the
-host (slirp4netns, uidmap/subuid ranges, nftables, VM backend), so a fresh
-machine is fully functional with no manual steps. Works on Debian/Ubuntu,
-Fedora/RHEL, openSUSE and Arch families (uses ``sudo`` for packages):
+``-m`` / ``--cpus`` / ``--pids-limit`` only take effect when the process that
+starts the container owns a **delegated cgroup**. From an ordinary SSH session
+they are silently inert — and that is a cgroup v2 rule, not a limitation of this
+engine: ``rootless Podman has exactly the same requirement``.
 
-.. code-block:: bash
+Measured on a clean Ubuntu 24.04 VM over plain SSH, with ``-m 128M --cpus 0.5``::
 
-   curl -fsSL https://github.com/ngolacloud/delonix/releases/latest/download/install.sh | bash
+    cgroup: /user.slice/user-1000.slice/session-40.scope   (shared with sshd)
+    memory.max=max   cpu.max=max   pids.max=max
 
-The installer detects your hardware (CPU features, RAM, disk, GPU) and picks
-the best binary for it — on x86-64, an ``x86-64-v3`` (AVX2) build on modern
-CPUs and the generic ``x86-64`` everywhere else; on ``aarch64`` (arm64), the
-single native build — and applies the kernel tuning that containers,
-Kubernetes and VMs need (inotify limits, ip_forward, ``br_netfilter``,
-``overlay``/``tun`` modules, ...).
+The reason is that an SSH session scope is a **sibling** of
+``user@<uid>.service``, not a child, and moving a process between them needs
+write access to their common ancestor ``user-<uid>.slice``, which belongs to
+root. Namespace and seccomp isolation are unaffected — only the resource
+ceilings.
 
-Before installing anything it **verifies the release**: ``SHA256SUMS`` is
-checked against its minisign signature with the public key embedded in the
-installer (``minisign`` is installed if missing, and a missing tool or a bad
-signature **aborts**), and every downloaded binary is then checked against
-that ``SHA256SUMS``. The script itself, run as ``curl … | bash``, is not
-covered by this — download it first and check it against the signed
-``SHA256SUMS`` if that matters to you (see
-`docs/SECURITY-RELEASES.md <docs/SECURITY-RELEASES.md>`_).
+``delonix system setup`` diagnoses it. It gives **two** remedies, in this
+order, because most answers online jump straight to the second one and it is
+usually not the one you need:
 
-Flags (pass after ``bash -s --``):
+**1. A delegated scope.** No root, no reboot, works in the shell you are
+typing in. Try this first — on a distro that already delegates ``cpu`` (Ubuntu
+24.04 ships ``Delegate=pids memory cpu`` on ``user@.service``) it is the whole
+fix, and editing ``/etc`` would only restate what is already there::
 
-- ``--no-vm`` skips the microVM stack; ``--no-tune`` skips kernel tuning.
-- ``--vm-provider <libvirt|cloud-hypervisor>`` is the node's default VM
-  provider (default ``libvirt``), written to ``/etc/delonix/providers.yaml``
-  (``~/.config/delonix/`` with ``--user``) only when that file does not exist
-  yet — an existing file, written by hand or by your provisioning, is never
-  rewritten. A Proxmox VE node is added to that same file (ADR-0054).
-- ``--no-gpu`` skips accelerator setup (the NVIDIA CDI spec, the ``render``
-  group). It is on by default and does nothing on a host without a GPU.
-- ``--no-delegate`` does not write the cgroup delegation drop-in for
-  ``user@.service``. Without delegation ``-m``/``--cpus``/``--pids-limit``
-  are inert; the installer already skips the drop-in when the distribution
-  delegates ``cpu`` on its own.
-- ``--no-binary`` configures dependencies and the host only, keeping the
-  ``delonix`` already installed.
-- ``--no-editor-plugin`` does not install the VS Code extension.
-- ``--with-cri`` also installs ``delonix-cri`` (Kubernetes node).
-- ``--low-ports`` allows publishing ports below 1024 (see below).
-- ``--with-image-build`` installs what BUILDING VM images needs
-  (libguestfs, a DHCP client for its appliance) and makes
-  ``/boot/vmlinuz-*`` readable — that last step lowers a host security
-  boundary, which is why it is opt-in and says how to revert it.
-- ``--production`` raises the limits a busy node hits under load: conntrack
-  table and hash size, ARP table, ephemeral ports, backlogs, pids, file
-  descriptors, and ``LimitNOFILE``/``TasksMax`` on ``user@.service``
-  (rootless containers are its children). Written to
-  ``/etc/sysctl.d/99-delonix-production.conf`` and a drop-in.
-- ``--performance`` applies, without asking, the CPU performance mode
-  (governor, EPP, power profile), transparent hugepages in ``madvise`` plus
-  irqbalance, and a disk GC timer (``system prune --auto`` at 75% full,
-  never touching volumes). Without it — and without ``--no-performance`` —
-  the installer ASKS for each (Enter = yes); with no terminal the answer is
-  no. The CPU and hugepage settings live in ``delonix-performance.service``,
-  which restores the boot-time values on stop:
-  ``systemctl disable --now delonix-performance`` reverts them.
-- ``--insecure-skip-signature`` skips the signature check — only for
-  debugging, or a release from before signing existed. You lose the only
-  proof that the binary came from this project.
-- ``--user`` installs to ``~/.local/bin``; ``--version vX.Y.Z`` pins a release.
+    systemd-run --user --scope -p Delegate=yes -- delonix container run -d -m 512M myapp
 
-Publishing port 80 or 443 (``-p 80:80``) needs ``--low-ports``:
+…or, for anything long-lived, from a systemd **user** unit, which already gets a
+delegated cgroup::
 
-.. code-block:: bash
+    [Service]
+    Delegate=yes
+    ExecStart=/usr/local/bin/delonix container run ...
 
-   curl -fsSL .../install.sh | bash -s -- --low-ports
+**2. A drop-in on** ``user@.service`` (``sudo delonix system setup --delegate``).
+Needs root and survives reboots. Worth writing when step 1 still reports
+``cpu`` missing, or when you need ``--cpuset``, ``--io-weight`` or the
+``--device-*`` limits: ``container run`` refuses those (exit 69) while the
+container's cgroup lacks ``cpuset``/``io``, and a scope cannot bring a
+controller ``user@.service`` itself lacks. Under ``sudo`` the command reports
+on *your* ``user@<uid>.service``, writes the drop-in and runs
+``daemon-reload`` — then restart the user manager, which ends your sessions::
 
-Without it, ``-p 80:80`` is refused — the host-side bind is done by
-``slirp4netns`` as your unprivileged user, and the kernel reserves ports below
-``net.ipv4.ip_unprivileged_port_start`` (1024 by default). Rootless Podman and
-Docker hit the same wall. The flag is **opt-in** because it lowers that
-threshold to 80 for the *whole host*: from then on any local program can bind
-80-1023. On a workstation that is a fair trade; on a shared or production
-machine, the alternative that lowers nothing is a root-owned proxy on port 80
-(nginx/haproxy/systemd socket activation) forwarding to a high port. It writes
-``/etc/sysctl.d/99-delonix-lowports.conf`` — delete it to revert.
+    sudo systemctl restart user@$(id -u).service
 
-Manual alternative (binaries only — you install the runtime deps yourself).
-``delonix`` is one of four binaries: ``delonix mcp`` runs ``delonix-mcp``,
-``delonix serve api`` runs ``delonix-mgmt`` and ``delonix serve cri`` runs
-``delonix-cri``, each looked up next to ``delonix`` first and then on the
-``PATH``, and a server from another release refuses to start. Without them
-those three commands refuse; everything else works with ``delonix`` alone. Check the signature and the checksums before
-installing — the public key is the ``MINISIGN_PUBKEY`` line of the release's
-``install.sh`` (take it from a copy you already trust, not from the same
-download you are verifying):
+``daemon-reload`` alone is a false green: ``user@.service`` lists the
+controllers while a new scope is still born without them. Logging out is not
+enough either when the user lingers or has another session open. And an SSH
+``session-N.scope`` is a **sibling** of ``user@.service`` and inherits nothing
+from it, so you still enter a scope afterwards.
+
+Verify it took effect — this is the check worth putting in your provisioning::
+
+    systemd-run --user --scope -p Delegate=yes -- \
+      delonix container run -d --name t -m 128M alpine sleep 60
+    # memory.max must read 134217728, not "max"
+
+With delegation in place the engine applies the whole set: the per-container
+``memory.max`` / ``cpu.max`` / ``pids.max``, ``memory.swap.max=0`` (so a limit
+bounds real memory and not just the resident set), ``memory.oom.group=1`` (so an
+OOM kills the container, not one process inside it), **and** an aggregate ceiling
+on the parent sized from the host — the thing that stops N containers, none of
+which carry ``-m``, from summing to more than the machine has.
+
+Golden VM images ship no password
+=================================
+
+The golden VM images (``delonix vm image pull`` / ``delonix vm image build``) ship
+**no password on any account**: ``root`` and the ``delonix`` user are locked
+(``passwd -l``), and ``delonix`` has passwordless ``sudo``. A password written
+in a public build recipe is not a secret, so none is baked into the published
+artefact.
+
+Every supported way in authenticates with keys: cloud-init injects your
+``--ssh-key`` on first boot, and ``delonix cluster kubeadm`` generates and uses
+its own. SSH password login is also disabled (``PasswordAuthentication no``,
+``PermitRootLogin prohibit-password``).
+
+If you need the serial console (``delonix vm console <name>``) to accept a login
+— the case where a VM never got its network — that is your choice, made for
+your image or your VM, never a default:
 
 .. code-block:: bash
 
-   BASE=https://github.com/ngolacloud/delonix/releases/latest/download
-   ARCH=x86_64      # or aarch64
-   cd "$(mktemp -d)"
-   for f in SHA256SUMS SHA256SUMS.minisig \
-            delonix-$ARCH-linux delonix-mcp-$ARCH-linux delonix-mgmt-$ARCH-linux; do
-     curl -fsSLO "$BASE/$f"
-   done
-   minisign -Vm SHA256SUMS -P '<MINISIGN_PUBKEY from install.sh>'
-   sha256sum -c SHA256SUMS --ignore-missing
-   install -m 0755 delonix-$ARCH-linux      ~/.local/bin/delonix
-   install -m 0755 delonix-mcp-$ARCH-linux  ~/.local/bin/delonix-mcp
-   install -m 0755 delonix-mgmt-$ARCH-linux ~/.local/bin/delonix-mgmt
-   echo 'source <(delonix completion shell bash)' >> ~/.bashrc
+   # at build time, only for the image you build
+   delonix vm image build --root-password '<your password>' ...
 
-Add ``delonix-cri-$ARCH-linux`` the same way for a Kubernetes node.
-
-Quickstart
-==========
-
-.. code-block:: bash
-
-   # a web service on host port 8080 — no root, no daemon
-   delonix container run -d --name web -p 8080:80 nginx
-   curl localhost:8080
-
-   delonix container stats            # CPU / memory / PIDs (cgroup v2)
-   delonix container logs -f web      # follow logs
-   delonix container update web --publish-add 9090:80   # hot re-publish
-   delonix container stop web         # the port closes by itself
-   delonix container start web        # restart with the same state
+   # or per VM, in the cloud-init user-data you pass with --user-data
+   #   chpasswd: { expire: false, users: [{name: root, password: <...>, type: text}] }
 
 Command groups
 ==============
@@ -605,7 +719,11 @@ shortnames, apiVersion, and the FORM of each Kind (``primary``, ``sugar → X``,
    * - ``gitops``
      - Pull sources (ADR-0021): a ``kind: GitOpsSource`` names a git repository, a ref and a path, and an opt-in systemd timer runs ONE pass and exits — fetch, verify, plan, apply. ``reconcile`` runs a pass now, ``status`` names the commit each source saw and the one applied, ``suspend``/``resume`` stop the passes without a commit. A commit the guard or the safety policy refuses leaves the running stack untouched.
    * - ``serve``
-     - Serve a protocol endpoint on a unix socket, grouped: ``cri`` (Kubernetes ``runtime.v1``), ``api`` (management API, HTTP+JSON, plus Prometheus ``/metrics``), ``docker-api`` (a slice of the Docker Engine API, full container lifecycle).
+     - Serve a protocol endpoint, grouped: ``cri`` (Kubernetes ``runtime.v1``), ``api`` (management API, HTTP+JSON, plus Prometheus ``/metrics``), ``docker-api`` (a slice of the Docker Engine API, full container lifecycle), ``node-api`` (the ``delonix.node.v1`` contract, gRPC + HTTP/JSON) and ``node-enroll`` (the enrollment authority, ADR-0097).
+   * - ``node-ca``
+     - The node CA that signs the fleet members' certificates (ADR-0097, not stable): ``init`` writes the trust anchor every server gets as ``serve node-api --tls-client-ca`` and the key that stays with the enrollment authority; ``revoke`` lists a serial in the CRL that ``--tls-client-crl`` consults.
+   * - ``node-enroll``
+     - Enrolls this host as a fleet member (not stable): generates the key pair locally, sends a CSR and spends a one-time token at the authority — pinned to the node CA, which is what stops a man-in-the-middle from harvesting the token — for the short client certificate the node API (ADR-0096) accepts.
    * - ``mcp``
      - Model Context Protocol server — a LOCAL, tenancy-free AI control surface: ``serve``, ``capabilities`` (the tool risk table), ``doctor``.
    * - ``hosts``
@@ -733,9 +851,13 @@ cannot disagree, because they read the same file.
 There is a **VS Code extension** that wires this up and adds a template per
 Kind: `angolardevops/delonix-vscode
 <https://github.com/angolardevops/delonix-vscode>`_. It works in VS Code and in
-the forks that share its extension CLI (VSCodium, Cursor, Windsurf,
-Antigravity); ``install.sh`` installs it into whichever it finds, unless you
-pass ``--no-editor-plugin``.
+the forks that share its extension CLI (VSCodium, Cursor, Windsurf, Antigravity).
+It has its **own installer** — the runtime ``install.sh`` no longer touches
+editors, because installing an engine should not depend on one being present:
+
+.. code-block:: bash
+
+   curl -fsSL https://github.com/ngolacloud/delonix/releases/latest/download/install-vscode.sh | bash
 
 See also `the stability promise <docs/cli-stability.md>`_, `the resource
 structure <docs/estrutura.md>`_ and `the GitOps guide <docs/gitops.md>`_.
@@ -784,7 +906,7 @@ ls/describe/stop/rm``, which routes by name across containers and VMs.
 Architecture
 ============
 
-The crates of the workspace, in five layers (ADR-0040) — the directory a crate lives in
+The main crates of the workspace, in five layers (ADR-0040) — the directory a crate lives in
 is its layer, and ``scripts/arch_fitness.py`` fails when the two disagree — one ``delonix``
 command, no residing process:
 
@@ -808,7 +930,7 @@ command, no residing process:
      - Manifests: the Kind table, the three-way reconciler, conditions and revisions.
    * - ``delonix-node``
      - The node: the event log, host checks, local-socket peer credentials, the dispatch contract, host/process queries.
-   * - ``delonix-security-runtime``
+   * - ``delonix-security``
      - Security decisions: policy, the single admission point for containers and VMs, events, score, redaction.
    * - **Adapters — one technology each**
      -
@@ -830,13 +952,13 @@ command, no residing process:
      - Structured logging, OpenTelemetry spans and the shared Prometheus registry.
    * - **Providers — remote management APIs**
      -
-   * - ``delonix-proxmox``
+   * - ``delonix-provider-proxmox``
      - A ``VmBackend`` against one Proxmox VE node's API.
-   * - ``delonix-truenas``
+   * - ``delonix-provider-truenas``
      - Dataset, quota and share provisioning on a TrueNAS appliance.
-   * - ``delonix-opnsense``
+   * - ``delonix-provider-opnsense``
      - A ``GatewayProvider`` against an OPNsense appliance's REST API (``kind: NetworkGateway``, ADR-0051).
-   * - ``delonix-powerdns``
+   * - ``delonix-provider-powerdns``
      - A minimal PowerDNS API client with the engine's own credential: removes the gateway records a Proxmox node leaves behind (ADR-0064 D6).
    * - **Interfaces and binaries**
      -
@@ -851,7 +973,10 @@ command, no residing process:
    * - ``delonix-bin`` / ``delonix-mcp-bin`` / ``delonix-mgmt-bin`` / ``delonix-node-api-bin``
      - The ``delonix`` CLI — the one door; it runs the servers as sibling binaries.
 
-See the `architecture page
+The table above is the backbone, not the full census: the authoritative list of
+the 41 workspace members is ``[workspace] members`` in
+`Cargo.toml <Cargo.toml>`_, and each crate's directory is its layer. See the
+`architecture page
 <https://ngolacloud.github.io/delonix/arquitectura.html>`_ and the
 `C4 model <https://ngolacloud.github.io/delonix/c4.html>`_ for the
 full picture.

@@ -921,7 +921,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     #[test]
-    fn hex_encode_produz_minusculas_e_o_tamanho_certo() {
+    fn hex_encode_produces_lowercase_and_the_right_length() {
         assert_eq!(hex_encode(&[0x00, 0xab, 0xff]), "00abff");
         assert_eq!(hex_encode(&[]), "");
     }
@@ -929,7 +929,7 @@ mod tests {
     /// Rotating replaces ONLY the requested key, generates a value DIFFERENT
     /// from the old one, and never touches any other key of the same secret.
     #[test]
-    fn rotate_gera_valor_diferente_preserva_as_outras_chaves() {
+    fn rotate_produces_different_value_preserves_other_keys() {
         let tmp = tempfile::tempdir().unwrap();
         let store = SecretStore::open(tmp.path()).unwrap();
         let mut data = BTreeMap::new();
@@ -974,7 +974,7 @@ mod tests {
     /// A key that does not exist is REFUSED, never created pretending to be
     /// a rotation — the same discipline as `secret unset`.
     #[test]
-    fn rotate_recusa_chave_desconhecida() {
+    fn rotate_refuses_unknown_key() {
         let tmp = tempfile::tempdir().unwrap();
         let store = SecretStore::open(tmp.path()).unwrap();
         let mut data = BTreeMap::new();
@@ -1004,7 +1004,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_kv_corta_no_primeiro_igual() {
+    fn parse_kv_cuts_at_the_first_equals() {
         assert_eq!(parse_kv("K=v"), Some(("K".into(), "v".into())));
         // The value may contain '=' (e.g. a base64 token with padding).
         assert_eq!(
@@ -1016,12 +1016,12 @@ mod tests {
         assert_eq!(parse_kv("semigual"), None);
     }
 
-    /// **A propriedade que interessa**: o dry-run mostra as CHAVES e nunca um
-    /// valor. Sem isto o Kind mais sensível do manifesto era o único sem
-    /// `--dry-run` — o sítio onde mais se quer confirmar «leu as chaves que eu
-    /// queria?» era o único onde não se podia confirmar.
+    /// **The property that matters**: the dry-run shows the KEYS and never a
+    /// value. Without this, the most sensitive Kind in the manifest was the only
+    /// one with no `--dry-run` — the place you most want to confirm "did it read
+    /// the keys I meant?" was the only one where you could not confirm it.
     #[test]
-    fn o_dry_run_de_um_secret_mostra_as_chaves_e_nunca_os_valores() {
+    fn a_secrets_dry_run_shows_the_keys_and_never_the_values() {
         let doc: super::ManifestDoc = serde_yaml::from_str(
             "apiVersion: delonix.io/v1\nkind: Secret\nmetadata: { name: s }\nspec:\n  stringData: { password: hunter2, token: abc123 }\n",
         )
@@ -1029,27 +1029,27 @@ mod tests {
         let out = serde_yaml::to_string(&super::spec_with_defaults(&doc).unwrap()).unwrap();
         assert!(out.contains("password"), "{out}");
         assert!(out.contains("token"), "{out}");
-        assert!(!out.contains("hunter2"), "valor vazado: {out}");
-        assert!(!out.contains("abc123"), "valor vazado: {out}");
+        assert!(!out.contains("hunter2"), "value leaked: {out}");
+        assert!(!out.contains("abc123"), "value leaked: {out}");
         assert_eq!(out.matches(super::REDACTED).count(), 2);
     }
 
-    /// Um `fromEnvFile` não é aberto para o dry-run: resolver o ficheiro é
-    /// trabalho do apply, e um plano que o lesse tornaria o planeamento um
-    /// efeito de I/O. O caminho aparece; o conteúdo nunca.
+    /// A `fromEnvFile` is not opened for the dry-run: resolving the file is the
+    /// apply's job, and a plan that read it would make planning an I/O side
+    /// effect. The path appears; the contents never do.
     #[test]
-    fn o_dry_run_nao_abre_o_fromenvfile() {
+    fn the_dry_run_does_not_open_the_fromenvfile() {
         let doc: super::ManifestDoc = serde_yaml::from_str(
-            "apiVersion: delonix.io/v1\nkind: Secret\nmetadata: { name: s }\nspec: { fromEnvFile: /nao/existe/app.env }\n",
+            "apiVersion: delonix.io/v1\nkind: Secret\nmetadata: { name: s }\nspec: { fromEnvFile: /does/not/exist/app.env }\n",
         )
         .unwrap();
-        // Não falha, apesar de o ficheiro não existir — prova que não foi lido.
+        // Does not fail even though the file does not exist — proof it was not read.
         let out = serde_yaml::to_string(&super::spec_with_defaults(&doc).unwrap()).unwrap();
-        assert!(out.contains("/nao/existe/app.env"), "{out}");
+        assert!(out.contains("/does/not/exist/app.env"), "{out}");
     }
 
     #[test]
-    fn uma_variavel_por_definir_e_erro_e_nao_um_segredo_vazio() {
+    fn an_unset_variable_is_an_error_not_an_empty_secret() {
         // The failure this refuses: a CI job forgets to export something, the
         // secret is created holding "", the apply reports success, and whatever
         // consumes it fails much later with an authentication error that names
@@ -1073,7 +1073,7 @@ mod tests {
     }
 
     #[test]
-    fn o_mapeamento_guarda_sob_a_chave_que_o_consumidor_espera() {
+    fn the_mapping_stores_under_the_key_the_consumer_expects() {
         // The reason the mapped shape exists: `Storage`/`Tunnel`/`provision`
         // each look for a key by a FIXED name (`password`, `token`), and the
         // environment rarely calls it that.
@@ -1102,7 +1102,7 @@ mod tests {
     }
 
     #[test]
-    fn um_nome_de_variavel_invalido_e_recusado_e_nao_lido_como_ausente() {
+    fn an_invalid_variable_name_is_refused_not_read_as_absent() {
         // Without this check a name with a `=` or a space reads as "not set"
         // and gets reported as a missing variable the user cannot possibly
         // export — the error would point at the wrong thing.
@@ -1127,7 +1127,7 @@ mod tests {
     /// `$PGPASSWORD`, the render adds a second `$`, and the round-trip drifts
     /// one `$` per pass.
     #[test]
-    fn um_cifrao_a_frente_da_variavel_nao_se_acumula_no_round_trip() {
+    fn a_dollar_sign_before_the_variable_does_not_accumulate_across_round_trips() {
         let mapped = FromEnv::Mapped(BTreeMap::from([(
             "password".to_string(),
             "$PGPASSWORD".to_string(),
@@ -1163,22 +1163,22 @@ mod tests {
     /// reverting the production line left it green — it was asserting that
     /// serde works. Caught in adversarial review of this same series.
     #[test]
-    fn o_formato_json_nao_e_uma_via_para_contornar_a_redaccao() {
+    fn the_json_format_is_not_a_way_to_bypass_redaction() {
         let s = Secret {
             name: "s".into(),
-            data: BTreeMap::from([("senha".to_string(), "SUPERSECRETO".to_string())]),
+            data: BTreeMap::from([("password".to_string(), "SUPERSECRET".to_string())]),
             updated_unix: 0,
             version: 0,
         };
         for reveal in [false, true] {
             let out = serde_json::to_string(&inspect_view(&s, reveal)).unwrap();
             assert_eq!(
-                out.contains("SUPERSECRETO"),
+                out.contains("SUPERSECRET"),
                 reveal,
-                "o valor so pode aparecer com --reveal (reveal={reveal})"
+                "the value may only appear with --reveal (reveal={reveal})"
             );
-            // A chave NAO e segredo, e e o que um consumidor verifica.
-            assert!(out.contains("senha"));
+            // The key is NOT a secret, and it is what a consumer checks.
+            assert!(out.contains("password"));
         }
     }
 }

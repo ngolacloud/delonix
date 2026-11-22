@@ -731,6 +731,23 @@ enum Cmd {
         #[command(subcommand)]
         action: cmd::serve::ServeCmd,
     },
+    /// Manage the node CA that signs fleet-member certificates (ADR-0097).
+    ///
+    /// `node-ca init` creates the CA whose cert is the node API's
+    /// `--tls-client-ca` trust anchor and whose key stays with the enrollment
+    /// authority (`serve node-enroll`); `node-ca revoke` lists a certificate's
+    /// serial in a CRL (`--tls-client-crl`). NOT stable: see `docs/cli-stability.md`.
+    NodeCa {
+        #[command(subcommand)]
+        action: cmd::node_enroll::NodeCaCmd,
+    },
+    /// Enroll this host as a fleet member: one-time token → CSR → short client cert.
+    ///
+    /// Generates a key pair and a CSR, exchanges a one-time token at an
+    /// enrollment authority (`serve node-enroll`) pinned to the node CA, and
+    /// writes the short-lived client certificate the node API (ADR-0096) then
+    /// accepts (ADR-0097). NOT stable: see `docs/cli-stability.md`.
+    NodeEnroll(cmd::node_enroll::NodeEnrollArgs),
     /// Model Context Protocol server — a LOCAL, tenancy-free AI control surface.
     ///
     /// ADR-0025. NOT stable: see `docs/cli-stability.md`.
@@ -924,7 +941,11 @@ pub fn build_command() -> clap::Command {
     // translation, not before: the map's category labels are built here, and a
     // pass that rewrote help strings afterwards would have to know to leave
     // this tail alone. Order is the cheap way to make that impossible.
-    cmd::manual::apply(command)
+    let command = cmd::manual::apply(command);
+    // Docker-style flag sections for `run`/`create` (the shared `RunArgs`). Only
+    // sets `help_heading`, so it composes with the translation above (which only
+    // rewrites help text) in either order.
+    cmd::help::with_flag_headings(command)
 }
 
 /// The `init`s whose FLAGS are filtered once a template is named. They do NOT
@@ -1829,10 +1850,34 @@ fn run() -> Result<()> {
     if let Some(l) = cmd::po::peek_lang() {
         cmd::output::set_lang(&l);
     }
-    let command = build_command();
+    let mut command = build_command();
     let argv: Vec<String> = std::env::args().collect();
-    let cli = match <Cli as clap::FromArgMatches>::from_arg_matches(&command.get_matches_from(argv))
-    {
+    // Docker-style grouped help. clap cannot group subcommands into sections, so
+    // we render them ourselves (see `cmd::help`). The top level
+    // (`delonix`/`help`/`--help`/`-h`) is intercepted before the parse; a GROUP's
+    // help (`delonix <group> --help`, `delonix help <group>`) is intercepted on
+    // clap's own `DisplayHelp` so we regroup clap's exact rendering. A LEAF's
+    // `--help` and every other path fall through to clap unchanged.
+    if cmd::help::wants_top_help(&argv) {
+        print!("{}", cmd::help::render(command));
+        return Ok(());
+    }
+    let matches = match command.try_get_matches_from_mut(argv.iter().map(String::as_str)) {
+        Ok(m) => m,
+        Err(e) => {
+            if e.kind() == clap::error::ErrorKind::DisplayHelp {
+                if let Some(path) = cmd::help::group_help_path(&argv, &command) {
+                    print!(
+                        "{}",
+                        cmd::help::render_group(&e.render().to_string(), &path, &command)
+                    );
+                    return Ok(());
+                }
+            }
+            e.exit();
+        }
+    };
+    let cli = match <Cli as clap::FromArgMatches>::from_arg_matches(&matches) {
         Ok(v) => v,
         Err(e) => e.exit(),
     };
@@ -2052,6 +2097,8 @@ fn run() -> Result<()> {
         Cmd::Compatibility { action } => cmd::compatibility::run(action),
         Cmd::Provider { action } => cmd::provider::run(action),
         Cmd::Serve { action } => cmd::serve::run(action),
+        Cmd::NodeCa { action } => cmd::node_enroll::run_node_ca(action),
+        Cmd::NodeEnroll(args) => cmd::node_enroll::run_node_enroll(args),
         Cmd::Mcp { action } => cmd::mcp::run(action),
         Cmd::Hosts { action } => cmd::hosts::run(action),
         Cmd::IngressProxy { config } => cmd::ingress_proxy::run(&config),
@@ -2222,6 +2269,18 @@ fn main() {
     if raw.len() == 3 && raw[1] == "netns" && raw[2] == "control" {
         delonix_sdn::infra::control_main(); // never returns
     }
+    // A parked warm-plane runner (`delonix __poolrunner <fd> [hint]`, ADR-0095).
+    // Intercepted HERE, before `telemetry::init()`, for the same reason `netns
+    // pin` is: it must stay single-threaded, because the start it serves reaches
+    // the supervisor's `fork`, whose safety argument is "single-threaded caller"
+    // — exactly the invariant the cold `__apirun` re-exec exists to hold. The fd
+    // is the control socket the pool duped onto `RUNNER_FD`; the optional hint is
+    // the image to pre-resolve before announcing READY. Never a public subcommand.
+    if (raw.len() == 3 || raw.len() == 4) && raw[1] == "__poolrunner" {
+        let fd: std::os::unix::io::RawFd = raw[2].parse().unwrap_or(delonix_warm::RUNNER_FD);
+        let hint = raw.get(3).map(String::as_str).unwrap_or("");
+        cmd::warmpool::poolrunner(fd, hint); // never returns
+    }
     // Hidden re-exec of the 2nd step of `--net <network>` (see
     // `container::reexec_into_netns`): we already run INSIDE the holder's
     // userns+netns; the container spec comes in a file. Intercepted BEFORE clap
@@ -2362,6 +2421,20 @@ fn main() {
     if raw.len() == 3 && raw[1] == "__apirun" {
         cmd::dockerapi::run_from_spec_file(std::path::Path::new(&raw[2]));
     }
+    // The warm-plane measurement bench (`delonix __poolbench <image> <runs>
+    // <size>`, ADR-0095): a persistent process that starts identical containers
+    // cold (a fresh `__apirun` per run) and warm (a pooled `__poolrunner`), and
+    // emits the per-run wall to `DELONIX_PROFILE_SPAWN` so the pre_spawn drop can
+    // be read against `reports/spawn-profile-2026-11-18/`. Not a public subcommand;
+    // it orchestrates children but never forks a container itself.
+    if (raw.len() == 5 || raw.len() == 6) && raw[1] == "__poolbench" {
+        let runs = raw[3].parse().unwrap_or(20);
+        let size = raw[4].parse().unwrap_or(4);
+        // Optional 5th token: the network the benched containers run on. Absent
+        // ⇒ `host` (the original behaviour); a name ⇒ the ISOLATED path.
+        let net = raw.get(5).map(String::as_str).unwrap_or("host");
+        cmd::warmpool::poolbench(&raw[2], runs, size, net); // never returns
+    }
     // Hidden verb for `pod port-forward` (see `cmd::pod::port_forward`): run
     // INSIDE the pod's netns via `join_argv`, with the accepted host-side
     // socket wired as our stdin+stdout. Not a public subcommand, same idiom as
@@ -2493,8 +2566,8 @@ mod advisory_flag_tests {
         }
         assert!(
             missing.is_empty(),
-            "`flags_of_controller` nomeia flags que `container run` não tem: {missing:?}\n\
-             As reais são: {real:?}"
+            "`flags_of_controller` names flags that `container run` does not have: {missing:?}\n\
+             The real ones are: {real:?}"
         );
     }
 
@@ -2509,8 +2582,8 @@ mod advisory_flag_tests {
         for f in ["--cpuset-mems", "--io-max"] {
             assert!(
                 !real.contains(f),
-                "{f} passou a existir — se é mesmo nossa, acrescenta-a ao \
-                 `flags_of_controller` no mesmo commit"
+                "{f} started to exist — if it really is ours, add it to \
+                 `flags_of_controller` in the same commit"
             );
         }
     }
@@ -2610,50 +2683,50 @@ mod help_i18n_tests {
     /// The command descriptions — what `--help` shows at the top and what the
     /// parent lists next to each subcommand. Strict: zero tolerated.
     #[test]
-    fn todo_o_help_de_comando_tem_traducao_pt() {
+    fn every_command_help_has_a_pt_translation() {
         let (mut missing, mut args) = (Vec::new(), Vec::new());
         untranslated(&super::Cli::command(), "delonix", &mut missing, &mut args);
         assert!(
             missing.is_empty(),
-            "{} descrição(ões) de comando sem entrada no pt.po:\n  {}",
+            "{} command description(s) with no entry in pt.po:\n  {}",
             missing.len(),
             missing.join("\n  ")
         );
     }
 
-    /// Os comentários dos exemplos do manual são texto de utilizador como
-    /// qualquer outro: sob `--l18n=pt` um bloco EXEMPLOS em inglês seria a
-    /// única coisa por traduzir no ecrã. As LINHAS DE COMANDO não entram —
-    /// `delonix container run -d` escreve-se igual em todas as línguas, e
-    /// pedir tradução para elas é como um catálogo ganha ruído.
+    /// The manual's example comments are user text like any other: under
+    /// `--l18n=pt` an EXAMPLES block in English would be the only thing left
+    /// untranslated on screen. The COMMAND LINES do not count — `delonix
+    /// container run -d` is written the same in every language, and asking for a
+    /// translation of them is how a catalog gains noise.
     #[test]
-    fn todo_o_comentario_de_exemplo_tem_traducao_pt() {
-        let mut sem: Vec<String> = Vec::new();
+    fn every_example_comment_has_a_pt_translation() {
+        let mut missing: Vec<String> = Vec::new();
         for e in crate::cmd::manual::ENTRIES {
             for (comment, _) in e.examples {
                 if !crate::cmd::po::has_pt_translation(comment) {
-                    sem.push(format!("{}: {comment}", e.path));
+                    missing.push(format!("{}: {comment}", e.path));
                 }
             }
         }
         assert!(
-            sem.is_empty(),
-            "{} comentário(s) de exemplo sem entrada no pt.po:\n  {}",
-            sem.len(),
-            sem.join("\n  ")
+            missing.is_empty(),
+            "{} example comment(s) with no entry in pt.po:\n  {}",
+            missing.len(),
+            missing.join("\n  ")
         );
     }
 
     #[test]
-    fn o_help_dos_argumentos_so_pode_encolher() {
+    fn arg_help_can_only_shrink() {
         let (mut missing, mut args) = (Vec::new(), Vec::new());
         untranslated(&super::Cli::command(), "delonix", &mut missing, &mut args);
         assert_eq!(
             args.len(),
             ARG_HELP_PENDING,
-            "help de argumento por traduzir: {} (esperado {ARG_HELP_PENDING}). \
-             Se subiu, é uma flag nova sem entrada no pt.po; se desceu, baixa a \
-             constante no mesmo commit.\n  {}",
+            "arg help left untranslated: {} (expected {ARG_HELP_PENDING}). \
+             If it went up, it is a new flag with no entry in pt.po; if it went down, \
+             lower the constant in the same commit.\n  {}",
             args.len(),
             args.join("\n  ")
         );
@@ -2661,10 +2734,10 @@ mod help_i18n_tests {
 }
 
 /// `docs/cli-stability.md` classifies every root command group as either
-/// "Estável" or "NÃO estável" — but nothing checked that classification was
+/// "Stable" or "NOT stable" — but nothing checked that classification was
 /// EXHAUSTIVE. Measured before this test existed: of 33 real root groups,
 /// only `container`/`image` (+ `build`, folded into the same promise) and the
-/// 9 named in "NÃO estável" had any status at all — 21 groups (`apply`,
+/// 9 named in "NOT stable" had any status at all — 21 groups (`apply`,
 /// `compose`, `volume`, `network`, `secret`, `stack`, … ) were simply never
 /// mentioned by either list. A group with no status is a group nobody has to
 /// think about before breaking, which is worse than one explicitly marked
@@ -2678,7 +2751,7 @@ mod help_i18n_tests {
 mod cli_stability_classification_tests {
     use clap::CommandFactory;
 
-    /// Groups `docs/cli-stability.md`'s "Estável" section covers: the name,
+    /// Groups `docs/cli-stability.md`'s "Stable" section covers: the name,
     /// positional order, listed flags and exit codes don't change without a
     /// major. `build` is included here even though it is its own root
     /// command — the doc's fenced block names it in the same breath as
@@ -2740,7 +2813,7 @@ mod cli_stability_classification_tests {
         "search",
     ];
 
-    /// Every other real top-level group, mirroring "NÃO estável" 1:1. A group
+    /// Every other real top-level group, mirroring "NOT stable" 1:1. A group
     /// added to `Cmd` has to land in ONE of these two lists (and in
     /// `docs/cli-stability.md`) in the same commit — that's what
     /// `every_root_group_is_classified_exactly_once` enforces.
@@ -2770,6 +2843,8 @@ mod cli_stability_classification_tests {
         "mcp",
         "net",
         "network",
+        "node-ca",
+        "node-enroll",
         "oci-runtime",
         "plan",
         "pod",
@@ -2831,21 +2906,21 @@ mod cli_stability_classification_tests {
         }
         assert!(
             unclassified.is_empty(),
-            "grupo(s) de topo sem classificação de estabilidade — acrescenta a \
-             STABLE_GROUPS ou NOT_STABLE_GROUPS (e a docs/cli-stability.md) no \
-             MESMO commit que os introduziu: {unclassified:?}"
+            "top-level group(s) with no stability classification — add to \
+             STABLE_GROUPS or NOT_STABLE_GROUPS (and to docs/cli-stability.md) in the \
+             SAME commit that introduced them: {unclassified:?}"
         );
         assert!(
             double_classified.is_empty(),
-            "grupo(s) na promessa de estabilidade E na lista de não-estáveis \
-             ao mesmo tempo — só pode estar numa: {double_classified:?}"
+            "group(s) in the stability promise AND in the not-stable list \
+             at the same time — it may only be in one: {double_classified:?}"
         );
     }
 
     /// The inverse of the guard above: a name in either list that is no
     /// longer a real group is a promise (or a disclaimer) about something
     /// that stopped existing. That's exactly what happened to
-    /// `storage`/`sharevolume` after #216 — they stayed in "NÃO estável" long
+    /// `storage`/`sharevolume` after #216 — they stayed in "NOT stable" long
     /// after `delonix storage`/`delonix sharevolume` already answered
     /// "unrecognized subcommand".
     #[test]
@@ -2860,9 +2935,9 @@ mod cli_stability_classification_tests {
             .collect();
         assert!(
             stale.is_empty(),
-            "nome(s) classificado(s) que já não são um grupo de comandos real \
-             — actualiza STABLE_GROUPS/NOT_STABLE_GROUPS e docs/cli-stability.md \
-             no mesmo commit que os removeu: {stale:?}",
+            "classified name(s) that are no longer a real command group \
+             — update STABLE_GROUPS/NOT_STABLE_GROUPS and docs/cli-stability.md \
+             in the same commit that removed them: {stale:?}",
         );
     }
 }
@@ -2881,16 +2956,16 @@ mod container_image_contract_tests {
     fn verb<'a>(cmd: &'a clap::Command, group: &str, verb: &str) -> &'a clap::Command {
         cmd.get_subcommands()
             .find(|c| c.get_name() == group)
-            .unwrap_or_else(|| panic!("`delonix {group}` desapareceu"))
+            .unwrap_or_else(|| panic!("`delonix {group}` disappeared"))
             .get_subcommands()
             .find(|c| c.get_name() == verb)
-            .unwrap_or_else(|| panic!("`delonix {group} {verb}` desapareceu"))
+            .unwrap_or_else(|| panic!("`delonix {group} {verb}` disappeared"))
     }
 
     fn subcommand_names(cmd: &clap::Command, group: &str) -> BTreeSet<String> {
         cmd.get_subcommands()
             .find(|c| c.get_name() == group)
-            .unwrap_or_else(|| panic!("`delonix {group}` desapareceu"))
+            .unwrap_or_else(|| panic!("`delonix {group}` disappeared"))
             .get_subcommands()
             .map(|s| s.get_name().to_string())
             .collect()
@@ -2906,8 +2981,8 @@ mod container_image_contract_tests {
         ] {
             assert!(
                 real.contains(name),
-                "`container {name}` desapareceu — docs/cli-stability.md promete \
-                 que não quebra sem um major"
+                "`container {name}` disappeared — docs/cli-stability.md promises \
+                 it does not break without a major"
             );
         }
     }
@@ -2919,8 +2994,8 @@ mod container_image_contract_tests {
         for name in ["pull", "ls", "remove"] {
             assert!(
                 real.contains(name),
-                "`image {name}` desapareceu — docs/cli-stability.md promete \
-                 que não quebra sem um major"
+                "`image {name}` disappeared — docs/cli-stability.md promises \
+                 it does not break without a major"
             );
         }
     }
@@ -2958,17 +3033,17 @@ mod container_image_contract_tests {
             "--label-file",
             "--annotation",
         ] {
-            assert!(long.contains(f), "`container run {f}` desapareceu");
+            assert!(long.contains(f), "`container run {f}` disappeared");
         }
         assert!(
             long.iter().any(|f| f.starts_with("--health-")),
-            "`container run --health-*` desapareceu"
+            "`container run --health-*` disappeared"
         );
         let short: BTreeSet<char> = run.get_arguments().filter_map(|a| a.get_short()).collect();
         // `-i`/`-t` joined the set so `run -it` parses like docker/podman — the
         // gap flow 1 of the CLI-parity review hit on its very first line.
         for f in ['d', 'i', 't', 'p', 'P', 'v', 'e', 'w', 'u'] {
-            assert!(short.contains(&f), "`container run -{f}` desapareceu");
+            assert!(short.contains(&f), "`container run -{f}` disappeared");
         }
     }
 
@@ -2977,15 +3052,15 @@ mod container_image_contract_tests {
         let cmd = super::Cli::command();
         let exec = verb(&cmd, "container", "exec");
         let short: BTreeSet<char> = exec.get_arguments().filter_map(|a| a.get_short()).collect();
-        for f in ['i', 't', 'e', 'w', 'u'] {
-            assert!(short.contains(&f), "`container exec -{f}` desapareceu");
+        for f in ['d', 'i', 't', 'e', 'w', 'u'] {
+            assert!(short.contains(&f), "`container exec -{f}` disappeared");
         }
     }
 }
 
 /// Every command this CLI names in its own text has to EXIST in this CLI.
 ///
-/// This replaces `comandos_citados_tests`, which was written for the same class
+/// This replaces the old command-citation test, which was written for the same class
 /// and could not see any of it. That test compared only the FIRST word after
 /// the tool name against the TOP-LEVEL subcommand names, over a hand-written
 /// list of twelve files. So a reference to `pod ls` passed — `pod` is real, and
@@ -3245,25 +3320,68 @@ mod exec_separator_tests {
     use crate::cmd::container::{ContainerCmd, ExecArgs};
     use clap::Parser;
 
-    fn exec_of(argv: &[&str]) -> (Option<String>, Vec<String>, Vec<String>) {
+    /// Returns `(user, env, container, command)` — the container is now the
+    /// first element of the trailing `id_command`, split exactly as the handler
+    /// does via `ExecArgs::split_id_command`.
+    fn exec_of(argv: &[&str]) -> (Option<String>, Vec<String>, String, Vec<String>) {
         let cli = Cli::try_parse_from(argv).expect("parses");
         match cli.cmd {
             Cmd::Container {
                 action:
                     ContainerCmd::Exec(ExecArgs {
-                        user, env, command, ..
+                        user,
+                        env,
+                        id_command,
+                        ..
                     }),
-            } => (user, env, command),
+            } => {
+                let (id, command) = ExecArgs::split_id_command(id_command)
+                    .expect("the split accepts this container");
+                (user, env, id, command)
+            }
             _ => panic!("not container exec"),
         }
     }
 
+    /// A mistyped flag is not taken as the CONTAINER. Before this guard,
+    /// `exec --no-such-flag` answered `no such container:
+    /// --no-such-flag` — naming a container when what was misspelled was
+    /// a flag. Docker and Podman answer `unknown flag`. Measured on 0.1.2; see
+    /// `cmd::container::refuse_leading_dash_operand`.
+    #[test]
+    fn a_mistyped_flag_is_not_taken_as_the_container() {
+        let cli = Cli::try_parse_from(["delonix", "container", "exec", "--no-such-flag"])
+            .expect("the parser accepts it: the positional carries allow_hyphen_values");
+        let Cmd::Container {
+            action: ContainerCmd::Exec(ExecArgs { id_command, .. }),
+        } = cli.cmd
+        else {
+            panic!("not container exec")
+        };
+        let err = ExecArgs::split_id_command(id_command)
+            .expect_err("a container beginning with `-` has to be refused");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("--no-such-flag"),
+            "the refusal has to NAME the token: {msg}"
+        );
+        assert!(
+            msg.contains("container"),
+            "the refusal has to say which operand it is about: {msg}"
+        );
+    }
+
     /// The argv the CRI builds for `kubectl exec <pod> -- -u 0 sh`
     /// (`delonix_cri::streaming::subprocess_args`): the command stays the
-    /// command, and the container's own user stays in force.
+    /// command, and the container's own user stays in force. The `--` separator
+    /// still works (clap consumes it) — the CRI path keeps relying on it.
+    ///
+    /// This is also the control for the guard above: the separator puts the
+    /// container FIRST in the trailing list, so the guard never sees a leading
+    /// `-` and the CRI path is untouched.
     #[test]
     fn a_command_after_the_separator_is_never_an_option_of_exec() {
-        let (user, env, command) = exec_of(&[
+        let (user, env, id, command) = exec_of(&[
             "delonix",
             "container",
             "exec",
@@ -3275,16 +3393,35 @@ mod exec_separator_tests {
             "X=1",
             "sh",
         ]);
+        assert_eq!(id, "cri-a");
         assert_eq!(user, None);
         assert!(env.is_empty());
         assert_eq!(command, ["-u", "0", "-e", "X=1", "sh"]);
     }
 
-    /// Why the separator is needed: without it, the same tokens are options.
+    /// Docker parity: WITHOUT the separator too, every token after the container
+    /// is the command — `exec` stops parsing its own flags at the container, so
+    /// `-u 0` here is the command, NOT `exec`'s `--user`. (Before the trailing
+    /// split this stole `-u 0` into `--user`; that regression is what this fix
+    /// closes. Flags for `exec` itself go BEFORE the container.)
     #[test]
-    fn without_the_separator_the_tokens_after_the_name_are_options() {
-        let (user, _, command) =
+    fn without_the_separator_the_tokens_after_the_container_are_the_command() {
+        let (user, _, id, command) =
             exec_of(&["delonix", "container", "exec", "cri-a", "-u", "0", "sh"]);
+        assert_eq!(id, "cri-a");
+        assert_eq!(
+            user, None,
+            "`-u` after the container must NOT be exec's --user"
+        );
+        assert_eq!(command, ["-u", "0", "sh"]);
+    }
+
+    /// `exec`'s own flags still work when placed BEFORE the container.
+    #[test]
+    fn exec_flags_before_the_container_still_parse() {
+        let (user, _, id, command) =
+            exec_of(&["delonix", "container", "exec", "-u", "0", "cri-a", "sh"]);
+        assert_eq!(id, "cri-a");
         assert_eq!(user.as_deref(), Some("0"));
         assert_eq!(command, ["sh"]);
     }

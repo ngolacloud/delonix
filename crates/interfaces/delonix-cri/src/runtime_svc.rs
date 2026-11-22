@@ -31,6 +31,11 @@ pub struct DelonixRuntime {
     /// the value is resolved ONCE at startup, so a malformed setting fails the
     /// server instead of silently degrading per request.
     pub cap_ceiling: crate::CapCeiling,
+    /// The warm plane (ADR-0095): `StartContainer` consults it to serve an
+    /// isolated native-SDN start from a holder-resident runner instead of a cold
+    /// child. [`crate::NoWarm`] by default (warming off); the real plane is wired
+    /// by the bin via [`with_warm`](DelonixRuntime::with_warm).
+    pub warm: std::sync::Arc<dyn crate::WarmOps>,
 }
 
 impl DelonixRuntime {
@@ -49,7 +54,16 @@ impl DelonixRuntime {
             network,
             streamer,
             cap_ceiling,
+            warm: std::sync::Arc::new(crate::NoWarm),
         }
+    }
+
+    /// Wire a real warm plane (the bin's; the default is [`crate::NoWarm`]).
+    /// Builder form so [`new`](DelonixRuntime::new) keeps its signature for the
+    /// crate's tests, which never warm.
+    pub fn with_warm(mut self, warm: std::sync::Arc<dyn crate::WarmOps>) -> Self {
+        self.warm = warm;
+        self
     }
 }
 
@@ -163,26 +177,28 @@ impl RuntimeService for DelonixRuntime {
             // Same family as the traps this repo already documents — `status()`
             // by pidfile is not "the holder is reachable", a socket file is not
             // a listener, and here "not running" is not "cannot run".
-            // **E um marcador de ref NÃO é um workload agarrado.** Um container
-            // que morre abruptamente (crash, OOM, reboot) nunca chama `release`,
-            // logo o marcador fica. Nada o limpa até alguém correr `system
-            // prune` — o reaper existe, mas é MANUAL. Portanto o `refcount` cru
-            // conta fantasmas, e com a infra em baixo isso reabre exactamente o
-            // deadlock que o parágrafo acima descreve: o nó fica NotReady, não
-            // agenda nada, ninguém levanta a infra, e fica assim para sempre.
+            // **And a ref marker is NOT an attached workload.** A container that
+            // dies abruptly (crash, OOM, reboot) never calls `release`, so the
+            // marker stays. Nothing cleans it up until someone runs `system
+            // prune` — the reaper exists, but it is MANUAL. So the raw `refcount`
+            // counts ghosts, and with the infra down that reopens exactly the
+            // deadlock the paragraph above describes: the node goes NotReady,
+            // schedules nothing, nobody brings the infra up, and it stays that
+            // way forever.
             //
-            // Medido a 2026-08-15 neste host: infra em baixo e SETE marcadores
-            // órfãos de containers já mortos → `NetworkReady: false` num nó que
-            // não tinha um único workload vivo.
+            // Measured 2026-08-15 on this host: infra down and SEVEN orphan
+            // markers from already-dead containers → `NetworkReady: false` on a
+            // node that did not have a single live workload.
             //
-            // Contam-se os VIVOS, com o `orphan_refs` que o `system prune` já
-            // usa — mesma regra, um só dono. Se a lista de containers não puder
-            // ser lida, usa-se o `refcount` cru: é o comportamento anterior, e
-            // um erro de leitura não pode passar por "não há workloads".
-            let vivos =
+            // We count the LIVE ones, with the `orphan_refs` that `system prune`
+            // already uses — same rule, a single owner. If the container list
+            // cannot be read, the raw `refcount` is used: that is the previous
+            // behaviour, and a read error must not pass for "there are no
+            // workloads".
+            let live =
                 live_attached_refs(&self.base, self.containers.as_ref(), self.network.as_ref())
                     .unwrap_or(st.refcount);
-            if network_ready_rootless(st.up, vivos) {
+            if network_ready_rootless(st.up, live) {
                 cond("NetworkReady", true, "", "")
             } else {
                 cond(
@@ -192,7 +208,7 @@ impl RuntimeService for DelonixRuntime {
                     &format!(
                         "rootless infra netns is down with {} live workload(s) attached \
                          ({} marker(s) on disk, holder={:?}, slirp={:?})",
-                        vivos, st.refcount, st.holder_pid, st.slirp_pid
+                        live, st.refcount, st.holder_pid, st.slirp_pid
                     ),
                 )
             }
@@ -329,8 +345,11 @@ impl RuntimeService for DelonixRuntime {
         let ceiling = self.cap_ceiling;
         let ops = self.containers.clone();
         let rt = self.runtime.clone();
-        blocking(move || lifecycle::start_container(&base, ops.as_ref(), rt.as_ref(), id, ceiling))
-            .await
+        let warm = self.warm.clone();
+        blocking(move || {
+            lifecycle::start_container(&base, ops.as_ref(), rt.as_ref(), warm.as_ref(), id, ceiling)
+        })
+        .await
     }
     #[tracing::instrument(name = "cri.stop_container", skip_all, fields(
         container = %r.get_ref().container_id,
@@ -627,34 +646,35 @@ fn engine_cgroup_driver() -> CgroupDriver {
 pub mod lifecycle;
 
 /// Is the rootless network plane ready? **Pure**, so the rule can be tested
-/// without an infra namespace — see `network_ready_distingue_ocio_de_avaria`.
+/// without an infra namespace — see `network_ready_distinguishes_idle_from_failure`.
 fn network_ready_rootless(up: bool, refcount: i64) -> bool {
     up || refcount == 0
 }
 
-/// Quantos dos marcadores de ref correspondem a um container que AINDA CORRE.
+/// How many of the ref markers correspond to a container that is STILL RUNNING.
 ///
-/// `None` quando a lista de containers não pôde ser lida — e aí o chamador fica
-/// com o `refcount` cru, que é o comportamento anterior. Tratar um erro de
-/// leitura como "zero workloads" seria a armadilha que este repo já catalogou
-/// (um `read_dir` que falha não é um directório vazio), e aqui declararia o nó
-/// saudável precisamente quando não se sabe nada.
+/// `None` when the container list could not be read — and then the caller falls
+/// back to the raw `refcount`, which is the previous behaviour. Treating a read
+/// error as "zero workloads" would be the trap this repo has already catalogued
+/// (a `read_dir` that fails is not an empty directory), and here it would declare
+/// the node healthy precisely when nothing is known.
 fn live_attached_refs(
     base: &std::path::Path,
     ops: &dyn crate::ContainerOps,
     net: &dyn crate::NetworkOps,
 ) -> Option<i64> {
-    // Os marcadores vêm do MESMO root que o store de containers — o `base` deste
-    // serviço. A primeira versão usava o `attached_refs()` sem argumento, que
-    // resolve o root do AMBIENTE: num servidor normal coincidem, mas com um
-    // `--root` divergente a contagem comparava duas populações diferentes e não
-    // queria dizer nada. O `attached_refs_in` fecha isso.
+    // The markers come from the SAME root as the container store — this service's
+    // `base`. The first version used `attached_refs()` with no argument, which
+    // resolves the root from the ENVIRONMENT: on a normal server they coincide,
+    // but with a divergent `--root` the count compared two different populations
+    // and meant nothing. `attached_refs_in` closes that.
     //
-    // Registado porque um teste meu PASSOU PELA RAZÃO ERRADA e foi ele que
-    // revelou a assimetria: afirmava «sem marcadores não toca no store» e, num
-    // host com marcadores reais, tocava e dava 0 por subtracção. Um teste que
-    // passa por acidente é pior que nenhum — foi apagado, e a assimetria que
-    // ele expôs está agora corrigida em vez de só documentada.
+    // Recorded because a test of mine PASSED FOR THE WRONG REASON and it was that
+    // test that revealed the asymmetry: it claimed «with no markers it does not
+    // touch the store» and, on a host with real markers, it did touch it and
+    // returned 0 by subtraction. A test that passes by accident is worse than
+    // none — it was deleted, and the asymmetry it exposed is now fixed rather
+    // than merely documented.
     let attached = net.attached_refs_in(base);
     if attached.is_empty() {
         return Some(0);
@@ -671,8 +691,8 @@ fn live_attached_refs(
         .filter(|c| c.is_live())
         .map(|c| c.id)
         .collect();
-    let orfaos = net.orphan_ref_count(&attached, &live);
-    Some((attached.len() - orfaos) as i64)
+    let orphans = net.orphan_ref_count(&attached, &live);
+    Some((attached.len() - orphans) as i64)
 }
 
 #[cfg(test)]
@@ -685,9 +705,9 @@ mod tests {
     /// `true`. Before the fix, this test would fail (the condition always came
     /// back `true`, masking exactly this scenario).
     #[tokio::test]
-    async fn network_ready_reflecte_infra_rootless_real_nao_fabricada() {
+    async fn network_ready_reflects_real_rootless_infra_not_fabricated() {
         if !delonix_linux::is_rootless() {
-            eprintln!("SKIP: teste assume ambiente rootless (uid != 0)");
+            eprintln!("SKIP: test assumes a rootless environment (uid != 0)");
             return;
         }
         // `status()` probes the GLOBAL rootless infra (`delonix_sdn::infra::status()`
@@ -699,10 +719,10 @@ mod tests {
         // test can never do. In that case we skip; on a clean runner (infra down,
         // the case that matters for the regression) the test runs and validates
         // the `false` path.
-        // Lido UMA vez, e é contra ISTO que a condição é comparada — não contra um
-        // valor fixo. O `status()` sonda a infra GLOBAL (ver o comentário acima),
-        // logo o resultado certo depende da máquina onde o teste corre, e um
-        // literal aqui só pode estar certo por acaso.
+        // Read ONCE, and it is against THIS that the condition is compared — not
+        // against a fixed value. `status()` probes the GLOBAL infra (see the
+        // comment above), so the right result depends on the machine the test
+        // runs on, and a literal here could only be right by accident.
         let st = delonix_sdn::infra::status();
         let base_dir = tempfile::tempdir().unwrap();
         let base = base_dir.path().to_path_buf();
@@ -727,12 +747,13 @@ mod tests {
             crate::CapCeiling::unlimited(),
         );
 
-        // Pela MESMA regra e com o MESMO root que o serviço usa: refs VIVOS do
-        // `base` deste serviço, não marcadores em disco nem um root do ambiente.
-        // Com o `refcount` cru aqui, o teste chumbaria em qualquer host com
-        // fantasmas — seria o teste a codificar o defeito que a mudança fecha.
-        let vivos = live_attached_refs(&base, ops.as_ref(), net.as_ref()).unwrap_or(st.refcount);
-        let esperado = network_ready_rootless(st.up, vivos);
+        // By the SAME rule and with the SAME root the service uses: LIVE refs of
+        // this service's `base`, not markers on disk nor a root from the
+        // environment. With the raw `refcount` here, the test would fail on any
+        // host with ghosts — it would be the test encoding the defect the change
+        // closes.
+        let live = live_attached_refs(&base, ops.as_ref(), net.as_ref()).unwrap_or(st.refcount);
+        let expected = network_ready_rootless(st.up, live);
 
         let resp = svc
             .status(Request::new(StatusRequest { verbose: false }))
@@ -741,7 +762,7 @@ mod tests {
             .into_inner();
         let status = resp
             .status
-            .expect("StatusResponse.status devia vir preenchido");
+            .expect("StatusResponse.status should be populated");
         let runtime_ready = status
             .conditions
             .iter()
@@ -749,7 +770,7 @@ mod tests {
             .unwrap();
         assert!(
             runtime_ready.status,
-            "RuntimeReady devia ser true (o servidor respondeu)"
+            "RuntimeReady should be true (the server answered)"
         );
 
         let network_ready = status
@@ -757,68 +778,71 @@ mod tests {
             .iter()
             .find(|c| c.r#type == "NetworkReady")
             .unwrap();
-        // A REGRA MUDOU, e a razão está no `status()`: infra em baixo SEM
-        // workloads é o estado de repouso de um motor daemonless, não uma
-        // falha, e reportá-la como falha bloqueava o nó em NotReady para
-        // sempre. O que este teste guarda continua a ser o mesmo: que a
-        // condição é DERIVADA do estado real e não fabricada.
+        // THE RULE CHANGED, and the reason is in `status()`: infra down WITHOUT
+        // workloads is the resting state of a daemonless engine, not a failure,
+        // and reporting it as a failure pinned the node in NotReady forever.
+        // What this test guards is still the same: that the condition is DERIVED
+        // from the real state and not fabricated.
         //
-        // **E é por isso que a asserção compara com `esperado` e não com um
-        // literal.** A versão anterior exigia `true` porque assumia «nem infra
-        // nem workloads» — verdadeiro num runner limpo, falso num host de
-        // desenvolvimento. Medido a 2026-08-15: com a infra em baixo e SETE
-        // marcadores de ref órfãos deixados por containers mortos, o valor certo
-        // é `false`, e o teste chumbava a acusar uma regressão que não existia.
-        // Um teste que só passa em ambientes limpos não distingue «o código
-        // partiu» de «a máquina está suja», e a primeira coisa que se faz com um
-        // vermelho desses é ignorá-lo.
+        // **And that is why the assertion compares against `expected` and not
+        // against a literal.** The previous version demanded `true` because it
+        // assumed «neither infra nor workloads» — true on a clean runner, false
+        // on a development host. Measured 2026-08-15: with the infra down and
+        // SEVEN orphan ref markers left by dead containers, the right value is
+        // `false`, and the test failed accusing a regression that did not exist.
+        // A test that only passes in clean environments does not tell «the code
+        // broke» from «the machine is dirty», and the first thing done with a red
+        // like that is to ignore it.
         //
-        // **O que este teste NÃO faz, e é preciso dizê-lo**: num host onde a
-        // infra está UP o valor certo é `true`, e uma condição FABRICADA (`if
-        // true`) dá o mesmo — logo aqui ele não discrimina. Medido, a reverter
-        // a condição: passa. Quem fixa a lógica são as cinco asserções puras
-        // sobre `network_ready_rootless` (os quatro quadrantes), e é lá que uma
-        // regressão da REGRA é apanhada. O trabalho deste teste é o outro
-        // metade: provar que o caminho gRPC TRANSPORTA o valor derivado até ao
-        // `StatusResponse`, em vez de o recalcular ou o esquecer.
+        // **What this test does NOT do, and it must be said**: on a host where
+        // the infra is UP the right value is `true`, and a FABRICATED condition
+        // (`if true`) gives the same — so here it does not discriminate.
+        // Measured, reverting the condition: it passes. What pins the logic down
+        // are the five pure assertions over `network_ready_rootless` (the four
+        // quadrants), and that is where a regression of the RULE is caught. This
+        // test's job is the other half: proving that the gRPC path CARRIES the
+        // derived value all the way to the `StatusResponse`, instead of
+        // recomputing it or forgetting it.
         assert_eq!(
-            network_ready.status, esperado,
-            "NetworkReady tem de ser DERIVADO de (up={}, refcount={}), não fabricado",
+            network_ready.status, expected,
+            "NetworkReady must be DERIVED from (up={}, refcount={}), not fabricated",
             st.up, st.refcount
         );
         assert_eq!(
             network_ready.reason.is_empty(),
-            esperado,
-            "uma condição verdadeira não tem razão de falha, e uma falsa tem de a dar"
+            expected,
+            "a true condition has no failure reason, and a false one must give one"
         );
     }
 
-    /// A regra que decide `NetworkReady`, isolada do ambiente.
+    /// The rule that decides `NetworkReady`, isolated from the environment.
     ///
-    /// A versão anterior era `infra.up`, o que num motor daemonless descreve o
-    /// estado de REPOUSO como avaria: num nó acabado de arrancar a infra ainda
-    /// não subiu, o kubelet marcava-o NotReady, não agendava pod nenhum, e por
-    /// isso nada trazia a infra acima. Impasse permanente.
+    /// The previous version was `infra.up`, which in a daemonless engine
+    /// describes the RESTING state as a failure: on a freshly booted node the
+    /// infra has not come up yet, the kubelet marked it NotReady, scheduled no
+    /// pod, and so nothing brought the infra up. Permanent deadlock.
     ///
-    /// O facto que discrimina é o ref-count, e é isso que este teste fixa.
+    /// The fact that discriminates is the ref-count, and that is what this test
+    /// pins down.
     #[test]
-    fn network_ready_distingue_ocio_de_avaria() {
-        // Em baixo e sem ninguém a precisar: ócio.
+    fn network_ready_distinguishes_idle_from_failure() {
+        // Down and with nobody needing it: idle.
         assert!(super::network_ready_rootless(false, 0));
-        // O caso que reabriu o deadlock: marcadores de ref de containers MORTOS.
-        // Com o `refcount` cru, um nó com sete fantasmas e zero workloads vivos
-        // reporta `false` para sempre — não agenda nada, ninguém levanta a
-        // infra, fica NotReady. Contando só os VIVOS, é `true`, que é a verdade.
+        // The case that reopened the deadlock: ref markers of DEAD containers.
+        // With the raw `refcount`, a node with seven ghosts and zero live
+        // workloads reports `false` forever — schedules nothing, nobody brings
+        // the infra up, it stays NotReady. Counting only the LIVE ones, it is
+        // `true`, which is the truth.
         assert!(
             super::network_ready_rootless(false, 0),
-            "sete marcadores órfãos contam ZERO vivos, e zero vivos com infra em \
-             baixo é ócio — não avaria"
+            "seven orphan markers count ZERO live, and zero live with the infra \
+             down is idle — not a failure"
         );
-        // Em baixo COM workloads agarrados: avaria a sério — foi para isto que
-        // a verificação foi escrita, e continua a apanhá-la.
+        // Down WITH workloads attached: a real failure — this is what the check
+        // was written for, and it still catches it.
         assert!(!super::network_ready_rootless(false, 1));
         assert!(!super::network_ready_rootless(false, 7));
-        // A correr: pronta, haja workloads ou não.
+        // Running: ready, workloads or not.
         assert!(super::network_ready_rootless(true, 0));
         assert!(super::network_ready_rootless(true, 3));
     }

@@ -638,7 +638,7 @@ fn err_response(e: &Error) -> (StatusCode, Vec<u8>) {
 ///
 /// **This table is the published contract**, not a comment: `serve docker-api
 /// --matrix` prints it, the docs are generated from it, and
-/// `matriz_cobre_todas_as_rotas_do_dispatch` reads THIS FILE'S OWN SOURCE and
+/// `matrix_covers_every_dispatch_route` reads THIS FILE'S OWN SOURCE and
 /// fails if a dispatch arm exists without an entry here. A compatibility layer
 /// whose coverage is only discoverable by trying it is worse than a smaller one
 /// that says where it ends — third-party tooling (Testcontainers, CI plugins,
@@ -1910,9 +1910,9 @@ async fn handle_create(
         Ok(o) => o,
         Err(e) => return err_response(&e),
     };
-    // Calculado ANTES de criar seja o que for: se a criação falhar, o erro é a
-    // resposta e estes avisos não chegam a lado nenhum — mas o custo é uma
-    // travessia do JSON e a alternativa era esquecê-los no ramo de sucesso.
+    // Computed BEFORE creating anything: if creation fails, the error is the
+    // response and these warnings reach nobody — but the cost is one traversal
+    // of the JSON, and the alternative was to forget them on the success branch.
     let warnings = unconsumed_config_warnings(&cfg);
     let state = state.clone();
     let result: Result<String> = run_blocking(move || {
@@ -2201,11 +2201,12 @@ fn inspect_json(c: &Container) -> serde_json::Value {
 /// Whatever is neither mapped nor listed above comes back to the caller in
 /// `Warnings[]` — see [`unconsumed_config_warnings`].
 ///
-/// **A justificação desta lista já esteve DESACTUALIZADA, e é o modo de falha a
-/// vigiar aqui**: dizia «`WorkingDir` (this engine has no `run -w` at all yet)»,
-/// e o `container run -w/--workdir` existe desde 2026-07-27 — o compose passou a
-/// usá-lo e este tradutor ficou com a razão da era anterior. Uma limitação
-/// documentada envelhece para mentira sem ninguém lhe tocar.
+/// **The justification for this list has already been OUT OF DATE once, and
+/// that is the failure mode to watch for here**: it used to say «`WorkingDir`
+/// (this engine has no `run -w` at all yet)», and `container run -w/--workdir`
+/// has existed since 2026-07-27 — compose started using it and this translator
+/// was left with the reason of a previous era. A documented limitation ages into
+/// a lie with nobody ever touching it.
 fn docker_config_to_run_opts(name: String, cfg: &serde_json::Value) -> Result<RunOpts> {
     let image = cfg["Image"]
         .as_str()
@@ -2262,10 +2263,10 @@ fn docker_config_to_run_opts(name: String, cfg: &serde_json::Value) -> Result<Ru
             .collect();
         volumes.extend(extra);
     }
-    // `HostConfig.ExtraHosts` — o formato é `host:ip`, o mesmo do
-    // `--add-host`, logo o mesmo parser. É o campo que o Testcontainers usa;
-    // ignorá-lo em silêncio dava um contentor sem a resolução que o teste
-    // configurou, e uma falha longe da causa.
+    // `HostConfig.ExtraHosts` — the format is `host:ip`, the same as
+    // `--add-host`, so the same parser. It is the field Testcontainers uses;
+    // ignoring it silently gave a container without the resolution the test
+    // configured, and a failure far from its cause.
     let add_host: Vec<String> = {
         let mut out = Vec::new();
         for entry in json_str_array(&host["ExtraHosts"]) {
@@ -2320,11 +2321,11 @@ fn docker_config_to_run_opts(name: String, cfg: &serde_json::Value) -> Result<Ru
     // taken away and the container kept it, with nothing in `Warnings[]`.
     let cap_add = json_str_slice(&host["CapAdd"]).unwrap_or_default();
     let cap_drop = json_str_slice(&host["CapDrop"]).unwrap_or_default();
-    // Cinco mapeamentos de uma linha cada, sobre campos que o `RunOpts` já tinha.
-    // O `User` é o mais caro dos cinco em silêncio: um `docker create -u 1000`
-    // subia o container como ROOT da imagem, e num servidor cujo público declarado
-    // é o Testcontainers isso é a diferença entre um teste que passa e um teste
-    // que passa pela razão errada.
+    // Five one-line mappings each, over fields `RunOpts` already had. `User` is
+    // the costliest of the five to drop silently: a `docker create -u 1000`
+    // brought the container up as the image's ROOT, and on a server whose
+    // declared audience is Testcontainers that is the difference between a test
+    // that passes and a test that passes for the wrong reason.
     let user = cfg["User"]
         .as_str()
         .filter(|s| !s.is_empty())
@@ -2334,7 +2335,7 @@ fn docker_config_to_run_opts(name: String, cfg: &serde_json::Value) -> Result<Ru
         .filter(|s| !s.is_empty())
         .map(str::to_string);
     let read_only = host["ReadonlyRootfs"].as_bool().unwrap_or(false);
-    // `Tmpfs` é um objecto `{"/path": "opts"}`, e o `--tmpfs` daqui é `/path[:opts]`.
+    // `Tmpfs` is an object `{"/path": "opts"}`, and `--tmpfs` here is `/path[:opts]`.
     let tmpfs: Vec<String> = host["Tmpfs"]
         .as_object()
         .map(|o| {
@@ -2346,8 +2347,8 @@ fn docker_config_to_run_opts(name: String, cfg: &serde_json::Value) -> Result<Ru
                 .collect()
         })
         .unwrap_or_default();
-    // `Ulimits` é `[{"Name":"nofile","Soft":1024,"Hard":2048}]` e o nosso
-    // `--ulimit` é `nome=soft[:hard]`.
+    // `Ulimits` is `[{"Name":"nofile","Soft":1024,"Hard":2048}]` and our
+    // `--ulimit` is `name=soft[:hard]`.
     let ulimit: Vec<String> = host["Ulimits"]
         .as_array()
         .map(|a| {
@@ -2405,28 +2406,29 @@ fn docker_config_to_run_opts(name: String, cfg: &serde_json::Value) -> Result<Ru
     })
 }
 
-/// Os campos do pedido que este tradutor NÃO consome, devolvidos no `Warnings[]`
-/// da resposta do `create`.
+/// The request fields this translator does NOT consume, returned in the
+/// response's `Warnings[]` from `create`.
 ///
-/// **Fecha a classe inteira de uma vez, e é por isso que existe em vez de mais
-/// cinco mapeamentos.** O envelope `Warnings` já fazia parte da resposta desde
-/// sempre — e vinha sempre vazio. Um cliente que mande `Sysctls` ou `Devices`
-/// recebia `201 Created` com uma lista vazia e nada a dizer que metade do pedido
-/// tinha sido deitada fora; agora recebe a lista, no campo que o protocolo
-/// reserva exactamente para isto, e sem ter de ler a documentação de ninguém.
+/// **It closes the whole class at once, and that is why it exists instead of
+/// five more mappings.** The `Warnings` envelope was always part of the response
+/// — and always came back empty. A client sending `Sysctls` or `Devices` got a
+/// `201 Created` with an empty list and nothing to say that half the request had
+/// been thrown away; now it gets the list, in the field the protocol reserves
+/// for exactly this, and without having to read anyone's documentation.
 ///
-/// A propriedade que interessa é ser uma lista de EXCLUSÃO: um campo novo que o
-/// Docker acrescente, ou um que este tradutor deixe de mapear, aparece aqui
-/// sozinho. O inverso — enumerar o que avisamos — voltaria a envelhecer para
-/// mentira como a lista de «deliberately NOT mapped» já envelheceu uma vez.
+/// The property that matters is that it is an EXCLUSION list: a new field Docker
+/// adds, or one this translator stops mapping, shows up here on its own. The
+/// inverse — enumerating what we warn about — would age back into a lie, the way
+/// the «deliberately NOT mapped» list already aged once.
 ///
-/// `Image`/`Cmd`/`Entrypoint`/`Env`/`Labels` e os do `HostConfig` que o tradutor
-/// lê ficam de fora por construção. `Tty`/`OpenStdin`/`AttachStd*` também: são o
-/// fluxo interactivo, que esta superfície recusa por desenho e já o diz no 404 e
-/// no `--matrix` — repeti-lo em cada `create` de um `compose up` seria ruído.
+/// `Image`/`Cmd`/`Entrypoint`/`Env`/`Labels` and the `HostConfig` fields the
+/// translator reads are left out by construction. `Tty`/`OpenStdin`/`AttachStd*`
+/// too: they are the interactive flow, which this surface refuses by design and
+/// already says so in the 404 and in `--matrix` — repeating it on every `create`
+/// of a `compose up` would be noise.
 fn unconsumed_config_warnings(cfg: &serde_json::Value) -> Vec<String> {
-    /// Consumidos por `docker_config_to_run_opts`, ou irrelevantes por desenho.
-    const CONSUMIDOS_TOPO: &[&str] = &[
+    /// Consumed by `docker_config_to_run_opts`, or irrelevant by design.
+    const CONSUMED_TOP_LEVEL: &[&str] = &[
         "Image",
         "Cmd",
         "Entrypoint",
@@ -2435,21 +2437,21 @@ fn unconsumed_config_warnings(cfg: &serde_json::Value) -> Vec<String> {
         "User",
         "WorkingDir",
         "HostConfig",
-        // Interactivo: fora de escopo declarado, não é um descarte silencioso.
+        // Interactive: out of declared scope, not a silent discard.
         "Tty",
         "OpenStdin",
         "StdinOnce",
         "AttachStdin",
         "AttachStdout",
         "AttachStderr",
-        // Metadados que o cliente manda e não pedem acção nenhuma.
+        // Metadata the client sends that asks for no action at all.
         "Hostname",
         "Domainname",
         "ExposedPorts",
         "Volumes",
         "NetworkingConfig",
     ];
-    const CONSUMIDOS_HOST: &[&str] = &[
+    const CONSUMED_HOST: &[&str] = &[
         "Binds",
         "ExtraHosts",
         "PortBindings",
@@ -2462,18 +2464,18 @@ fn unconsumed_config_warnings(cfg: &serde_json::Value) -> Vec<String> {
         "ReadonlyRootfs",
         "Tmpfs",
         "Ulimits",
-        // O modelo de rede do Docker não tem equivalente aqui, e o `--matrix`
-        // di-lo; avisar em cada create seria ruído sobre uma decisão publicada.
+        // Docker's network model has no equivalent here, and `--matrix` says so;
+        // warning on every create would be noise about a published decision.
         "NetworkMode",
     ];
 
     let mut out = Vec::new();
-    let mut nomeia = |campo: &str, valor: &serde_json::Value| {
-        // Um campo presente mas VAZIO não é um pedido — os clientes serializam a
-        // struct inteira, com `[]`/`{}`/`0`/`false` em tudo o que não usaram.
-        // Avisar sobre esses faria o `Warnings` sair cheio em todos os `create` e
-        // deixar de se ler, que é o oposto do objectivo.
-        let vazio = match valor {
+    let mut name_it = |field: &str, value: &serde_json::Value| {
+        // A field that is present but EMPTY is not a request — clients serialize
+        // the whole struct, with `[]`/`{}`/`0`/`false` in everything they did not
+        // use. Warning on those would make `Warnings` come out full on every
+        // `create` and stop being read, which is the opposite of the goal.
+        let empty = match value {
             serde_json::Value::Null => true,
             serde_json::Value::Array(a) => a.is_empty(),
             serde_json::Value::Object(o) => o.is_empty(),
@@ -2481,9 +2483,9 @@ fn unconsumed_config_warnings(cfg: &serde_json::Value) -> Vec<String> {
             serde_json::Value::Bool(b) => !*b,
             serde_json::Value::Number(n) => n.as_f64() == Some(0.0),
         };
-        if !vazio {
+        if !empty {
             out.push(format!(
-                "delonix: '{campo}' is not supported by this engine's Docker API and was \
+                "delonix: '{field}' is not supported by this engine's Docker API and was \
                  ignored (see `delonix serve docker-api --matrix`)"
             ));
         }
@@ -2491,15 +2493,15 @@ fn unconsumed_config_warnings(cfg: &serde_json::Value) -> Vec<String> {
 
     if let Some(o) = cfg.as_object() {
         for (k, v) in o {
-            if !CONSUMIDOS_TOPO.contains(&k.as_str()) {
-                nomeia(k, v);
+            if !CONSUMED_TOP_LEVEL.contains(&k.as_str()) {
+                name_it(k, v);
             }
         }
     }
     if let Some(o) = cfg["HostConfig"].as_object() {
         for (k, v) in o {
-            if !CONSUMIDOS_HOST.contains(&k.as_str()) {
-                nomeia(&format!("HostConfig.{k}"), v);
+            if !CONSUMED_HOST.contains(&k.as_str()) {
+                name_it(&format!("HostConfig.{k}"), v);
             }
         }
     }
@@ -3176,7 +3178,7 @@ mod matrix_tests {
     /// it is believed. Parsing the source is crude but it fails LOUDLY at
     /// `cargo test`, which is exactly where that mistake should surface.
     #[test]
-    fn matriz_cobre_todas_as_rotas_do_dispatch() {
+    fn matrix_covers_every_dispatch_route() {
         let src = include_str!("dockerapi.rs");
         // The literal-path arms: ("GET", "/version") => ...
         let mut missing = Vec::new();
@@ -3250,7 +3252,7 @@ mod matrix_tests {
     /// same (method, path, why) shape as the matrix, which is what makes an
     /// exact comparison possible at all.
     #[test]
-    fn nada_esta_nas_duas_listas() {
+    fn nothing_is_in_both_lists() {
         for (m, path, _) in API_MATRIX {
             assert!(
                 !API_UNIMPLEMENTED

@@ -1,127 +1,127 @@
-# G4 — overlay inter-nó: prova em 2 nós reais + causa-raiz
+# G4 — inter-node overlay: proof on 2 real nodes + root cause
 
-> **Data:** 2026-11-02. **Âmbito:** o caminho "via prova" do G4 (decidido pelo
-> dono: o Delonix quer SER HA). Pergunta: o `--driver overlay` (VXLAN+WireGuard)
-> encaminha tráfego entre dois nós? **Medido**, não afirmado.
+> **Date:** 2026-11-02. **Scope:** the "via proof" path of G4 (decided by the
+> owner: Delonix wants to BE HA). Question: does `--driver overlay` (VXLAN+WireGuard)
+> forward traffic between two nodes? **Measured**, not asserted.
 
-## Montagem
+## Setup
 
-Duas VMs reais do golden `delonix-vm-k8s:1.36` (ubuntu 24.04), no `virbr0`
-libvirt, **IPs roteáveis um para o outro** (`192.168.122.175` ↔ `.210`, ping
-host-a-host 0% loss). Em cada VM corri o binário **0.1.0 da linha atual** (copiado
-por scp; `delonix --version` = 0.1.0 nos dois), com `DELONIX_ROOT=/tmp/dlxr`
-isolado. Dependências que o golden não trazia e foram instaladas: `wireguard-tools`
-(`wg`), `slirp4netns`; e `sysctl kernel.apparmor_restrict_unprivileged_userns=0`
-(o binário em `/tmp` não tem o perfil AppArmor que o `install.sh` escreve).
+Two real VMs of the golden `delonix-vm-k8s:1.36` (ubuntu 24.04), on the `virbr0`
+libvirt bridge, **routable to each other** (`192.168.122.175` ↔ `.210`, host-to-host
+ping 0% loss). On each VM I ran the **0.1.0 binary of the current line** (copied
+via scp; `delonix --version` = 0.1.0 on both), with an isolated `DELONIX_ROOT=/tmp/dlxr`.
+Dependencies the golden did not ship and which were installed: `wireguard-tools`
+(`wg`), `slirp4netns`; and `sysctl kernel.apparmor_restrict_unprivileged_userns=0`
+(the binary in `/tmp` does not have the AppArmor profile that `install.sh` writes).
 
-Fluxo: `network node init` nos dois → troca de pubkeys → `network create mesh
---driver overlay --vni 42 --wg-ip … --peer <ip>=<pub>=<wgip>` nos dois (rc0,
-peer com a pubkey correta confirmada no `network inspect`) → `run -d --net mesh`
-um busybox em cada → ping entre os IPs-overlay.
+Flow: `network node init` on both → pubkey exchange → `network create mesh
+--driver overlay --vni 42 --wg-ip … --peer <ip>=<pub>=<wgip>` on both (rc0,
+peer with the correct pubkey confirmed in `network inspect`) → `run -d --net mesh`
+a busybox on each → ping between the overlay IPs.
 
-## Resultado: NÃO encaminha
+## Result: it does NOT forward
 
-| Sentido | Resultado |
+| Direction | Result |
 |---|---|
-| container A → container B (IP overlay) | **100% packet loss** |
+| container A → container B (overlay IP) | **100% packet loss** |
 | container B → container A | **100% packet loss** |
 
-Idêntico ao que a simulação de 2 netns já tinha dado. Dois nós REAIS roteáveis,
-pubkeys trocadas, slirp presente — e mesmo assim zero forwarding.
+Identical to what the 2-netns simulation had already given. Two REAL routable nodes,
+pubkeys exchanged, slirp present — and still zero forwarding.
 
-## Causa-raiz (cravada no nó e no código)
+## Root cause (pinned on the node and in the code)
 
-No nó, `net netns status` mostra `ingress UP — … slirp <pid>`: o holder rootless
-está atrás de **slirp4netns**. E no netns PRINCIPAL da VM:
+On the node, `net netns status` shows `ingress UP — … slirp <pid>`: the rootless
+holder is behind **slirp4netns**. And in the VM's MAIN netns:
 
 ```
 $ ss -ulnp | grep -E '51820|4789'
-(nada)
+(nothing)
 ```
 
-**Nada escuta em UDP 51820 (WireGuard) nem 4789 (VXLAN) na interface real do nó.**
-A WG e o VXLAN são configurados DENTRO do netns do holder (infra.rs: `wg-up`
-porta 51820 na ~3274, VXLAN porta 4789 na ~4710), mas o `slirp_add_hostfwd`
-(lib.rs ~2101) só é usado para **portas publicadas de containers** — nunca para
-51820/4789. Logo o handshake WireGuard que o peer envia para `<ip-do-nó>:51820`
-chega à VM e bate em **porta fechada**: o túnel nunca estabelece, e sem túnel não
-há VXLAN nem forwarding.
+**Nothing listens on UDP 51820 (WireGuard) or 4789 (VXLAN) on the node's real interface.**
+WG and VXLAN are configured INSIDE the holder's netns (infra.rs: `wg-up`
+port 51820 around ~3274, VXLAN port 4789 around ~4710), but `slirp_add_hostfwd`
+(lib.rs ~2101) is only used for **published container ports** — never for
+51820/4789. So the WireGuard handshake the peer sends to `<node-ip>:51820`
+reaches the VM and hits a **closed port**: the tunnel never establishes, and without a
+tunnel there is no VXLAN and no forwarding.
 
-Isto explica — e confirma com dado — o `Partial` honesto da matriz
+This explains — and confirms with data — the honest `Partial` in the matrix
 (`provider_report.rs:113`: "inter-node forwarding needs a second node the battery
-does not have"; "traffic across two nodes not measured"). Agora foi medido: **não
-encaminha**, e sabe-se exatamente porquê.
+does not have"; "traffic across two nodes not measured"). Now it has been measured: **it does
+not forward**, and we know exactly why.
 
-## Achado secundário: `--subnet` ignorado (bug)
+## Secondary finding: `--subnet` ignored (bug)
 
-`network create --driver overlay --subnet 10.244.0.0/16` → o overlay ficou em
-**`10.234.0.0/16`** (auto), nos dois nós, cada um a escolher independentemente.
-Para um L2 que é suposto ser partilhado entre nós, (a) a opção foi engolida em
-silêncio (a classe de bug que o repo persegue) e (b) nada coordena o /16 entre
-nós → dois nós podem atribuir o mesmo IP. Reproduzido na sim netns E nas VMs.
+`network create --driver overlay --subnet 10.244.0.0/16` → the overlay landed on
+**`10.234.0.0/16`** (auto), on both nodes, each choosing independently.
+For an L2 that is supposed to be shared across nodes, (a) the option was swallowed
+silently (the class of bug the repo chases) and (b) nothing coordinates the /16 across
+nodes → two nodes may assign the same IP. Reproduced in the netns sim AND the VMs.
 
-## O que isto significa para o G4
+## What this means for G4
 
-O overlay rootless, como está, **não serve para HA multi-nó**: o data-plane
-não atravessa os nós. Dois bloqueios a fechar antes de "via prova" poder passar:
+The rootless overlay, as it stands, **is not fit for multi-node HA**: the data-plane
+does not cross nodes. Two blocks to close before "via proof" can pass:
 
-1. **Encaminhar o overlay para o holder.** Quando existe uma rede `overlay`,
-   adicionar hostfwds no slirp para **UDP 51820 (WG)** e **UDP 4789 (VXLAN)**
-   (o `slirp_add_hostfwd` já existe; falta ligá-lo a estas portas), para que o
-   `<ip-do-nó>:51820/4789` entre no holder. É SDN-core com implicações de
-   firewall/segurança (em que endereço ligar, idempotência, teardown, interação
-   com o `fwdeny`/governança) — merece desenho/ADR, não um patch às cegas.
-2. **Honrar `--subnet`** no driver overlay + coordenar o /16 entre nós.
+1. **Route the overlay to the holder.** When an `overlay` network exists,
+   add hostfwds in slirp for **UDP 51820 (WG)** and **UDP 4789 (VXLAN)**
+   (`slirp_add_hostfwd` already exists; it just needs wiring to these ports), so that
+   `<node-ip>:51820/4789` enters the holder. It is SDN-core with
+   firewall/security implications (which address to bind, idempotency, teardown, interaction
+   with `fwdeny`/governance) — it deserves design/ADR, not a blind patch.
+2. **Honour `--subnet`** in the overlay driver + coordinate the /16 across nodes.
 
-Alternativa a (1): um modo de overlay ROOTFUL onde a WG/VXLAN vivem numa
-interface real do nó (sem slirp). Também decisão de desenho.
+Alternative to (1): a ROOTFUL overlay mode where WG/VXLAN live on a real
+node interface (no slirp). Also a design decision.
 
-## Fix do bloqueio #1 (ADR-0084) — medido DEPOIS, nas mesmas VMs
+## Fix for block #1 (ADR-0084) — measured AFTER, on the same VMs
 
-`realize_overlay` passa a adicionar um hostfwd no slirp para UDP 51820 ligado a
-`0.0.0.0` (`infra::set_overlay_wg_hostfwd`). Re-corrido nas 2 VMs com o binário
-que leva o fix:
+`realize_overlay` now adds a slirp hostfwd for UDP 51820 bound to
+`0.0.0.0` (`infra::set_overlay_wg_hostfwd`). Re-run on the 2 VMs with the binary
+carrying the fix:
 
-| | ANTES | DEPOIS |
+| | BEFORE | AFTER |
 |---|---|---|
-| `ss -ulnp` no nó, UDP 51820 | nada | `slirp4netns … 0.0.0.0:51820` (nos dois nós) |
-| handshake WireGuard | nunca | **completa** nos dois (`wg show`: `latest handshake: …`) |
-| transferência no túnel | 0 | node-a 10,27 KiB rx / 7,23 KiB tx; node-b 7,99 / 10,06 |
-| VXLAN no túnel | — | `10.42.0.1 ↔ 10.42.0.2:4789` (ARP do container encapsulada e enviada) |
+| `ss -ulnp` on the node, UDP 51820 | nothing | `slirp4netns … 0.0.0.0:51820` (on both nodes) |
+| WireGuard handshake | never | **completes** on both (`wg show`: `latest handshake: …`) |
+| transfer over the tunnel | 0 | node-a 10.27 KiB rx / 7.23 KiB tx; node-b 7.99 / 10.06 |
+| VXLAN over the tunnel | — | `10.42.0.1 ↔ 10.42.0.2:4789` (container ARP encapsulated and sent) |
 
-Ou seja: o **transporte WireGuard+VXLAN inter-nó funciona** — era exatamente o que
-não acontecia. Faltavam ainda dois fixes para o ping container-a-container passar.
+In other words: the **inter-node WireGuard+VXLAN transport works** — exactly what
+was not happening. Two more fixes were still needed for container-to-container ping to pass.
 
-## Bloqueio #2 — decomposto, medido e RESOLVIDO (2026-11-02)
+## Block #2 — decomposed, measured and RESOLVED (2026-11-02)
 
-**#2A — `--subnet` ignorado: RESOLVIDO.** `create_overlay` passa a honrar
-`--subnet` (via `base_from_subnet`, como o bridge), com teste unitário. Dois nós
-com o mesmo `--subnet` aterram no mesmo `/16` e gateway — confirmado live (ambos
-`10.244.0.0/16`, gw `10.244.0.1`). **Necessário mas NÃO suficiente:** com os dois
-nós já no mesmo `/16`, o forwarding continuava 100 % perda.
+**#2A — `--subnet` ignored: RESOLVED.** `create_overlay` now honours
+`--subnet` (via `base_from_subnet`, like the bridge), with a unit test. Two nodes
+with the same `--subnet` land on the same `/16` and gateway — confirmed live (both
+`10.244.0.0/16`, gw `10.244.0.1`). **Necessary but NOT sufficient:** with both
+nodes already on the same `/16`, forwarding was still 100 % loss.
 
-**#2B — decapsulação VXLAN no peer: RESOLVIDO.** A causa-raiz, cravada por
-`conntrack` + `nstat` + a chain nft:
+**#2B — VXLAN decapsulation on the peer: RESOLVED.** The root cause, pinned by
+`conntrack` + `nstat` + the nft chain:
 
-| Observação | Medição |
+| Observation | Measurement |
 |---|---|
-| frame VXLAN de ca chega ao `wgN` de node-b (decifrado) | `tcpdump wgN`: `10.42.0.1 > 10.42.0.2:4789 VXLAN vni 42 ARP who-has …` ✓ |
-| device VXLAN decapsula (antes do fix)? | **`ip -s link` RX = 0** ✗ |
-| entregue à stack local? | **`IpInDelivers` ≈ 0** ✗ |
-| conntrack do fluxo de entrada | `src=10.42.0.1 … dport=4789` marcado **NEW** |
-| contador que MEXEU | **`dlxinput`: `ct state new counter … drop`** (+14…23 pacotes) |
-| NÃO era | `--subnet`, nem rp_filter (forcei 0), nem a amarração `local/dev` (tentada e revertida — `RX=0` na mesma) |
+| VXLAN frame from ca reaches node-b's `wgN` (decrypted) | `tcpdump wgN`: `10.42.0.1 > 10.42.0.2:4789 VXLAN vni 42 ARP who-has …` ✓ |
+| does the VXLAN device decapsulate (before the fix)? | **`ip -s link` RX = 0** ✗ |
+| delivered to the local stack? | **`IpInDelivers` ≈ 0** ✗ |
+| conntrack of the inbound flow | `src=10.42.0.1 … dport=4789` marked **NEW** |
+| counter that MOVED | **`dlxinput`: `ct state new counter … drop`** (+14…23 packets) |
+| what it was NOT | `--subnet`, nor rp_filter (I forced 0), nor the `local/dev` binding (tried and reverted — `RX=0` all the same) |
 
-A chain `dlxinput` (hook input do holder) é uma allowlist com um `ct state new
-drop` terminal; aceita `lo`, `tap0` (a WG entra por aí, via slirp — por isso o
-handshake passava), DNS/DHCP e ICMP. A VXLAN de entrada chega na interface WG
-(`wgo<vni>`) como UDP 4789, conexão **NEW**, não estava em nenhum accept → caía no
-drop. **Fix:** `dlxinput` passa a aceitar `iifname "wgo*" udp dport 4789 accept`
-(só a VXLAN, só nas ifaces WireGuard — que só entregam tráfego de peers
-autenticados; a mesma disciplina de allowlist das outras regras). Teste reforçado
-em `os_servicos_do_holder_nao_sao_alcancaveis_de_um_container`.
+The `dlxinput` chain (the holder's input hook) is an allowlist with a terminal
+`ct state new drop`; it accepts `lo`, `tap0` (WG comes in there, via slirp — which is why
+the handshake passed), DNS/DHCP and ICMP. The inbound VXLAN arrives on the WG interface
+(`wgo<vni>`) as UDP 4789, a **NEW** connection, was in no accept rule → it fell to the
+drop. **Fix:** `dlxinput` now accepts `iifname "wgo*" udp dport 4789 accept`
+(VXLAN only, only on the WireGuard interfaces — which only deliver traffic from authenticated
+peers; the same allowlist discipline as the other rules). Test hardened
+in `os_servicos_do_holder_nao_sao_alcancaveis_de_um_container`.
 
-## PROVA FINAL — end-to-end nas 2 VMs (depois dos três fixes)
+## FINAL PROOF — end-to-end on the 2 VMs (after the three fixes)
 
 ```
 ### FORWARDING A->B
@@ -132,12 +132,12 @@ em `os_servicos_do_holder_nao_sao_alcancaveis_de_um_container`.
 ### VXLAN device RX em node-b:  2684 bytes  31 packets   (era 0)
 ```
 
-O overlay inter-nó **encaminha container-a-container entre dois nós reais**, 0 %
-de perda nos dois sentidos, ~0,7 ms. O caminho "via prova" do G4 (parte overlay)
-fica provado. (O control-plane k8s HA é a outra metade do G4 via-prova.)
+The inter-node overlay **forwards container-to-container between two real nodes**, 0 %
+loss in both directions, ~0.7 ms. The "via proof" path of G4 (overlay part)
+is proven. (The k8s HA control-plane is the other half of G4 via-proof.)
 
-## Reprodutível
+## Reproducible
 
-`scripts/e2e_overlay_multinode.sh --via ssh <userA@nodeA> <userB@nodeB>` corre
-este fluxo e as asserções contra quaisquer dois nós. O cabeçalho do script traz
-o procedimento e estes achados.
+`scripts/e2e_overlay_multinode.sh --via ssh <userA@nodeA> <userB@nodeB>` runs
+this flow and the assertions against any two nodes. The script header carries
+the procedure and these findings.

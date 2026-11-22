@@ -1,84 +1,85 @@
-# CNCF gap analysis — Delonix × Docker (8 áreas de valor)
+# CNCF gap analysis — Delonix × Docker (8 value areas)
 
-> Leitura do código oficial do Docker/Moby (via `gh`: `moby/moby`,
+> Reading of the official Docker/Moby code (via `gh`: `moby/moby`,
 > `moby/buildkit`, `docker/scout-cli`, `docker/compose`, `compose-spec/compose-spec`,
-> linhagem `opencontainers/runc` + `containerd/containerd`) cruzada com o código
-> do Delonix (`delonix-scanner`, `delonix-oci/sign.rs`, `build.rs`, CRI) e os
-> testes de 2026-11-08. Objectivo: o que falta para **100% nas 8 áreas de valor
-> CNCF**. Imparcial: inclui onde o Delonix **já** está alinhado.
+> lineage `opencontainers/runc` + `containerd/containerd`) cross-checked against
+> the Delonix code (`delonix-scanner`, `delonix-oci/sign.rs`, `build.rs`, CRI) and
+> the 2026-11-08 tests. Goal: what is missing for **100% across the 8 CNCF value
+> areas**. Impartial: includes where Delonix is **already** aligned.
 
-## Onde o Delonix já está alinhado (não inflacionar o gap)
-- **CVE via OSV** — `delonix-scanner` consome feeds **OSV** (formato aberto CNCF), offline. ✔
-- **Assinatura cosign/sigstore** — `delonix-oci/src/sign.rs` é compatível com **cosign** (ECDSA-P256, artefacto `.sig`, simplesigning). ✔
-- **Rootless-first** — paridade filosófica com BuildKit/Moby rootless. ✔
+## Where Delonix is already aligned (do not inflate the gap)
+- **CVE via OSV** — `delonix-scanner` consumes **OSV** feeds (open CNCF format), offline. ✔
+- **cosign/sigstore signature** — `delonix-oci/src/sign.rs` is compatible with **cosign** (ECDSA-P256, `.sig` artefact, simplesigning). ✔
+- **Rootless-first** — philosophical parity with rootless BuildKit/Moby. ✔
 
-## Matriz das 8 áreas → caminho para 100%
+## Matrix of the 8 areas → path to 100%
 
-| # | Área de valor CNCF | Docker (evidência) | Delonix hoje | Itens para 100% | Estado |
+| # | CNCF value area | Docker (evidence) | Delonix today | Items for 100% | State |
 |---|---|---|---|---|---|
-| 1 | **Linhagem de runtime** | containerd (CNCF *graduated*) + runc (ref. OCI) | runtime Rust runc-compat, fora da cadeia containerd | GAP-0012 | ✗ |
-| 2 | **Conformância OCI/CRI** | containerd CRI 100%; Moby ref. OCI image/dist | CRI 84/19 rootless · 90/13 rootful-VM; bugs OCI | BUG-0003/04/05/06 · GAP-0001/0003 · GAP-0012 | ◑ |
-| 3 | **Provenance SLSA no build** | BuildKit SLSA v0.2/v1.1 (min/max, builder-id, reproducible) | não gera provenance no build | **GAP-0008** | ✗ |
-| 4 | **SBOM interoperável (in-toto/SPDX)** | BuildKit SBOM SPDX+in-toto, scanner plugável (syft) | scanner gera SBOM p/ CVE, não anexa SPDX in-toto à imagem | **GAP-0009** | ◑ |
-| 5 | **Build cloud-native** | cache distribuído (registry/S3/Azure/GHA), multi-plat, frontends LLB | COPY/`--link` ok; sem cache dist./multi-plat/frontends | **GAP-0010** | ✗ |
-| 6 | **Compose como especificação aberta** | Compose Specification comunitária | compose próprio, lacunas (DEF-003) | GAP-0005 + **GAP-0011** | ◑ |
-| 7 | **Governança aberta** | Moby governança aberta; doou runc/containerd | repo privado, org própria | **GAP-0014** | ✗ |
-| 8 | **Scanning maduro em CI** | Scout: policy, `compare`, gating CI (`--exit-code`) | scanner OSV novo, sem policy/compare/CI | **GAP-0013** | ◑ |
+| 1 | **Runtime lineage** | containerd (CNCF *graduated*) + runc (OCI ref.) | Rust runc-compat runtime, outside the containerd chain | GAP-0012 | ✗ |
+| 2 | **OCI/CRI conformance** | containerd CRI 100%; Moby OCI image/dist ref. | CRI 84/19 rootless · 90/13 rootful-VM; OCI bugs | BUG-0003/04/05/06 · GAP-0001/0003 · GAP-0012 | ◑ |
+| 3 | **SLSA Provenance in build** | BuildKit SLSA v0.2/v1.1 (min/max, builder-id, reproducible) | does not generate provenance in build | **GAP-0008** | ✗ |
+| 4 | **Interoperable SBOM (in-toto/SPDX)** | BuildKit SBOM SPDX+in-toto, pluggable scanner (syft) | scanner generates SBOM for CVE, does not attach SPDX in-toto to the image | **GAP-0009** | ◑ |
+| 5 | **Cloud-native build** | distributed cache (registry/S3/Azure/GHA), multi-plat, LLB frontends | COPY/`--link` ok; no dist. cache/multi-plat/frontends | **GAP-0010** | ✗ |
+| 6 | **Compose as an open specification** | community Compose Specification | own compose, gaps (DEF-003) | GAP-0005 + **GAP-0011** | ◑ |
+| 7 | **Open governance** | open Moby governance; donated runc/containerd | private repo, own org | **GAP-0014** | ✗ |
+| 8 | **Mature CI scanning** | Scout: policy, `compare`, CI gating (`--exit-code`) | new OSV scanner, no policy/compare/CI | **GAP-0013** | ◑ |
 
-Legenda: ✗ ausente · ◑ parcial · ✔ feito. **100% = todas a ✔.**
+Legend: ✗ absent · ◑ partial · ✔ done. **100% = all ✔.**
 
-## Prioridade (lente CNCF)
-1. **Supply-chain de build** (áreas 3+4) — GAP-0008, GAP-0009. Aditivo: `sign.rs`
-   (cosign) e `delonix-scanner` (SBOM/OSV) já dão metade do caminho; falta
-   emitir **in-toto/SPDX** + **SLSA provenance** e anexar como attestation OCI.
-2. **Conformância comprovada** (áreas 1+2) — GAP-0012 + os BUGs CRI já abertos.
-3. **Compose Spec** (área 6) — GAP-0005 + GAP-0011.
-4. **Scanning em CI** (área 8) — GAP-0013.
-5. **Build avançado** (área 5) — GAP-0010.
-6. **Governança** (área 7) — GAP-0014 (decisão do dono, não só código).
+## Priority (CNCF lens)
+1. **Build supply-chain** (areas 3+4) — GAP-0008, GAP-0009. Additive: `sign.rs`
+   (cosign) and `delonix-scanner` (SBOM/OSV) already cover half the way; what is
+   missing is emitting **in-toto/SPDX** + **SLSA provenance** and attaching it as
+   an OCI attestation.
+2. **Proven conformance** (areas 1+2) — GAP-0012 + the already-open CRI BUGs.
+3. **Compose Spec** (area 6) — GAP-0005 + GAP-0011.
+4. **CI scanning** (area 8) — GAP-0013.
+5. **Advanced build** (area 5) — GAP-0010.
+6. **Governance** (area 7) — GAP-0014 (owner's decision, not just code).
 
 ---
 
-## Fichas dos GAPs novos (formato backlog)
+## New GAP sheets (backlog format)
 
-### GAP-0008 — Provenance SLSA no `delonix build` (área 3)
-- **Current:** `build.rs` constrói a imagem (replica COPY/`--link` do BuildKit) mas não emite proveniência.
-- **Expected (CNCF):** BuildKit emite SLSA provenance (v0.2/v1.1, min/max) como in-toto attestation anexada à imagem.
-- **Target 100%:** `delonix build --provenance[=mode=min|max]` produz um predicate SLSA v1.1 (builder.id, materials, invocation) embrulhado em in-toto e anexado ao índice OCI.
-- **Component:** `crates/adapters/delonix-oci/src/build.rs` + `.../sign.rs` (reutilizar) + `image_ops.rs`. **Compl.:** L. **Dep.:** GAP-0009 (partilham o anexo de attestations).
+### GAP-0008 — SLSA Provenance in `delonix build` (area 3)
+- **Current:** `build.rs` builds the image (replicates BuildKit's COPY/`--link`) but does not emit provenance.
+- **Expected (CNCF):** BuildKit emits SLSA provenance (v0.2/v1.1, min/max) as an in-toto attestation attached to the image.
+- **Target 100%:** `delonix build --provenance[=mode=min|max]` produces a SLSA v1.1 predicate (builder.id, materials, invocation) wrapped in in-toto and attached to the OCI index.
+- **Component:** `crates/adapters/delonix-oci/src/build.rs` + `.../sign.rs` (reuse) + `image_ops.rs`. **Compl.:** L. **Dep.:** GAP-0009 (they share the attestation attachment).
 
-### GAP-0009 — SBOM SPDX in-toto anexado à imagem (área 4)
-- **Current:** `delonix-scanner` extrai SBOM (apk/dpkg) para match de CVE, mas não o publica como attestation da imagem.
-- **Expected (CNCF):** BuildKit anexa SBOM **SPDX** embrulhado em **in-toto**, scanner plugável.
-- **Target 100%:** `delonix build --sbom` emite SPDX JSON (a partir do scanner existente) em in-toto attestation, anexada ao índice OCI; `delonix image sbom <ref>` exporta SPDX.
-- **Component:** `crates/adapters/delonix-scanner` (emissor SPDX) + `delonix-oci` (anexo). **Compl.:** M. **Dep.:** —.
+### GAP-0009 — SBOM SPDX in-toto attached to the image (area 4)
+- **Current:** `delonix-scanner` extracts an SBOM (apk/dpkg) for CVE matching, but does not publish it as an image attestation.
+- **Expected (CNCF):** BuildKit attaches an **SPDX** SBOM wrapped in **in-toto**, pluggable scanner.
+- **Target 100%:** `delonix build --sbom` emits SPDX JSON (from the existing scanner) in an in-toto attestation, attached to the OCI index; `delonix image sbom <ref>` exports SPDX.
+- **Component:** `crates/adapters/delonix-scanner` (SPDX emitter) + `delonix-oci` (attachment). **Compl.:** M. **Dep.:** —.
 
-### GAP-0010 — Build cloud-native: cache distribuído + multi-plataforma (área 5)
-- **Current:** build local; sem cache exportável nem imagens multi-arch nativas.
-- **Expected (CNCF):** BuildKit: `--cache-to/--cache-from` (registry), `--platform` multi-arch, frontends.
-- **Target 100%:** `delonix build --platform linux/amd64,linux/arm64` produz índice multi-arch; `--cache-to/--cache-from type=registry` round-trip.
-- **Component:** `crates/adapters/delonix-oci/src/build.rs` + `registry.rs`. **Compl.:** XL. **Dep.:** —. (Frontends LLB ficam fora de âmbito — decisão arquitectural.)
+### GAP-0010 — Cloud-native build: distributed cache + multi-platform (area 5)
+- **Current:** local build; no exportable cache nor native multi-arch images.
+- **Expected (CNCF):** BuildKit: `--cache-to/--cache-from` (registry), multi-arch `--platform`, frontends.
+- **Target 100%:** `delonix build --platform linux/amd64,linux/arm64` produces a multi-arch index; `--cache-to/--cache-from type=registry` round-trip.
+- **Component:** `crates/adapters/delonix-oci/src/build.rs` + `registry.rs`. **Compl.:** XL. **Dep.:** —. (LLB frontends remain out of scope — architectural decision.)
 
-### GAP-0011 — Convergência para a Compose Specification (área 6)
-- **Current:** compose próprio com lacunas (DEF-003, ver GAP-0005).
-- **Expected (CNCF):** aderir à Compose Specification (`compose-spec/compose-spec`).
-- **Target 100%:** suite de conformância contra a spec; directivas comuns verdes; divergências documentadas.
+### GAP-0011 — Convergence on the Compose Specification (area 6)
+- **Current:** own compose with gaps (DEF-003, see GAP-0005).
+- **Expected (CNCF):** adhere to the Compose Specification (`compose-spec/compose-spec`).
+- **Target 100%:** conformance suite against the spec; common directives green; divergences documented.
 - **Component:** `delonix compose`. **Compl.:** M. **Dep.:** GAP-0005.
 
-### GAP-0012 — Conformância OCI/distribution/CRI comprovada + posição de runtime (áreas 1+2)
-- **Current:** runtime próprio runc-compat; CRI parcial; sem passagem publicada das suites OCI.
-- **Expected (CNCF):** conformância demonstrável (containerd passa CRI 100%; suites OCI image/distribution/runtime).
-- **Target 100%:** CRI ≥95% em rootful-VM (fecha com BUG-0003/04/05/06 + GAP-0001/0003); correr e publicar **oci image-spec/distribution-spec/runtime-spec conformance**; documentar a decisão «runtime próprio vs adoptar containerd» num ADR.
-- **Component:** cross (`delonix-cri`, `delonix-oci`, `delonix-linux`). **Compl.:** XL. **Dep.:** BUGs CRI.
+### GAP-0012 — Proven OCI/distribution/CRI conformance + runtime position (areas 1+2)
+- **Current:** own runc-compat runtime; partial CRI; no published pass of the OCI suites.
+- **Expected (CNCF):** demonstrable conformance (containerd passes CRI 100%; OCI image/distribution/runtime suites).
+- **Target 100%:** CRI ≥95% in rootful-VM (closes with BUG-0003/04/05/06 + GAP-0001/0003); run and publish **oci image-spec/distribution-spec/runtime-spec conformance**; document the "own runtime vs adopt containerd" decision in an ADR.
+- **Component:** cross (`delonix-cri`, `delonix-oci`, `delonix-linux`). **Compl.:** XL. **Dep.:** CRI BUGs.
 
-### GAP-0013 — Scanner maduro em CI: policy + compare + gating (área 8)
-- **Current:** `delonix-scanner` faz SBOM+CVE (OSV), sem policy/compare/CI.
-- **Expected (CNCF):** Scout: policy engine, `compare` entre imagens, `--exit-code --only-severity` para gating.
-- **Target 100%:** `delonix scan <ref> --exit-code --only-severity critical,high`; `delonix scan compare A B`; política declarável (kind).
+### GAP-0013 — Mature scanner in CI: policy + compare + gating (area 8)
+- **Current:** `delonix-scanner` does SBOM+CVE (OSV), without policy/compare/CI.
+- **Expected (CNCF):** Scout: policy engine, `compare` between images, `--exit-code --only-severity` for gating.
+- **Target 100%:** `delonix scan <ref> --exit-code --only-severity critical,high`; `delonix scan compare A B`; declarable policy (kind).
 - **Component:** `delonix-scanner` + CLI `scan`. **Compl.:** M. **Dep.:** —.
 
-### GAP-0014 — Governança aberta do projecto (área 7)
-- **Current:** repo privado, org própria.
-- **Expected (CNCF):** governança aberta (Moby), SECURITY.md, processo de contribuição, licença aberta.
-- **Target 100%:** decisão do dono — tornar público com governança documentada, SECURITY.md, CODEOWNERS, política de release. **Não é só código.**
-- **Component:** repo/projecto. **Compl.:** M. **Dep.:** decisão estratégica.
+### GAP-0014 — Open project governance (area 7)
+- **Current:** private repo, own org.
+- **Expected (CNCF):** open governance (Moby), SECURITY.md, contribution process, open licence.
+- **Target 100%:** owner's decision — go public with documented governance, SECURITY.md, CODEOWNERS, release policy. **Not just code.**
+- **Component:** repo/project. **Compl.:** M. **Dep.:** strategic decision.

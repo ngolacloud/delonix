@@ -132,7 +132,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mesmo_seed_da_o_mesmo_nome() {
+    fn same_seed_gives_the_same_name() {
         // The guarantee that the two re-exec passes converge.
         let a = derived_name("abc123", |_| false).unwrap();
         let b = derived_name("abc123", |_| false).unwrap();
@@ -140,24 +140,24 @@ mod tests {
     }
 
     #[test]
-    fn seeds_diferentes_dao_nomes_diferentes() {
+    fn different_seeds_give_different_names() {
         let a = derived_name("abc123", |_| false).unwrap();
         let b = derived_name("xyz789", |_| false).unwrap();
         assert_ne!(a, b);
     }
 
     #[test]
-    fn nome_ocupado_avanca_para_o_seguinte() {
+    fn a_taken_name_advances_to_the_next() {
         let first = derived_name("abc123", |_| false).unwrap();
         let second = derived_name("abc123", |n| n == first).unwrap();
         assert_ne!(first, second);
     }
 
     #[test]
-    fn formato_rei_lugar_nn() {
+    fn format_is_king_place_nn() {
         let n = derived_name("abc123", |_| false).unwrap();
         let parts: Vec<&str> = n.rsplitn(2, '-').collect();
-        assert_eq!(parts[0].len(), 2, "sufixo NN: {n}");
+        assert_eq!(parts[0].len(), 2, "NN suffix: {n}");
         assert!(parts[0].chars().all(|c| c.is_ascii_digit()), "{n}");
     }
 }

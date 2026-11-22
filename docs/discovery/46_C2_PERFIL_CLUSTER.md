@@ -1,98 +1,98 @@
-# 46/C2 — Perfil de tempo da criação de um cluster
+# 46/C2 — Timing profile of cluster creation
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
-| Data | 2026-08-10 |
-| Comando | `delonix cluster create --name perfc2 --workers 0` (modo kind, 1 control-plane) |
-| Host | rootless, 5 containers de produção a correr, sob `systemd-run --user --scope -p Delegate=yes` |
-| Imagem | `kindest/node:v1.34.0` (424.8 MiB), **já local** — o `pull` não entra em nenhum destes números |
-| Método | Uma corrida real, com cada linha de progresso carimbada com o tempo desde o arranque |
+| Date | 2026-08-10 |
+| Command | `delonix cluster create --name perfc2 --workers 0` (kind mode, 1 control-plane) |
+| Host | rootless, 5 production containers running, under `systemd-run --user --scope -p Delegate=yes` |
+| Image | `kindest/node:v1.34.0` (424.8 MiB), **already local** — the `pull` does not enter into any of these numbers |
+| Method | One real run, with each progress line timestamped from the start |
 
 ---
 
-## 0. A premissa do enunciado está errada, e é preciso dizê-lo
+## 0. The premise of the request is wrong, and it needs to be said
 
-O pedido original fala em ter «um cluster Kubernetes no ar em alguns **milissegundos**». Isso
-é fisicamente impossível, e não por falta de optimização: o `kubeadm init` **espera** que o
-etcd, o apiserver, o controller-manager e o scheduler fiquem saudáveis, e um nó kind arranca
-`systemd` e `containerd` por dentro antes de qualquer disso começar. Nada que este motor faça
-reduz uma espera por *readiness* de outro processo a milissegundos.
+The original request talks about having "a Kubernetes cluster up in a few
+**milliseconds**." That is physically impossible, and not for lack of optimization: `kubeadm init`
+**waits** for etcd, the apiserver, the controller-manager, and the scheduler to become healthy, and a kind node boots
+`systemd` and `containerd` inside it before any of that begins. Nothing this engine does
+reduces a wait for another process's *readiness* to milliseconds.
 
-O que se pode fazer — e é o que este documento entrega — é **medir onde está o tempo**,
-encurtar o que é nosso, e declarar o piso.
+What can be done — and is what this document delivers — is to **measure where the time is**,
+shorten what is ours, and declare the floor.
 
-## 1. O perfil medido
+## 1. The measured profile
 
 ```
     0.0s  ✓ Ensuring node image (kindest/node:v1.34.0)
-    2.6s  (container do nó criado)
+    2.6s  (node container created)
    79.4s  ✓ Preparing nodes (1)
    79.4s  ✓ Writing configuration
   541.7s  ✓ Starting control-plane
   542.0s  ✓ Installing CNI (kindnet)
   560.5s  ✓ Waiting for control-plane to be Ready
-  560.5s  kubeconfig escrito, contexto definido
+  560.5s  kubeconfig written, context set
 ```
 
-| Etapa | Duração | Fatia | De quem é o tempo |
+| Stage | Duration | Share | Whose time it is |
 |---|---|---|---|
-| Garantir a imagem do nó | ~0 s | — | nosso (já estava local) |
-| Criar o container do nó | 2.6 s | 0.5 % | **nosso** |
-| Preparar o nó | 76.8 s | 14 % | misto: o nosso `run` + `systemd`/`containerd` a arrancar lá dentro |
-| Escrever a configuração | ~0 s | — | nosso |
-| **`kubeadm init`** | **462.3 s** | **82 %** | **do kubeadm** |
-| Instalar o CNI | 0.3 s | 0.05 % | nosso (aplica um manifesto) |
-| Esperar `Ready` | 18.5 s | 3 % | do kubelet/CNI |
+| Ensure the node image | ~0 s | — | ours (already local) |
+| Create the node container | 2.6 s | 0.5 % | **ours** |
+| Prepare the node | 76.8 s | 14 % | mixed: our `run` + `systemd`/`containerd` booting inside |
+| Write the configuration | ~0 s | — | ours |
+| **`kubeadm init`** | **462.3 s** | **82 %** | **kubeadm's** |
+| Install the CNI | 0.3 s | 0.05 % | ours (applies a manifest) |
+| Wait for `Ready` | 18.5 s | 3 % | kubelet's/CNI's |
 | **Total** | **560.5 s** | | |
 
-**O `kubeadm init` domina com 82 %.** Tudo o que o motor controla — criar o container, escrever
-a configuração, aplicar o CNI — soma menos de 3 segundos em 560.
+**`kubeadm init` dominates with 82 %.** Everything the engine controls — creating the container, writing
+the configuration, applying the CNI — adds up to less than 3 seconds out of 560.
 
-## 2. O ganho real obtido, e porque é pequeno AQUI
+## 2. The real gain obtained, and why it is small HERE
 
-A correcção de performance desta mesma sessão (o rootfs deixar de ser extraído duas vezes em
-`--net <rede-custom>`, ver o commit `perf:`) aplica-se a cada nó, porque um nó kind **é** um
-`container run` numa rede custom. Medido com a própria imagem de nó:
+This same session's performance fix (the rootfs no longer being extracted twice on
+`--net <custom-network>`, see the `perf:` commit) applies to each node, because a kind node **is** a
+`container run` on a custom network. Measured with the node image itself:
 
-| | `container run` de `kindest/node` |
+| | `container run` of `kindest/node` |
 |---|---|
-| antes | 5 226 ms |
-| depois | **2 762 ms** (−48 %) |
+| before | 5,226 ms |
+| after | **2,762 ms** (−48 %) |
 
-Mas é preciso ser honesto sobre o que isso vale no cluster: **~2.5 s poupados em 560 s = 0.45 %**.
-Cheguei a sugerir, antes de medir a etapa, que a correcção encurtaria a criação de clusters de
-forma sensível. **Não encurta.** O `container run` do nó são ~2.7 s de uma etapa de 76.8 s, e
-essa etapa é 14 % de um total dominado pelo `kubeadm`. A correcção é excelente para
-`container run` (−46 % numa imagem de 431 MB) e quase irrelevante para `cluster create`.
+But it is necessary to be honest about what that is worth in the cluster: **~2.5 s saved out of 560 s = 0.45 %**.
+I did suggest, before measuring the stage, that the fix would noticeably shorten cluster
+creation. **It does not.** The node's `container run` is ~2.7 s out of a 76.8 s stage, and
+that stage is 14 % of a total dominated by `kubeadm`. The fix is excellent for
+`container run` (−46 % on a 431 MB image) and nearly irrelevant for `cluster create`.
 
-Num cluster de N nós o ganho escala (~2.5 s por nó), e continua pequeno ao lado dos 462 s.
+In an N-node cluster the gain scales (~2.5 s per node), and remains small next to the 462 s.
 
-## 3. O piso teórico, declarado
+## 3. The theoretical floor, declared
 
-Com a imagem do nó já local e o motor a custar <3 s, o piso é **o que o kubeadm e o kubelet
-demoram a ficar saudáveis**. Nesta máquina isso foi 462 s + 18 s. Um kind típico faz o mesmo
-trabalho em 30–60 s, o que diz que este host está muito abaixo do normal — provavelmente
-contenção de CPU (5 containers de produção a correr, mais builds de Rust em paralelo durante a
-medição). **Não isolei o interior dos 462 s** e digo-o em vez de o atribuir: fazê-lo exige
-outra corrida com verbosidade do `kubeadm`, ou seja mais ~9 minutos, e não a fiz.
+With the node image already local and the engine costing <3 s, the floor is **how long kubeadm and kubelet
+take to become healthy**. On this machine that was 462 s + 18 s. A typical kind run does the same
+work in 30–60 s, which says this host is well below normal — likely
+CPU contention (5 production containers running, plus parallel Rust builds during the
+measurement). **I did not isolate the inside of the 462 s** and I say so rather than attribute it: doing so requires
+another run with `kubeadm` verbosity, i.e. another ~9 minutes, and I did not do it.
 
-O que se sabe do interior, e é pouco: as imagens do control-plane **estão** no containerd do
-nó (`kube-apiserver-amd64`, `etcd`, `coredns` — o conjunto que o `kindest/node` traz), e todos
-os componentes só apareceram a correr perto do FIM da janela. Portanto os ~7 minutos foram
-gastos **antes** de os static pods subirem, não a descarregar imagens.
+What is known of the inside, and it is little: the control-plane images **are** in the
+node's containerd (`kube-apiserver-amd64`, `etcd`, `coredns` — the set that `kindest/node` ships), and all
+the components only showed up running near the END of the window. So the ~7 minutes were
+spent **before** the static pods came up, not downloading images.
 
-## 4. Candidatos, e o que NÃO vale a pena
+## 4. Candidates, and what is NOT worth it
 
-- **Não vale a pena** optimizar a criação do container do nó, escrever a configuração ou
-  aplicar o CNI: somados dão menos de 3 s. Optimizar 0.5 % é ruído.
-- **Vale a pena investigar** o interior dos 462 s antes de qualquer outra coisa — é 82 % do
-  problema, e sem saber se é contenção deste host ou algo estrutural, qualquer trabalho a
-  jusante é palpite. É a próxima medição, não a próxima correcção.
-- **Paralelizar nós** (para `--workers N`) só ataca a etapa de 76.8 s e só quando N > 1; o
-  `kubeadm init` do primeiro control-plane é sequencial por natureza, e os `join` dependem do
-  token que ele produz.
+- **Not worth it:** optimizing node container creation, writing the configuration, or
+  applying the CNI: together they add up to less than 3 s. Optimizing 0.5 % is noise.
+- **Worth investigating:** the inside of the 462 s before anything else — it is 82 % of the
+  problem, and without knowing whether it is this host's contention or something structural, any downstream
+  work is a guess. It is the next measurement, not the next fix.
+- **Parallelizing nodes** (for `--workers N`) only attacks the 76.8 s stage and only when N > 1; the
+  first control-plane's `kubeadm init` is sequential by nature, and the `join`s depend on the
+  token it produces.
 
-## 5. Higiene
+## 5. Hygiene
 
-O cluster `perfc2` foi removido no fim. O host ficou com os 5 containers de produção e nada
-mais.
+The `perfc2` cluster was removed at the end. The host was left with the 5 production containers and nothing
+else.

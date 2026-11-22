@@ -741,7 +741,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nome_de_dataset_recusa_travessia_e_lixo() {
+    fn dataset_name_refuses_traversal_and_junk() {
         // The shapes that matter are the ones that would make a delete land
         // somewhere other than where the manifest says.
         for bad in [
@@ -772,13 +772,13 @@ mod tests {
     }
 
     #[test]
-    fn so_a_barra_e_codificada_no_id() {
+    fn only_the_slash_is_encoded_in_the_id() {
         assert_eq!(encode_id("tank/x"), "tank%2Fx");
         assert_eq!(encode_id("tank/a/b"), "tank%2Fa%2Fb");
     }
 
     #[test]
-    fn uma_propriedade_sem_valor_e_desconhecida_e_nao_zero() {
+    fn a_property_with_no_value_is_unknown_not_zero() {
         // The exact shape a real appliance returns for a dataset with no quota:
         // `parsed` is null while `rawvalue` sits there saying "0". Reading the
         // string would report a quota of zero bytes — a limit that allows
@@ -795,7 +795,7 @@ mod tests {
     }
 
     #[test]
-    fn um_corpo_de_resposta_nao_pode_fazer_o_cliente_entrar_em_panico() {
+    fn a_response_body_cannot_make_the_client_panic() {
         // A response body is attacker-controlled on every error path. Slicing
         // it by a byte index panics when the cut lands inside a character —
         // measured: 159 bytes of ASCII plus one `é` was enough. The whole
@@ -815,7 +815,7 @@ mod tests {
     }
 
     #[test]
-    fn a_url_nao_pode_levar_a_credencial_para_onde_quer_que_seja() {
+    fn the_url_cannot_carry_the_credential_anywhere() {
         // Plain HTTP with a credential: it would go over the wire in the clear.
         assert!(validate_target_url("http://nas.local", true).is_err());
         // …and is fine when there is nothing to leak.
@@ -834,7 +834,7 @@ mod tests {
     }
 
     #[test]
-    fn um_job_falhado_carrega_a_razao_da_appliance() {
+    fn a_failed_job_carries_the_appliance_reason() {
         let j: Job = serde_json::from_str(
             r#"{"state":"FAILED","error":"[EINVAL] pool_create.topology: Disks have duplicate serial numbers"}"#,
         )

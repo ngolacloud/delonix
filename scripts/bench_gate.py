@@ -11,7 +11,7 @@ last open deliverable is exactly that — "thresholds de regressão em CI".
 
 # The trap this gate is built around
 
-This repository retired a whole latency battery once (`docs/comparacao-medida.md`,
+This repository retired a whole latency battery once (`docs/measured-comparison.md`,
 2026-08-10 — the measured-comparison doc every comment below refers back to):
 docker 1406 ms, podman 1351 ms, delonix 640 ms, and the next run —
 same tools, same distro, same kernel — gave 208 / 268 / 89. Three engines do not

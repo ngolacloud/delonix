@@ -1,289 +1,296 @@
-# Inventário de folhas — as sete superfícies
+# Leaf inventory — the seven surfaces
 
-> **O que este documento é.** O denominador do trabalho de prova: cada unidade
-> invocável de cada superfície pública, com a classe de prova que tem **hoje** e
-> a fonte medida dessa classificação. Não é um plano — o plano por folha vive em
-> [`plano-folhas.md`](plano-folhas.md), e a infra-estrutura que falta em
+> **What this document is.** The denominator of the proof work: every
+> invokable unit of every public surface, with the proof class it has **today**
+> and the measured source of that classification. It is not a plan — the
+> per-surface plan lives in
+> [`plano-folhas.md`](plano-folhas.md), and the missing infrastructure in
 > [`lab-requisitos.md`](lab-requisitos.md).
 >
-> **O que não é.** Uma leitura do `--help`. Cada «executada» abaixo vem de um
-> `results.jsonl` de uma corrida real, de um trace de rotas, ou de um nome de
-> teste citado. Onde não há medição, diz **não medido** — nunca «provavelmente».
+> **What it is not.** A reading of `--help`. Every "run" below comes from a
+> `results.jsonl` from a real run, from a route trace, or from a cited test
+> name. Where there is no measurement, it says **not measured** — never
+> "probably".
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
-| Medido | **2026-10-20** |
+| Measured | **2026-10-20** |
 | Commit | `2663c846` |
-| Motor | `delonix 5.1.1` (`commit: 2663c846f (+49 commits since v5.1.1)`) |
+| Engine | `delonix 5.1.1` (`commit: 2663c846f (+49 commits since v5.1.1)`) |
 | Host | `delonix`, kernel 7.0.0-38-generic, Intel i9-13900H, 20 threads |
-| Binários | os seis de `target/release`. O motor reporta `2663c846f`; os sidecars foram construídos minutos antes, de uma árvore que difere **só em `scripts/`** — nenhuma linha de Rust entre os dois estados, logo são o mesmo binário em comportamento |
+| Binaries | the six from `target/release`. The engine reports `2663c846f`; the sidecars were built minutes before, from a tree that differs **only in `scripts/`** — not one line of Rust between the two states, so they are the same binary in behaviour |
 
-## As classes
+## The classes
 
-| classe | significado | o que falta |
+| class | meaning | what is missing |
 |---|---|---|
-| **A** | executada e afirmada em ambiente real | só a matriz de casos da Fase 2 |
-| **B** | existe, implementada, mas nenhuma corrida a executa | torná-la executável |
-| **C** | executada só com mocks ou só numa codificação | levar a real |
-| **D** | declarada mas `UNIMPLEMENTED`, ou com defeito conhecido | teste vermelho + correcção, ou ADR a remover/adiar |
-| **E** | precisa de infra-estrutura que o laboratório não tem | ver `lab-requisitos.md` |
+| **A** | run and asserted in a real environment | only the Phase 2 case matrix |
+| **B** | exists, implemented, but no run exercises it | making it runnable |
+| **C** | run only with mocks or only in one encoding | taking it to real |
+| **D** | declared but `UNIMPLEMENTED`, or with a known defect | red test + fix, or an ADR to remove/defer |
+| **E** | needs infrastructure the lab does not have | see `lab-requisitos.md` |
 
-## Contagens — superfície × classe
+## Counts — surface × class
 
-<!-- folhas:counts:begin — verificado contra docs/testing/folhas.tsv pelo scripts/folhas_gate.py -->
+<!-- folhas:counts:begin — verified against docs/testing/folhas.tsv by scripts/folhas_gate.py -->
 
-| superfície | folhas | A | B | C | D | E | fonte do denominador |
+| surface | leaves | A | B | C | D | E | denominator source |
 |---|---:|---:|---:|---:|---:|---:|---|
-| cli | **366** | 272 | 83 | 0 | 0 | 11 | `scripts/cli_baseline.tsv` (gate `rc=0`) |
-| node-api | **65** | 15 | 6 | 15 | 29 | 0 | `proto/delonix/node/v1/*.proto` (`rpc <Name>`) |
+| cli | **371** | 272 | 88 | 0 | 0 | 11 | `scripts/cli_baseline.tsv` (gate `rc=0`) |
+| node-api | **69** | 18 | 7 | 15 | 29 | 0 | `proto/delonix/node/v1/*.proto` (`rpc <Name>`) |
 | mgmt-api | **32** | 1 | 6 | 19 | 6 | 0 | `delonix-mgmt/src/lib.rs` (`.route("…"`) |
 | mcp | **15** | 0 | 5 | 10 | 0 | 0 | `delonix-mcp/src/lib.rs` (`name = "<tool>"`) |
 | cri | **34** | 24 | 3 | 5 | 2 | 0 | `delonix-cri/proto/api.proto` (`rpc <Name>`) |
-| kinds | **165** | 40 | 90 | 8 | 23 | 4 | `kinds.rs` `FACTS` — 33 kinds × 5 verbos |
-| **total** | **674** | **352** | **193** | **57** | **60** | **12** | — |
+| kinds | **165** | 40 | 90 | 8 | 23 | 4 | `kinds.rs` `FACTS` — 33 kinds × 5 verbs |
+| **total** | **683** | **355** | **199** | **57** | **60** | **12** | — |
 
 <!-- folhas:counts:end -->
 
-> **Estes números são os do `folhas.tsv`, e o `scripts/folhas_gate.py` chumba se
-> esta tabela deixar de lhes bater.** Escreveram-se à mão uma vez e divergiram
-> à primeira revisão — a CLI dizia 7 `B` e 12 `E` onde a medição diz 9 e 10 —,
-> que é precisamente o defeito de uma linha cujo estado vive em dois ficheiros
-> sem ninguém a comparar.
+> **These numbers are those of `folhas.tsv`, and `scripts/folhas_gate.py` fails
+> if this table stops matching them.** They were written by hand once and
+> diverged at the first review — the CLI said 7 `B` and 12 `E` where the
+> measurement says 9 and 10 —, which is precisely the defect of a line whose
+> state lives in two files with nobody comparing them.
 
-Três notas de denominador, porque a contagem acima é a do **gate** e há leituras
-legítimas diferentes:
+Three denominator notes, because the count above is the **gate**'s and there
+are legitimate different readings:
 
-- **Node API: 59 RPCs, não 116.** O âmbito conta gRPC e REST como folhas
-  separadas, e por essa regra seriam 59 + 57 mapeadas. O gate conta a **RPC**,
-  uma vez, porque é essa a unidade que o `proto` define e a que o
-  `contract_gate.py` já guarda. A lacuna da codificação gRPC não desaparece por
-  isso — está registada como trabalho **E1** no `plano-folhas.md`, e vale 57
-  folhas.
-- **Mgmt API: 32 caminhos, 40 operações.** O `.route()` dá o caminho; alguns
-  carregam mais que um método (`/v1/volumes` serve `GET` e `POST`). 40 é a
-  contagem por operação, e é a que o ADR-0042 e o `55_API_UNICA.md` publicam.
-- **Providers ficam fora do gate.** ~430 operações nos nove crates, das quais
-  ~196 com prova live. O denominador deles é um schema HTTP publicado ou um
-  `virsh help` de versão nomeada, e já tem instrumento próprio (ADR-0049); um
-  segundo extractor pior produziria um segundo número discordante. Ver §7.
+- **Node API: 59 RPCs, not 116.** The scope counts gRPC and REST as separate
+  leaves, and by that rule it would be 59 + 57 mapped. The gate counts the
+  **RPC**, once, because that is the unit the `proto` defines and the one
+  `contract_gate.py` already guards. The gRPC encoding gap does not disappear
+  because of this — it is recorded as **E1** work in `plano-folhas.md`, and is
+  worth 57 leaves.
+- **Mgmt API: 32 paths, 40 operations.** The `.route()` gives the path; some
+  carry more than one method (`/v1/volumes` serves `GET` and `POST`). 40 is
+  the per-operation count, and it is the one ADR-0042 and `55_API_UNICA.md`
+  publish.
+- **Providers fall outside the gate.** ~430 operations across the nine
+  crates, of which ~196 have live proof. Their denominator is a published
+  HTTP schema or a `virsh help` of a named version, and it already has its
+  own instrument (ADR-0049); a second, worse extractor would produce a second,
+  conflicting number. See §7.
 
 ---
 
-## 1. CLI — 300 folhas
+## 1. CLI — 300 leaves
 
-`scripts/cli-tree.sh --count` → **316 comandos · 273 folhas · 40 grupos**;
-classes de reestruturação 169 `~`, 85 `=`, 17 `→`, 2 `!`. `--gate` **rc=0**.
+`scripts/cli-tree.sh --count` → **316 commands · 273 leaves · 40 groups**;
+restructuring classes 169 `~`, 85 `=`, 17 `→`, 2 `!`. `--gate` **rc=0**.
 
-`scripts/cli_exec_ratchet.py` **rc=0** → **263 de 273 invocadas sob asserção —
-96,3 %**. Proveniência do trace: 2026-10-20, commit `2663c846`, root isolado,
+`scripts/cli_exec_ratchet.py` **rc=0** → **263 of 273 invoked under assertion —
+96.3%**. Trace provenance: 2026-10-20, commit `2663c846`, isolated root,
 `PASS=1340 FAIL=0 SKIP=16`.
 
-> **Actualização de 2026-10-22 (merge de `origin/main` `4b860b51`).** A CLI
-> cresceu para **280 folhas** (`gitops reconcile/resume/status/suspend`,
-> `network vip-pool clear/set/show`), e o trace commitado passou a ser o da
-> `main`: 2026-10-21, `6dc31582`, `PASS=1537 FAIL=0 SKIP=15`, **268 de 280**.
-> As sete folhas novas estão nesse trace e são **A**; `vm pause`/`vm unpause`
-> também (a bateria da `main` tinha uma VM libvirt a correr) e saíram de **E**.
-> As quatro que este ramo promoveu — `net l4guard set/clear` e `system boot
-> enable/disable` — voltaram a **B**: os checks que as conduzem estão em
-> `scripts/e2e.sh`, mas o trace de `6dc31582` é anterior a eles, e o trace só se
-> regrava de uma corrida real. Sobem a **A** na próxima gravação. **Feito no mesmo dia**: o trace foi regravado da bateria corrida sobre o
-> merge (`fa34383b`, `PASS=1577 FAIL=0 SKIP=14`), **272 de 280**, e as quatro
-> estão em **A**. O texto abaixo
-> descreve o estado de 2026-10-20 e fica como estava.
+> **Update of 2026-10-22 (merge of `origin/main` `4b860b51`).** The CLI
+> grew to **280 leaves** (`gitops reconcile/resume/status/suspend`,
+> `network vip-pool clear/set/show`), and the committed trace became the one
+> from `main`: 2026-10-21, `6dc31582`, `PASS=1537 FAIL=0 SKIP=15`, **268 of 280**.
+> The seven new leaves are in that trace and are **A**; `vm pause`/`vm unpause`
+> too (the `main` battery had a libvirt VM running) and moved out of **E**.
+> The four this branch promoted — `net l4guard set/clear` and `system boot
+> enable/disable` — went back to **B**: the checks that drive them are in
+> `scripts/e2e.sh`, but the `6dc31582` trace predates them, and the trace is
+> only re-recorded from a real run. They go up to **A** on the next recording.
+> **Done the same day**: the trace was re-recorded from the battery run on
+> the merge (`fa34383b`, `PASS=1577 FAIL=0 SKIP=14`), **272 of 280**, and the
+> four are at **A**. The text below
+> describes the state of 2026-10-20 and stays as it was.
 >
-> **Actualização de 2026-10-22 (verbos de raiz Docker/Podman, #930/#933).** A
-> CLI cresceu para **291 folhas**: os 10 atalhos de raiz
-> `run/create/ps/start/stop/restart/rm/exec/logs/pull` e o canónico `container
-> create`. As 11 estão em **B**, não em **A**: o trace commitado (`fa34383b`) é
-> anterior a elas e a bateria exerce só a forma canónica `container
-> <verb>`/`image pull` (essas são **A**), nunca o atalho de raiz. Sobem a **A**
-> quando um check conduzir a forma de raiz e o trace for regravado de uma
-> corrida real.
+> **Update of 2026-10-22 (Docker/Podman root verbs, #930/#933).** The
+> CLI grew to **291 leaves**: the 10 root shortcuts
+> `run/create/ps/start/stop/restart/rm/exec/logs/pull` and the canonical
+> `container create`. The 11 are at **B**, not **A**: the committed trace
+> (`fa34383b`) predates them and the battery only exercises the canonical
+> form `container <verb>`/`image pull` (those are **A**), never the root
+> shortcut. They go to **A** when a check drives the root form and the trace
+> is re-recorded from a real run.
 >
-> **Actualização de 2026-10-22 (tabela Docker/Podman completada).** A CLI
-> cresceu para **300 folhas**: os 9 atalhos de raiz que faltavam —
-> `kill/attach/stats` (container) e `images/rmi/tag/save/load/push` (imagem).
-> Mesma razão das anteriores: estão em **B**, partilham a struct e o handler da
-> forma canónica `container <verb>`/`image <verb>` (essas são **A**, ou **E**
-> no caso de `image push`), e a bateria exerce a canónica, não o atalho. Sobem a
-> **A** quando um check conduzir a forma de raiz e o trace for regravado.
+> **Update of 2026-10-22 (Docker/Podman table completed).** The CLI
+> grew to **300 leaves**: the 9 root shortcuts that were missing —
+> `kill/attach/stats` (container) and `images/rmi/tag/save/load/push` (image).
+> Same reason as the previous ones: they are at **B**, share the struct and
+> the handler of the canonical form `container <verb>`/`image <verb>` (those
+> are **A**, or **E** in the case of `image push`), and the battery exercises
+> the canonical form, not the shortcut. They go to **A** when a check drives
+> the root form and the trace is re-recorded.
 
-As 10 que nenhuma corrida executa, e o que **cada uma** precisa — medido, não
-presumido. Os irmãos de cada grupo já correm, e é isso que as torna baratas:
-`net netns` (10/10), `net l4guard` (3/3) e `system boot` (3/3) estão
-**completos** desde 2026-10-20, `vm image import/convert/describe/ls/rm/init` e
-**19 das 21** folhas de `cluster` já são executadas. As 10 que restam são
-**todas** classe `E` — nenhuma é lacuna de cobertura, todas esperam
-infra-estrutura.
+The 10 that no run executes, and what **each one** needs — measured, not
+assumed. Each group's siblings already run, and that is what makes them
+cheap: `net netns` (10/10), `net l4guard` (3/3) and `system boot` (3/3) have
+been **complete** since 2026-10-20, `vm image import/convert/describe/ls/rm/init`
+and **19 of 21** `cluster` leaves are already run. The remaining 10 are
+**all** class `E` — none is a coverage gap, all are waiting on
+infrastructure.
 
-| folha | precisa | classe |
+| leaf | needs | class |
 |---|---|---|
-| `vm pause` | VM a correr + imagem arrancável no store isolado | **E** (só a imagem) |
-| `vm unpause` | idem | **E** (só a imagem) |
-| `vm image build` | `virt-customize` (presente) + descarga da cloud image | **E** (rede) |
-| `cluster create` | imagem `kindest/node`; `kind`+`kubeadm` presentes, corre os nós **no próprio motor** (sem Docker) | **E** (imagem) |
-| `cluster kubeadm` | imagem golden + VMs reais | **E** |
-| `image push` | registry OCI | **E** |
-| `image sign` | registry OCI (a assinatura publica-se ao lado da imagem) | **E** |
-| `vm image pull` | registry OCI | **E** |
-| `vm image push` | registry OCI | **E** |
-| `vm image ls-remote` | registry OCI (listagem de tags) | **E** |
+| `vm pause` | running VM + bootable image in the isolated store | **E** (only the image) |
+| `vm unpause` | same | **E** (only the image) |
+| `vm image build` | `virt-customize` (present) + download of the cloud image | **E** (network) |
+| `cluster create` | `kindest/node` image; `kind`+`kubeadm` present, runs the nodes **on the engine itself** (no Docker) | **E** (image) |
+| `cluster kubeadm` | golden image + real VMs | **E** |
+| `image push` | OCI registry | **E** |
+| `image sign` | OCI registry (the signature is published alongside the image) | **E** |
+| `vm image pull` | OCI registry | **E** |
+| `vm image push` | OCI registry | **E** |
+| `vm image ls-remote` | OCI registry (tag listing) | **E** |
 
-**Cinco destas folhas eram um pacote em falta, e já não são.** A bateria **já
-tinha** checks para `net netns exec/detach/firewall/publish/unpublish`, em
-`scripts/e2e.sh`, desde `5c62db13` (2026-10-11), e são dos melhores que aqui
-existem — julgam no **fio**, com um token que A responde e B consome, porque «a
-listener de uma porta publicada aceita a ligação haja ou não alguém a responder
-atrás dela». Contavam zero porque o bloco inteiro saltava num `command -v
-socat` e o `socat` não estava no host, não por não existirem: o bloco já lá
-estava quando o trace de `e5be0903` (2026-10-16) foi gravado.
+**Five of these leaves were a missing package, and no longer are.** The
+battery **already had** checks for `net netns exec/detach/firewall/publish/unpublish`,
+in `scripts/e2e.sh`, since `5c62db13` (2026-10-11), and are among the best
+there are here — they judge **on the wire**, with a token that A answers and
+B consumes, because "a listener on a published port accepts the connection
+whether or not anyone is answering behind it". They counted as zero because
+the whole block skipped on a `command -v socat` and `socat` was not on the
+host, not because they did not exist: the block was already there when the
+`e5be0903` trace (2026-10-16) was recorded.
 
-Medido a 2026-10-20: o `socat` **está** em `/usr/bin/socat`, o bloco corre, e as
-cinco folhas passaram a **A** sem uma linha de código — converteram-se pela
-instalação de um pacote, tal como o `lab-requisitos.md` previa ser o item mais
-barato de toda a lista.
+Measured on 2026-10-20: `socat` **is** at `/usr/bin/socat`, the block runs,
+and the five leaves moved to **A** without a line of code — they converted
+by installing a package, exactly as `lab-requisitos.md` predicted as the
+cheapest item on the whole list.
 
-**Nenhuma das 10 é um stub.** `bins/delonix-runtime-bin/src/` não tem um
-`unimplemented!` nem um `todo!` — logo nenhuma é classe `D`. E `vm pause`/`vm
-unpause` são reais nos **três** backends: `delonix-provider-cloud-hypervisor`
-(`:847`/`:851`), `delonix-provider-libvirt` (`:3254`/`:3268`) e `delonix-proxmox`
-(`:6488`/`:6497`); o default do trait falha fechado de propósito
-(`vm_backend.rs:570` — «never as a silent no-op»).
+**None of the 10 is a stub.** `bins/delonix-runtime-bin/src/` has no
+`unimplemented!` nor a `todo!` — so none is class `D`. And `vm pause`/`vm
+unpause` are real in all **three** backends: `delonix-provider-cloud-hypervisor`
+(`:847`/`:851`), `delonix-provider-libvirt` (`:3254`/`:3268`) and `delonix-proxmox`
+(`:6488`/`:6497`); the trait's default fails closed on purpose
+(`vm_backend.rs:570` — "never as a silent no-op").
 
-**`image sign` não precisa de `cosign`**: tem ECDSA-P256 próprio, com a chave
-gerada em `<DELONIX_ROOT>/keys/image-signing.key`. Só a *interoperabilidade* da
-assinatura o exigiria.
+**`image sign` does not need `cosign`**: it has its own ECDSA-P256, with the
+key generated at `<DELONIX_ROOT>/keys/image-signing.key`. Only signature
+*interoperability* would require it.
 
 ---
 
-## 2. Node API — 59 RPCs, nas duas codificações
+## 2. Node API — 59 RPCs, in both encodings
 
-Contrato `proto/delonix/node/v1/{node,infra,compute,operations,common}.proto`.
-As rotas REST são **geradas**, não escritas à mão
-(`delonix-node-api/build.rs:283-356` → `$OUT_DIR/rest_routes.rs`), e o
-`scripts/contract_gate.py:rpc_mappings()` exige `google.api.http` em cada RPC
-não-client-streaming e **proíbe-o** nos dois streams bidireccionais.
+Contract `proto/delonix/node/v1/{node,infra,compute,operations,common}.proto`.
+The REST routes are **generated**, not hand-written
+(`delonix-node-api/build.rs:283-356` → `$OUT_DIR/rest_routes.rs`), and
+`scripts/contract_gate.py:rpc_mappings()` requires `google.api.http` on every
+non-client-streaming RPC and **forbids it** on the two bidirectional streams.
 
 | | n |
 |---|---:|
-| RPCs | **59** em 9 serviços |
-| mapeadas em REST | 57 (2 sem mapa de propósito: `Exec`, `Console`) |
-| server-streaming que respondem 501 em REST | 3 (`WatchEvents`, `WatchOperation`, `Logs`) |
-| implementadas | **30** |
-| **não implementadas** | **29** |
-| com ≥1 teste que as invoca | 35 |
-| **executadas numa corrida real** | **16** (15 positivas + `StartContainer` só como 501/405) |
-| **nunca invocadas por teste algum** | **24** |
+| RPCs | **59** across 9 services |
+| mapped to REST | 57 (2 with no mapping on purpose: `Exec`, `Console`) |
+| server-streaming that answer 501 in REST | 3 (`WatchEvents`, `WatchOperation`, `Logs`) |
+| implemented | **30** |
+| **not implemented** | **29** |
+| with ≥1 test invoking them | 35 |
+| **run in a real run** | **16** (15 positive + `StartContainer` only as 501/405) |
+| **never invoked by any test** | **24** |
 
-As 29 não implementadas são serviços **inteiros**: `ContainerService` (12),
-`PodService` (4), `ImageService` (7), `StackService` (3) — sem handler e sequer
-registados em `service.rs:router()` (:519-549) —, mais `ConnectContainer`,
-`DisconnectContainer` e `Console`, que estão registados e devolvem
-`service.rs:unserved`. **Classe D, e é a maior decisão em aberto deste
-inventário** (ver «Decisões que preciso de ti»).
+The 29 not implemented are **entire** services: `ContainerService` (12),
+`PodService` (4), `ImageService` (7), `StackService` (3) — with no handler and
+not even registered in `service.rs:router()` (:519-549) —, plus
+`ConnectContainer`, `DisconnectContainer` and `Console`, which are registered
+and return `service.rs:unserved`. **Class D, and it is the biggest open
+decision in this inventory** (see "Decisions I need from you").
 
-**Lacuna estrutural (classe C, superfície inteira):** a bateria exercita **só a
-codificação REST**. Cada chamada é `curl --unix-socket`; não existe `grpcurl`
-nem cliente gRPC em `scripts/` ou `tests/`. O gRPC só é exercitado por testes de
-componente do `cargo test`. Logo as 57 RPCs mapeadas não têm a perna gRPC numa
-corrida real.
+**Structural gap (class C, entire surface):** the battery exercises **only
+the REST encoding**. Every call is `curl --unix-socket`; there is no
+`grpcurl` nor a gRPC client in `scripts/` or `tests/`. gRPC is only exercised
+by `cargo test` component tests. So the 57 mapped RPCs have no gRPC leg in a
+real run.
 
-Implementadas mas com o caminho de sucesso **sem teste em camada alguma** (só
-passam por `T2`, onde cada asserção é uma recusa `NOT_FOUND`):
+Implemented but with the success path **untested in any layer** (they only
+go through `T2`, where every assertion is a `NOT_FOUND` refusal):
 `ResumeVirtualMachine`, `ListSnapshots`, `RestoreSnapshot`, `DeleteSnapshot`.
-E o **`VirtualMachineService` inteiro** (12 RPCs implementadas) nunca entra na
-bateria real.
+And the **entire `VirtualMachineService`** (12 implemented RPCs) never enters
+the real battery.
 
-Parciais (classe D mais estreita): `CreateNetwork` recusa topologia overlay;
-`CreateVolume`/`DeleteVolume` recusam share/remote/pool/`destroy_remote`;
-`WatchEvents` recusa um filtro de namespace; `CancelOperation` está
-implementada mas **por desenho nunca cancela** (só `NOT_FOUND` ou
-`FAILED_PRECONDITION` DX-5002).
+Partial (narrower class D): `CreateNetwork` refuses overlay topology;
+`CreateVolume`/`DeleteVolume` refuse share/remote/pool/`destroy_remote`;
+`WatchEvents` refuses a namespace filter; `CancelOperation` is implemented
+but **by design never cancels** (only `NOT_FOUND` or `FAILED_PRECONDITION`
+DX-5002).
 
-`Idempotency-Key` **é** honrada aqui (`service.rs:595`) e medida de verdade por
-`scripts/e2e_node_network_ops.py` (`scenario_replay`).
+`Idempotency-Key` **is** honoured here (`service.rs:595`) and genuinely
+measured by `scripts/e2e_node_network_ops.py` (`scenario_replay`).
 
 ---
 
-## 3. Mgmt API — 40 operações
+## 3. Mgmt API — 40 operations
 
-Router e handlers num ficheiro só: `delonix-mgmt/src/lib.rs:router` (:188-278),
-32 `.route()` planos, sem `nest`, sem `merge`, sem middleware. Arranca por
-**`delonix serve api`** (não `serve mgmt`), que faz `execve` do irmão.
+Router and handlers in a single file: `delonix-mgmt/src/lib.rs:router`
+(:188-278), 32 flat `.route()`s, no `nest`, no `merge`, no middleware. Starts
+via **`delonix serve api`** (not `serve mgmt`), which `execve`s its sibling.
 
 | | n |
 |---|---:|
-| caminhos / operações | 32 / **40** |
-| implementadas | 33 |
-| retiradas (501 `DX-6302`) | **7** |
-| `Idempotency-Key` | **0 de 40** — a string não existe no crate |
-| com ≥1 teste | 33 |
-| **executadas sobre HTTP real** | **1 de 40** (`GET /v1/dash`) |
-| sem teste algum | **7** |
+| paths / operations | 32 / **40** |
+| implemented | 33 |
+| withdrawn (501 `DX-6302`) | **7** |
+| `Idempotency-Key` | **0 of 40** — the string does not exist in the crate |
+| with ≥1 test | 33 |
+| **run over real HTTP** | **1 of 40** (`GET /v1/dash`) |
+| with no test at all | **7** |
 
-**Lacuna estrutural (classe C, superfície inteira):** `test_state()` (:1463) põe
-`bin: PathBuf::from("/bin/false")` (:1470). Todo o teste de componente cobre
-**só validação pré-exec e recusas** — **nenhuma rota que faz shell-out tem um
-caminho de sucesso testado em lado algum**.
+**Structural gap (class C, entire surface):** `test_state()` (:1463) sets
+`bin: PathBuf::from("/bin/false")` (:1470). Every component test covers
+**only pre-exec validation and refusals** — **no route that shells out has a
+tested success path anywhere**.
 
-As 7 sem teste algum, por ordem de risco:
-`POST /v1/containers/{id}/exec` (**a rota de maior privilégio do motor**),
+The 7 with no test at all, in order of risk:
+`POST /v1/containers/{id}/exec` (**the engine's highest-privilege route**),
 `GET /v1/containers/{id}/logs`, `GET /v1/images/scan`, `GET /v1/images/sbom`,
 `DELETE /v1/networks/{name}`, `GET /v1/net/dhcp6/{net}/{mac}`,
 `POST /v1/vms/{name}/action`.
 
-**Segurança:** sem TLS e sem TCP — HTTP sobre `AF_UNIX`, socket a `0600` e
-`SO_PEERCRED` em cada accept (`:167-169`); um par que não bate é descartado em
-silêncio, logo não existe 401/403 a nível HTTP. Sem tokens e **sem autorização
-por rota**: qualquer processo com o euid do servidor tem a superfície toda,
-incluindo o `exec`.
+**Security:** no TLS and no TCP — HTTP over `AF_UNIX`, socket at `0600` and
+`SO_PEERCRED` on every accept (`:167-169`); a mismatched pair is silently
+dropped, so there is no HTTP-level 401/403. No tokens and **no
+per-route authorization**: any process with the server's euid has the whole
+surface, including `exec`.
 
-**Nota de âmbito que muda a prioridade:** o ADR-0042, passos D-E/F (:131-132,
-:148), planeia migrar cada caminho do mgmt para o contrato de nó e **apagar o
-`delonix-mgmt`**. Investir 40 folhas de prova numa superfície marcada para
-remoção é uma decisão tua, não minha.
+**Scope note that changes the priority:** ADR-0042, steps D-E/F (:131-132,
+:148), plans to migrate every mgmt path to the node contract and **delete
+`delonix-mgmt`**. Investing 40 leaves of proof in a surface marked for
+removal is your decision, not mine.
 
 ---
 
-## 4. MCP — 15 ferramentas
+## 4. MCP — 15 tools
 
-Tudo em `crates/interfaces/delonix-mcp/src/lib.rs` (router `#[tool_router]`,
-:297-768). Transporte **só stdio** — `delonix-mcp-bin/src/main.rs:28-33` recusa
-qualquer outro («ADR-0025 defers loopback HTTP»).
+All in `crates/interfaces/delonix-mcp/src/lib.rs` (router `#[tool_router]`,
+:297-768). **stdio-only** transport — `delonix-mcp-bin/src/main.rs:28-33`
+refuses any other ("ADR-0025 defers loopback HTTP").
 
 | | n |
 |---|---:|
-| ferramentas | **15** |
-| implementadas | **15** (nenhuma é stub) |
-| **invocadas pelo protocolo real** | **0** |
-| com teste que invoca o handler | **1** (`audit.query`) |
-| sem teste algum | **5** |
+| tools | **15** |
+| implemented | **15** (none is a stub) |
+| **invoked by the real protocol** | **0** |
+| with a test that invokes the handler | **1** (`audit.query`) |
+| with no test at all | **5** |
 
-**`tools/call` não existe em lugar algum do repositório.** O único teste de
-protocolo (`scripts/e2e.sh:6974`) manda `initialize`,
-`notifications/initialized` e `tools/list`, e afirma que `serverInfo` existe e
-que `"logs.query"` está na lista de nomes. **Nenhum corpo de ferramenta correu
-alguma vez pelo protocolo.** Classe B/C para a superfície inteira.
+**`tools/call` does not exist anywhere in the repository.** The only
+protocol test (`scripts/e2e.sh:6974`) sends `initialize`,
+`notifications/initialized` and `tools/list`, and asserts that `serverInfo`
+exists and that `"logs.query"` is in the name list. **No tool body has ever
+run through the protocol.** Class B/C for the entire surface.
 
-Sem teste algum: `runtime.info`, `runtime.health`, `resources.get`,
+With no test at all: `runtime.info`, `runtime.health`, `resources.get`,
 `metrics.query`, `network.inspect`.
 
-Sub-superfície de **resources**, igualmente descoberta: `read_delonix_uri`
-(:789-817) e `resources/list` não são tocados por teste algum;
-`delonix://schema/{kind}` é um `NOT_IMPLEMENTED` explícito (:839-846).
+**resources** sub-surface, equally untouched: `read_delonix_uri`
+(:789-817) and `resources/list` are not touched by any test;
+`delonix://schema/{kind}` is an explicit `NOT_IMPLEMENTED` (:839-846).
 
-**Nenhum ratchet guarda a lista de ferramentas** — uma ferramenta pode entrar ou
-sair sem gate nenhum dar por isso (`cli_baseline.tsv` só tem as 3 folhas da CLI
+**No ratchet guards the tool list** — a tool can enter or leave without any
+gate noticing (`cli_baseline.tsv` only has the CLI's 3 leaves
 `mcp capabilities|doctor|serve`).
 
-Dois achados a confirmar: `task.get` e `task.cancel` **nunca chamam
-`self.log(...)`** (:723-746), contra a promessa do ADR-0025 §8 de uma linha de
-auditoria por chamada — e o comentário do teste
-`audit_query_logs_its_own_call` afirma que `audit.query` «era a única das
-catorze» sem `self.log`, o que já não é verdade. E o ADR-0025 diz que
-`events.list`/`security.explain` «devolvem um erro claro de não implementado»:
-não existem, grep repo-wide dá zero.
+Two findings to confirm: `task.get` and `task.cancel` **never call
+`self.log(...)`** (:723-746), against ADR-0025 §8's promise of one audit
+line per call — and the test comment
+`audit_query_logs_its_own_call` claims that `audit.query` "was the only one
+of fourteen" without `self.log`, which is no longer true. And ADR-0025 says
+`events.list`/`security.explain` "return a clear not-implemented error":
+they do not exist, a repo-wide grep returns zero.
 
 ---
 
@@ -292,60 +299,60 @@ não existem, grep repo-wide dá zero.
 | | n |
 |---|---:|
 | RPCs (29 Runtime + 5 Image) | **34** |
-| completas | 22 |
-| parciais | 10 |
+| complete | 22 |
+| partial | 10 |
 | `UNIMPLEMENTED` | 2 (`CheckpointContainer`, `GetContainerEvents`) |
-| sem handler | **0** — o trait gerado é exaustivo |
-| exercitadas pelo `critest` | 24 |
-| **sem cobertura de nenhuma fonte** | **5** |
+| with no handler | **0** — the generated trait is exhaustive |
+| exercised by `critest` | 24 |
+| **with no coverage from any source** | **5** |
 
-Sem cobertura alguma: `PodSandboxStats`, `ListPodSandboxStats`,
+With no coverage at all: `PodSandboxStats`, `ListPodSandboxStats`,
 `CheckpointContainer`, `GetContainerEvents`, `ImageFsInfo`.
 
-**Dois baselines gravados, e contradizem-se** — o próprio repo já o registou
-como lacuna **G-025 / STALE EVIDENCE**:
+**Two recorded baselines, and they contradict each other** — the repo itself
+already recorded it as gap **G-025 / STALE EVIDENCE**:
 
-| | publicado | com logs crus |
+| | published | with raw logs |
 |---|---|---|
-| ficheiro | `docs/cri-conformance.md` | `reports/production-readiness/v3.1.0/cri-conformance.md` |
-| motor | **v0.63.1** | commit `fa8c6297` |
-| data | 2026-08-25 | 2026-09-15 |
-| resultado | **79 Passed · 24 Failed · 19 Skipped** | **82 Passed · 21 Failed · 19 Skipped** |
+| file | `docs/cri-conformance.md` | `reports/production-readiness/v3.1.0/cri-conformance.md` |
+| engine | **v0.63.1** | commit `fa8c6297` |
+| date | 2026-08-25 | 2026-09-15 |
+| result | **79 Passed · 24 Failed · 19 Skipped** | **82 Passed · 21 Failed · 19 Skipped** |
 
-O 79/24 é o que o `README.rst`, o `docs/cri.html` e o `docs/gen.py` publicam.
-**Nenhum dos dois é da versão actual (5.1.1)**, e entre os dois o
-`ListMetricDescriptors`/`ListPodSandboxMetrics` passou de stub a real (commit
-`343e0447`). Das 21 falhas nomeadas: ambiente do host 10, limitação rootless 3,
-**defeito do Delonix 3**, funcionalidade em falta 2, divergência deliberada 1,
-**desconhecido 2**.
+The 79/24 is what `README.rst`, `docs/cri.html` and `docs/gen.py` publish.
+**Neither one is from the current version (5.1.1)**, and between the two
+`ListMetricDescriptors`/`ListPodSandboxMetrics` went from stub to real
+(commit `343e0447`). Of the 21 named failures: host environment 10, rootless
+limitation 3, **Delonix defect 3**, missing feature 2, deliberate divergence
+1, **unknown 2**.
 
-> **RESOLVIDO (re-medição de 2026-10-24).** O critest v1.36.0 foi re-corrido na
-> v5.1.1 (`main @ ab4751ac`, a linha que hoje embarca como 0.1.0): **84 Passed ·
-> 20 Failed · 18 Skipped** — supera os dois baselines acima. O `docs/cri-conformance.md`
-> e o `docs/gen.py` foram actualizados para este número; a questão aberta #3 abaixo
-> fica fechada. Relatório: `reports/cri-conformance-2026-10-24/00-audit-report.md`.
+> **RESOLVED (re-measurement of 2026-10-24).** critest v1.36.0 was re-run on
+> v5.1.1 (`main @ ab4751ac`, the line that ships today as 0.1.0): **84 Passed ·
+> 20 Failed · 18 Skipped** — surpasses both baselines above. `docs/cri-conformance.md`
+> and `docs/gen.py` were updated to this number; open question #3 below is
+> now closed. Report: `reports/cri-conformance-2026-10-24/00-audit-report.md`.
 
-**O `critest` não é corrido por automação nenhuma**: não aparece no `Makefile`
-nem em nenhum workflow. É uma medição manual.
+**`critest` is not run by any automation**: it does not appear in the
+`Makefile` nor in any workflow. It is a manual measurement.
 
-**Deriva de contrato:** 7 RPCs do `cri-api` do `critest` v1.36.0 não existem no
-proto do repo (`StreamContainers`, `StreamContainerStats`, `StreamPodSandboxes`,
+**Contract drift:** 7 RPCs of critest v1.36.0's `cri-api` do not exist in the
+repo's proto (`StreamContainers`, `StreamContainerStats`, `StreamPodSandboxes`,
 `StreamPodSandboxStats`, `StreamPodSandboxMetrics`, `UpdatePodSandboxResources`,
-`ImageService/StreamImages`). Nenhum documento o reconhece.
+`ImageService/StreamImages`). No document acknowledges this.
 
 ---
 
-## 6. Kinds — 26 kinds × 5 verbos = 130 células
+## 6. Kinds — 26 kinds × 5 verbs = 130 cells
 
-> **Actualização de 2026-10-22.** O `GitOpsSource` (ADR-0021) entrou no
-> catálogo depois desta medição: `apply`, `plan` e `delete` são **A** (a secção
-> `gitops:` do `scripts/e2e.sh`), `diff` e `drift` são **B** (alcançáveis —
-> o `actual()` traz `last_applied` — mas nenhuma corrida os nomeia). O resto
-> desta secção é a medição de 2026-10-20, com 25 kinds.
+> **Update of 2026-10-22.** `GitOpsSource` (ADR-0021) entered the catalog
+> after this measurement: `apply`, `plan` and `delete` are **A** (the
+> `gitops:` section of `scripts/e2e.sh`), `diff` and `drift` are **B** —
+> reachable (`actual()` carries `last_applied`) but no run names them. The
+> rest of this section is the 2026-10-20 measurement, with 25 kinds.
 
-Medido com `delonix api-resources` contra o binário da árvore.
+Measured with `delonix api-resources` against the tree's binary.
 
-| forma | kinds |
+| form | kinds |
 |---|---|
 | `primary` | **19** — RuntimePolicy, Secret, Network, NetworkRoute, StoragePool, Volume, Image, App, VirtualMachine, SystemContainer, Pod, Service, NetworkPolicy, NetworkAccessRule, NetworkGateway, IPPool, HTTPRoute, Gateway, KubernetesCluster |
 | `sunset` | 2 — NetworkZone → Network, Container → Pod |
@@ -353,204 +360,207 @@ Medido com `delonix api-resources` contra o binário da árvore.
 | `sugar` | 2 — Workload → Container/Pod/VirtualMachine, Dependency → NetworkPolicy |
 | `aggregate` | 1 — Stack |
 
-Grupos publicados: `core`, `compute`, `networking`, `gateway`, `storage`,
-`artifact`, `infrastructure`, `security` — **oito**, não os sete que o
-`AGENTS.md` enumera (`security.delonix.io/v1alpha1 RuntimePolicy` existe e não
-está na lista da secção «Identidade e fronteira do motor»).
+Published groups: `core`, `compute`, `networking`, `gateway`, `storage`,
+`artifact`, `infrastructure`, `security` — **eight**, not the seven that
+`AGENTS.md` lists (`security.delonix.io/v1alpha1 RuntimePolicy` exists and is
+not in the "Engine identity and boundary" section's list).
 
-A fonte de verdade é o `const FACTS: &[KindFacts]` de
-`crates/contexts/delonix-stack/src/kinds.rs` (:298-714), reexportado por
-`cmd/mod.rs:37`; o `api-resources` deriva dele (`cmd/resource.rs:113`) e não há
-segunda lista — o teste
-`every_registry_kind_is_listed_and_resolvable_by_its_listed_name` impõe-o.
+The source of truth is `const FACTS: &[KindFacts]` in
+`crates/contexts/delonix-stack/src/kinds.rs` (:298-714), re-exported by
+`cmd/mod.rs:37`; `api-resources` derives from it (`cmd/resource.rs:113`) and
+there is no second list — the test
+`every_registry_kind_is_listed_and_resolvable_by_its_listed_name` enforces it.
 
-`in_stack: true` em 21 kinds, todos `converges: true`; **15** têm
+`in_stack: true` on 21 kinds, all `converges: true`; **15** have
 `teardown: true`. `DELETE_ROUTES` = 16 (`verbs.rs:80`); `destroy_one` = 15
-(`stack.rs:2383`). Blocos `provider` em **5** kinds (VirtualMachine, Network,
-SystemContainer, NetworkGateway, Gateway) mais o equivalente por vendor do
-Volume (`provision.truenas`).
+(`stack.rs:2383`). `provider` blocks in **5** kinds (VirtualMachine, Network,
+SystemContainer, NetworkGateway, Gateway) plus Volume's per-vendor equivalent
+(`provision.truenas`).
 
-**Nenhum kind está sem teste**: a CI (`ci.yml:476-490`) corre
-`stack apply --dry-run` + `stack validate` sobre cada `examples/*.yaml`, e o
-`examples/core/stack.yaml` carrega os 23 grupos. A lacuna é a de *corrida real*.
+**No kind is untested**: CI (`ci.yml:476-490`) runs
+`stack apply --dry-run` + `stack validate` over every `examples/*.yaml`, and
+`examples/core/stack.yaml` loads the 23 groups. The gap is one of *real run*.
 
-### Os 9 kinds cujo `apply` nenhuma corrida real exercita
+### The 9 kinds whose `apply` no real run exercises
 
 **App, Service, Ingress, IPPool, Gateway, Workload, Dependency,
-KubernetesCluster, NetworkZone.** Parciais: **SystemContainer** (só recusas,
-e2e.sh §5879) e **NetworkGateway** (o ADR-0071 di-lo por escrito: «Not proven
-live: the lab OPNsense VM does not boot»). Condicional: **VirtualMachine**
-(e2e.sh:3278, saltado sem hipervisor).
+KubernetesCluster, NetworkZone.** Partial: **SystemContainer** (only refusals,
+e2e.sh §5879) and **NetworkGateway** (ADR-0071 says so in writing: "Not
+proven live: the lab OPNsense VM does not boot"). Conditional: **VirtualMachine**
+(e2e.sh:3278, skipped without a hypervisor).
 
-O `scripts/e2e-all-templates.sh` **não exercita kind nenhum** — conduz
-`init`/`build`/`container run`/`container rm`, a superfície imperativa.
+`scripts/e2e-all-templates.sh` **exercises no kind at all** — it drives
+`init`/`build`/`container run`/`container rm`, the imperative surface.
 
-### Verbos realmente exercitados
+### Verbs actually exercised
 
-O **`Container` é o único kind com os cinco** (`apply`, `diff`, `plan`,
-`delete`, `drift`). Os únicos sujeitos *nomeados* de `diff`/`drift` em toda a
-bateria são `diff containers` (e2e.sh:6724-6726) e o ciclo de drift do
-Container (§2476-2523) — inspeccionados os 18 `drift` e 2 `diff` do `e2e.sh`,
-nenhum nomeia outro kind. Logo o `diff`/`drift` de `Network` e `Volume` é
-**co-ocorrência na mesma secção, não medição**: fica **não determinado**.
+**`Container` is the only kind with all five** (`apply`, `diff`, `plan`,
+`delete`, `drift`). The only *named* subjects of `diff`/`drift` in the whole
+battery are `diff containers` (e2e.sh:6724-6726) and the Container's drift
+cycle (§2476-2523) — inspecting the 18 `drift` and 2 `diff` of `e2e.sh`, none
+names another kind. So `diff`/`drift` of `Network` and `Volume` is **co-occurrence
+in the same section, not measurement**: it remains **undetermined**.
 
-Nove kinds não têm **nenhum** dos cinco verbos exercitado: RuntimePolicy,
-Service, Ingress, IPPool, Gateway, App, Workload, Dependency e
+Nine kinds have **none** of the five verbs exercised: RuntimePolicy,
+Service, Ingress, IPPool, Gateway, App, Workload, Dependency and
 KubernetesCluster.
 
-### Defeitos encontrados nos Kinds
+### Defects found in the Kinds
 
-1. **`Pod.spec.shareProcessNamespace` é lido por ninguém e documentado como
-   funcional.** `delonix-compute/src/pod.rs:149-150`, aceite em
-   `POD_SPEC_FIELDS:308`. O comentário do próprio campo diz «Honored by
-   `kind: Pod` (see `cmd::pod`)», mas o `cmd/pod.rs:18` diz «Shared **PID** …
-   lands next» e o `delonix-linux/src/lib.rs:6290` concorda que não está
-   implementado. É o **único** campo parsed-but-ignored que é simultaneamente
-   não-lido **e** documentado como a funcionar — os outros são deliberados e
-   rotulados. Casa com a falha #15 do `critest` (`Security Context PodPID`).
-2. **O `FACTS` declara-se a ordem do apply e o `run_layers_inner` discorda em
-   duas linhas.** O `kinds.rs:269` diz «The order of the rows below is the order
-   of the apply», e o `teardown_order` (`stack.rs:2429`) deriva a remoção
-   invertendo-a. Mas o `run_layers_inner` (`stack.rs:2237`) corre o **IPPool
-   antes** de NetworkPolicy/NetworkAccessRule/NetworkGateway, e a tabela
-   põe-no depois dos três; e o **Ingress não tem camada própria**. As
-   dependências que os comentários citam continuam a valer, logo o impacto
-   prático é **não determinado** — mas as duas listas não concordam, que é
-   exactamente a classe de defeito que o `kinds.rs` existe para eliminar, e
-   **nada o testa**.
-3. **Dois `delete` genéricos sem razão escrita.** `NetworkAccessRule` e
-   `HTTPRoute` faltam no `DELETE_ROUTES` **e** no `no_verb_reason`
-   (`verbs.rs:226` devolve `""`), logo respondem «not wired yet». O guarda
-   `a_kind_never_both_routes_and_claims_it_cannot` (`verbs.rs:602`) só faz
-   `eprintln!` — **nunca afirma** —, portanto esta dívida não pode chumbar a
-   CI. O `NetworkAccessRule` também não tem `get` nem `describe`.
-4. **O `drift` é estruturalmente silencioso em 5 kinds** (RuntimePolicy,
-   Secret, Image, App, Gateway): o `actual()` devolve `last_applied: None`,
-   logo contam sempre como `unstamped` e nunca como deriva — e isso **não
-   está dito** no mecanismo de honestidade `DOC_SCOPED`/`not_checked` do
-   `drift.rs`.
-5. **O `IPPool.spec.interface` é inalcançável em qualquer documento aceito**:
-   só vale com `announce: l2` (`ippool.rs:234`), e o `l2` é recusado como não
-   construído (`:242`, ADR-0046 fase 4).
+1. **`Pod.spec.shareProcessNamespace` is read by nobody and documented as
+   working.** `delonix-compute/src/pod.rs:149-150`, accepted in
+   `POD_SPEC_FIELDS:308`. The field's own comment says "Honored by
+   `kind: Pod` (see `cmd::pod`)", but `cmd/pod.rs:18` says "Shared **PID** …
+   lands next" and `delonix-linux/src/lib.rs:6290` agrees it is not
+   implemented. It is the **only** parsed-but-ignored field that is both
+   unread **and** documented as working — the others are deliberate and
+   labelled. Matches `critest` failure #15 (`Security Context PodPID`).
+2. **`FACTS` declares the apply order for itself and `run_layers_inner`
+   disagrees in two lines.** `kinds.rs:269` says "The order of the rows below
+   is the order of the apply", and `teardown_order` (`stack.rs:2429`) derives
+   removal by inverting it. But `run_layers_inner` (`stack.rs:2237`) runs
+   **IPPool before** NetworkPolicy/NetworkAccessRule/NetworkGateway, and the
+   table places it after the three; and **Ingress has no layer of its own**.
+   The dependencies the comments cite still hold, so the practical impact is
+   **undetermined** — but the two lists disagree, which is exactly the class
+   of defect `kinds.rs` exists to eliminate, and **nothing tests it**.
+3. **Two generic `delete`s with no written reason.** `NetworkAccessRule` and
+   `HTTPRoute` are missing from `DELETE_ROUTES` **and** from `no_verb_reason`
+   (`verbs.rs:226` returns `""`), so they answer "not wired yet". The guard
+   `a_kind_never_both_routes_and_claims_it_cannot` (`verbs.rs:602`) only does
+   `eprintln!` — **never asserts** —, so this debt cannot fail CI.
+   `NetworkAccessRule` also has no `get` nor `describe`.
+4. **`drift` is structurally silent on 5 kinds** (RuntimePolicy,
+   Secret, Image, App, Gateway): `actual()` returns `last_applied: None`,
+   so they always count as `unstamped` and never as drift — and this **is not
+   stated** in the `drift.rs`'s `DOC_SCOPED`/`not_checked` honesty mechanism.
+5. **`IPPool.spec.interface` is unreachable in any accepted document**: it
+   only applies with `announce: l2` (`ippool.rs:234`), and `l2` is refused as
+   not built (`:242`, ADR-0046 phase 4).
 
-### Campos efectivos — o número que a Fase 2 tem de cobrir
+### Effective fields — the number Phase 2 has to cover
 
-Os `RECONCILED_*_FIELDS` são o que `plan`/`diff`/`drift` comparam. A diferença
-face ao schema é grande e é o que a condição `unconverged_fields_condition`
-agora **nomeia** em vez de descartar em silêncio:
+The `RECONCILED_*_FIELDS` are what `plan`/`diff`/`drift` compare. The gap
+versus the schema is large and is what the `unconverged_fields_condition`
+now **names** instead of silently discarding:
 
-| kind | props no schema | efectivos |
+| kind | props in schema | effective |
 |---|---:|---:|
 | VirtualMachine | 60 | **9** |
 | Container | 50 | **12** |
-| Volume | 13 | 8 (só `quota` é a quente) |
+| Volume | 13 | 8 (only `quota` is live) |
 | RuntimePolicy | 12 | 12 |
-| Network | 9 | 7 (só `peers` é a quente) |
+| Network | 9 | 7 (only `peers` is live) |
 | Pod | 9 | 3 |
 | SystemContainer | 9 | 8 |
 | NetworkAccessRule | 6 | 6 |
 | IPPool | 3 | 3 |
 
-Faltam cinco ficheiros `examples/full-*.yaml`, que são a referência por campo:
-`full-storagepool.yaml`, `full-systemcontainer.yaml`, `full-networkzone.yaml`,
-`full-networkgateway.yaml` e as variantes de share do `full-volume`.
+Five `examples/full-*.yaml` files are missing, which are the per-field
+reference: `full-storagepool.yaml`, `full-systemcontainer.yaml`,
+`full-networkzone.yaml`, `full-networkgateway.yaml` and the `full-volume`
+share variants.
 
 ---
 
 ## 7. Providers — 9 crates
 
-| provider | ops | live.rs | ops cobertas live | trace de rotas | failure injection |
+| provider | ops | live.rs | ops covered live | route trace | failure injection |
 |---|---:|---|---|---|---|
-| Proxmox | ~300 | 45 casos | ~179 rotas | **sim** — 184/675 (27,3 %) | **sim**, ~80 casos |
-| OPNsense | ~24 | 4 casos | 15 ops | não | **sim**, ~45 casos |
-| TrueNAS | 5 | 1 caso | 5 ops | não | **não** |
-| PowerDNS | 2 | 1 caso | 2 ops | não | parcial (`tests/mock.rs`) |
-| libvirt | ~34 | 1 caso | **3**: `boot`, `is_running`, `guest_info` | **inutilizável** | **não** |
-| Cloud Hypervisor | ~21 | 1 caso | **2**: `hotplug_add_cpu/memory` | não | **não** |
-| LVM | ~11 | **não** | **0** | não | **não** |
-| ZFS | ~11 | **não** | **0** | não | **não** |
-| btrfs | ~11 | **não** | **0** | não | **não** |
+| Proxmox | ~300 | 45 cases | ~179 routes | **yes** — 184/675 (27.3%) | **yes**, ~80 cases |
+| OPNsense | ~24 | 4 cases | 15 ops | no | **yes**, ~45 cases |
+| TrueNAS | 5 | 1 case | 5 ops | no | **no** |
+| PowerDNS | 2 | 1 case | 2 ops | no | partial (`tests/mock.rs`) |
+| libvirt | ~34 | 1 case | **3**: `boot`, `is_running`, `guest_info` | **unusable** | **no** |
+| Cloud Hypervisor | ~21 | 1 case | **2**: `hotplug_add_cpu/memory` | no | **no** |
+| LVM | ~11 | **no** | **0** | no | **no** |
+| ZFS | ~11 | **no** | **0** | no | **no** |
+| btrfs | ~11 | **no** | **0** | no | **no** |
 
-Métrica de células do motor: **103 de 273 aplicáveis provadas (37,7 %)**
+Engine cell metric: **103 of 273 applicable proven (37.7%)**
 (`capability_ratchet.py` **rc=0**).
 
-**Sete dos nove providers não têm failure injection.** Só Proxmox e OPNsense
-têm, e as duas suites afirmam a partir do **registo de pedidos** do mock — «a
-chamada devolveu Ok» nunca é a asserção inteira.
+**Seven of the nine providers have no failure injection.** Only Proxmox and
+OPNsense have it, and the two suites assert from the mock's **request log**
+— "the call returned Ok" is never the whole assertion.
 
-**Nenhum gate de CI** regenera ou verifica o `docs/proxmox/matrix-9.2.2.md`, e
-o `lab.yml` nunca corre um `--test live`: cada caso live é `#[ignore]` e corrido
-à mão.
+**No CI gate** regenerates or checks `docs/proxmox/matrix-9.2.2.md`, and
+`lab.yml` never runs a `--test live`: every live case is `#[ignore]` and run
+by hand.
 
-### Defeitos verificados por mim neste inventário
+### Defects verified by me in this inventory
 
-1. **A etiqueta `delonix-test-run=<uuid>` não existe em lado nenhum.**
-   `grep -rn 'delonix-test-run'` no repo todo → **0 ocorrências**. É um
-   requisito do próprio briefing desta missão, e não está implementado em
-   nenhum dos nove providers. O que existe é o `fresh_mark()` do OPNsense
-   (`live.rs:50-61`) — mas essa é a marca de posse **de produção** (ADR-0059
-   D1.5), não uma etiqueta de teste; e nomes derivados do PID nos outros.
-2. **O `scripts/libvirt_virsh_inventory.py` lê os ficheiros errados.** O
-   `SOURCES` (:54-57) aponta para `crates/adapters/delonix-vm/src/lib.rs` e
-   `bins/delonix-runtime-bin/src/cmd/vm.rs`. Medido: o crate do provider tem
-   **199** ocorrências de `virsh`, o adaptador que o script varre tem **2**.
-   Logo o numerador do libvirt vem do sítio errado e o **31/276 (11,2 %)** do
-   ADR-0050 não é reproduzível contra a árvore de hoje.
-3. **O cliente Proxmox não tem política de redirect.** O `connect_with`
-   (`src/lib.rs:1201-1225`) define `connect_timeout`, `timeout`,
-   `pool_max_idle_per_host`, `danger_accept_invalid_certs` e
-   `add_root_certificate` — e **nenhum `redirect::Policy`**, logo vale o default
-   do `reqwest` (seguir até 10). O OPNsense tem a política
-   (`src/lib.rs:245 .redirect(Policy::none())`), a verificação (`:292`) e o
-   teste (`a_302_with_no_body_is_unauthorized_and_never_followed`), e o
-   comentário do módulo (:17-21) explica porque importa: um cliente que segue
-   redirects **esconde** uma das falhas, redirigindo para o login do GUI. O caso
-   11 da matriz da Fase 2 exige exactamente «redirect (nunca seguido)».
+1. **The `delonix-test-run=<uuid>` label does not exist anywhere.**
+   `grep -rn 'delonix-test-run'` across the whole repo → **0 occurrences**.
+   It is a requirement from this mission's own briefing, and it is not
+   implemented in any of the nine providers. What exists is OPNsense's
+   `fresh_mark()` (`live.rs:50-61`) — but that is a **production** ownership
+   mark (ADR-0059 D1.5), not a test label; and PID-derived names in the
+   others.
+2. **`scripts/libvirt_virsh_inventory.py` reads the wrong files.** `SOURCES`
+   (:54-57) points at `crates/adapters/delonix-vm/src/lib.rs` and
+   `bins/delonix-runtime-bin/src/cmd/vm.rs`. Measured: the provider crate has
+   **199** occurrences of `virsh`, the adapter the script scans has **2**.
+   So libvirt's numerator comes from the wrong place and ADR-0050's
+   **31/276 (11.2%)** is not reproducible against today's tree.
+3. **The Proxmox client has no redirect policy.** `connect_with`
+   (`src/lib.rs:1201-1225`) sets `connect_timeout`, `timeout`,
+   `pool_max_idle_per_host`, `danger_accept_invalid_certs` and
+   `add_root_certificate` — and **no `redirect::Policy`**, so `reqwest`'s
+   default applies (follow up to 10). OPNsense has the policy
+   (`src/lib.rs:245 .redirect(Policy::none())`), the check (`:292`) and the
+   test (`a_302_with_no_body_is_unauthorized_and_never_followed`), and the
+   module comment (:17-21) explains why it matters: a client that follows
+   redirects **hides** a failure by redirecting to the GUI login. Phase 2's
+   matrix case 11 requires exactly "redirect (never followed)".
 
-### Outros achados dos providers, a confirmar antes de afirmar
+### Other provider findings, to confirm before asserting
 
-- **Salto silencioso** em `delonix-proxmox/tests/live.rs:2150`: um
-  `if let Ok(callback) = env::var(...)` salta metade de um caso e o caso continua
-  a dar **passed** — contra a regra «variável em falta FALHA». E há defaults que
-  mascaram ausência (`_NODE`→`pve`, `_STORAGE`→`local-lvm` em 18 sítios,
-  `_BRIDGE`→`vmbr0`; TrueNAS `_POOL`→`tank`).
-- **Teardown não é à prova de falha** no OPNsense (0 guardas `Drop`), no TrueNAS
-  (0) e em ~41 dos 45 casos do Proxmox (desmontagem inline com `.expect()`): um
-  pânico a meio deixa o objecto no alvo.
-- **LVM/ZFS/btrfs são enviados e ligados** (`delonix-storage-helper/src/main.rs:120-133`,
-  `cmd/storage_pool.rs:125-134`) mas o `capability-matrix.md:196-197` declara
-  `storage.lvm-thin` e `storage.zfs-btrfs` **`not-implemented`**.
-- **9 casos live do Proxmox nunca passaram contra um nó** (auto-declarado em
-  `live.rs:33-50`): os três `move`, o `move` do system container, o IP pelo
-  agente, o DNS, os vCPUs/memória do agente, a release do nó e a reparação do
-  gateway. Logo `move_to_node`, `move_to` e `DnsProvider::prepare_zone/observe`
-  estão implementados e **não provados**.
-- `ListPodSandboxStats` do CRI lê só `f.id` e **descarta
-  `PodSandboxStatsFilter.label_selector`** — exactamente o defeito que o irmão
-  `list_container_stats` diz ter corrigido (`lifecycle.rs:2686`). Sem cobertura,
-  nada o apanharia.
-- O `scripts/critest.sh` isola o `DELONIX_ROOT` mas **não** o
-  `DELONIX_NET_RUNTIME_DIR`, e o `cleanup()` (:49) invoca
-  `"$CLI_BIN" netns down` — uma grafia que **já não existe** (é `net netns down`
-  desde a reorganização da CLI). Medido: `delonix netns down` responde
-  `error: unrecognized subcommand 'netns'`. O erro é engolido por `|| true`.
+- **Silent skip** in `delonix-proxmox/tests/live.rs:2150`: an
+  `if let Ok(callback) = env::var(...)` skips half of a case and the case
+  still reports **passed** — against the rule "a missing variable FAILS".
+  And there are defaults that mask absence (`_NODE`→`pve`, `_STORAGE`→`local-lvm`
+  in 18 places, `_BRIDGE`→`vmbr0`; TrueNAS `_POOL`→`tank`).
+- **Teardown is not failure-proof** in OPNsense (0 `Drop` guards), in TrueNAS
+  (0) and in ~41 of Proxmox's 45 cases (inline teardown with `.expect()`): a
+  panic halfway leaves the object on the target.
+- **LVM/ZFS/btrfs are shipped and wired** (`delonix-storage-helper/src/main.rs:120-133`,
+  `cmd/storage_pool.rs:125-134`) but `capability-matrix.md:196-197` declares
+  `storage.lvm-thin` and `storage.zfs-btrfs` **`not-implemented`**.
+- **9 Proxmox live cases never passed against a node** (self-declared in
+  `live.rs:33-50`): the three `move`s, the system container's `move`, the IP
+  via the agent, DNS, vCPUs/memory via the agent, node release and gateway
+  repair. So `move_to_node`, `move_to` and
+  `DnsProvider::prepare_zone/observe` are implemented and **unproven**.
+- CRI's `ListPodSandboxStats` reads only `f.id` and **discards
+  `PodSandboxStatsFilter.label_selector`** — exactly the defect its sibling
+  `list_container_stats` claims to have fixed (`lifecycle.rs:2686`). With no
+  coverage, nothing would catch it.
+- `scripts/critest.sh` isolates `DELONIX_ROOT` but **not**
+  `DELONIX_NET_RUNTIME_DIR`, and `cleanup()` (:49) invokes
+  `"$CLI_BIN" netns down` — a spelling that **no longer exists** (it has been
+  `net netns down` since the CLI reorganization). Measured: `delonix netns down`
+  answers `error: unrecognized subcommand 'netns'`. The error is swallowed by
+  `|| true`.
 
 ---
 
-## Decisões que preciso de ti
+## Decisions I need from you
 
-1. **As 29 RPCs não implementadas do contrato de nó.** `ContainerService`,
-   `PodService`, `ImageService` e `StackService` são serviços inteiros
-   declarados e não servidos. Implementar está muito além de um ciclo TDD por
-   folha; a alternativa do briefing é «decisão explícita de remover/adiar com
-   ADR». Qual?
-2. **O `delonix-mgmt` está marcado para remoção** pelo ADR-0042 D-E/F. Provar
-   as suas 40 operações ou deixá-las como estão até à migração?
-3. **O baseline do CRI contradiz-se** (79/24 publicado vs 82/21 com logs), e
-   nenhum é da 5.1.1. Remedir agora e republicar, ou tratar como Fase 5?
-   **FECHADO (2026-10-24):** remedido na v5.1.1 → **84/20** e republicado
-   (`cri-conformance.md`, `gen.py`); ver `reports/cri-conformance-2026-10-24/`.
-4. **A comparação da Fase 5 não corre neste host**: não há `docker` nem
-   `podman`, e o `bench_gate.py` **recusa julgar** esta máquina (a baseline é da
-   AMD Ryzen 9 8940HX/32 threads; esta é Intel i9-13900H/20 threads). Precisa de
-   uma VM de laboratório, como a corrida de 2026-08-13 fez.
+1. **The node contract's 29 unimplemented RPCs.** `ContainerService`,
+   `PodService`, `ImageService` and `StackService` are entire declared
+   services that are not served. Implementing is far beyond one TDD cycle
+   per leaf; the briefing's alternative is "explicit decision to remove/defer
+   with an ADR". Which?
+2. **`delonix-mgmt` is marked for removal** by ADR-0042 D-E/F. Prove its 40
+   operations or leave them as they are until the migration?
+3. **The CRI baseline contradicts itself** (79/24 published vs 82/21 with
+   logs), and neither is from 5.1.1. Re-measure now and republish, or treat
+   as Phase 5?
+   **CLOSED (2026-10-24):** re-measured on v5.1.1 → **84/20** and republished
+   (`cri-conformance.md`, `gen.py`); see `reports/cri-conformance-2026-10-24/`.
+4. **The Phase 5 comparison does not run on this host**: there is no
+   `docker` nor `podman`, and `bench_gate.py` **refuses to judge** this
+   machine (the baseline is from an AMD Ryzen 9 8940HX/32 threads; this one
+   is an Intel i9-13900H/20 threads). It needs a lab VM, like the 2026-08-13
+   run did.

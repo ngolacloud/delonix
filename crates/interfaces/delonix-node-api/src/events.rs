@@ -24,11 +24,13 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use delonix_node::events::Event as Record;
 use tonic::Status;
 
 use crate::proto::v1::{Event, WatchEventsRequest};
+use crate::store::StorePort;
 
 /// How often the log is read for new records.
 pub const POLL: std::time::Duration = std::time::Duration::from_millis(200);
@@ -74,7 +76,38 @@ pub fn message(r: &Record) -> Event {
         namespace: String::new(),
         attributes,
         trace_id: String::new(),
+        // Filled by `version_of` when the record is streamed (ADR-0100).
+        generation: 0,
+        observed_generation: 0,
     }
+}
+
+/// The ADR-0100 version pair for an event's referenced resource, read off the
+/// per-Kind record store at stream time. The container store is the one BOTH the
+/// node-API mutation path and the CLI `stack apply` write, so a container stamped
+/// by either surfaces its generation here. A kind this watch does not resolve, or
+/// a record not found, reads `(0, 0)` — absent-safe, "unversioned".
+fn version_of(store: &dyn StorePort, r: &Record) -> (i64, i64) {
+    match r.kind.as_str() {
+        "container" => store
+            .container_load(&r.name)
+            .map(|c| {
+                let rv = crate::versioning::read_version(&c.annotations);
+                (rv.generation, rv.observed_generation)
+            })
+            .unwrap_or((0, 0)),
+        _ => (0, 0),
+    }
+}
+
+/// A record as the contract's `Event`, with the ADR-0100 version pair resolved
+/// from the store. The store read is the only I/O this adds to the tail.
+fn message_versioned(r: &Record, store: &dyn StorePort) -> Event {
+    let mut ev = message(r);
+    let (generation, observed_generation) = version_of(store, r);
+    ev.generation = generation;
+    ev.observed_generation = observed_generation;
+    ev
 }
 
 /// The records of one file, oldest first; an unreadable line is skipped (the
@@ -106,10 +139,13 @@ fn retention(oldest: Option<u64>, rotated: bool, since: u64) -> Event {
             ("complete".to_string(), complete.to_string()),
         ]),
         trace_id: String::new(),
+        generation: 0,
+        observed_generation: 0,
     }
 }
 
 /// What a request selects, validated before the stream starts.
+#[derive(Clone)]
 struct Filter {
     kinds: Vec<String>,
 }
@@ -120,11 +156,13 @@ impl Filter {
     }
 }
 
-/// `WatchEvents` under `root`.
+/// `WatchEvents` under `root`. `store` resolves each event's ADR-0100 version
+/// pair off the referenced resource (see [`version_of`]).
 pub fn watch(
     root: PathBuf,
     req: WatchEventsRequest,
     poll: std::time::Duration,
+    store: Arc<dyn StorePort>,
 ) -> Result<tokio_stream::wrappers::ReceiverStream<Result<Event, Status>>, Status> {
     if !req.namespace.is_empty() {
         return Err(Status::unimplemented(format!(
@@ -150,7 +188,7 @@ pub fn watch(
             first.extend(
                 kept.iter()
                     .filter(|r| r.ts >= since && filter.wants(r))
-                    .map(message),
+                    .map(|r| message_versioned(r, store.as_ref())),
             );
             offset
         }
@@ -169,15 +207,26 @@ pub fn watch(
                 _ = tokio::time::sleep(poll) => {}
             }
             let r = root.clone();
-            let read =
-                tokio::task::spawn_blocking(move || delonix_node::events::read_from(&r, offset))
-                    .await;
-            let Ok((records, next)) = read else {
+            let filter = filter.clone();
+            let store = Arc::clone(&store);
+            // Read the new records AND build their messages — including the store
+            // read `version_of` does — on the blocking pool, off the runtime.
+            let read = tokio::task::spawn_blocking(move || {
+                let (records, next) = delonix_node::events::read_from(&r, offset);
+                let msgs: Vec<Event> = records
+                    .iter()
+                    .filter(|rec| filter.wants(rec))
+                    .map(|rec| message_versioned(rec, store.as_ref()))
+                    .collect();
+                (msgs, next)
+            })
+            .await;
+            let Ok((msgs, next)) = read else {
                 return;
             };
             offset = next;
-            for r in records.iter().filter(|r| filter.wants(r)) {
-                if tx.send(Ok(message(r))).await.is_err() {
+            for ev in msgs {
+                if tx.send(Ok(ev)).await.is_err() {
                     return;
                 }
             }
@@ -206,7 +255,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_path_buf();
         delonix_node::events::emit(&root, "volume", "create", "old", "old", None);
-        let mut s = watch(root.clone(), WatchEventsRequest::default(), FAST).unwrap();
+        let mut s = watch(
+            root.clone(),
+            WatchEventsRequest::default(),
+            FAST,
+            Arc::new(crate::store::NoStore),
+        )
+        .unwrap();
         delonix_node::events::emit(&root, "volume", "remove", "v1", "v1", Some("force"));
         let ev = next(&mut s).await;
         assert_eq!((ev.kind.as_str(), ev.action.as_str()), ("volume", "remove"));
@@ -225,7 +280,7 @@ mod tests {
             kinds: vec!["container".into()],
             ..Default::default()
         };
-        let mut s = watch(root.clone(), req, FAST).unwrap();
+        let mut s = watch(root.clone(), req, FAST, Arc::new(crate::store::NoStore)).unwrap();
         delonix_node::events::emit(&root, "volume", "create", "v", "v", None);
         delonix_node::events::emit(&root, "container", "start", "abc", "web", None);
         let ev = next(&mut s).await;
@@ -245,7 +300,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let mut s = watch(root.clone(), req, FAST).unwrap();
+        let mut s = watch(root.clone(), req, FAST, Arc::new(crate::store::NoStore)).unwrap();
         let head = next(&mut s).await;
         assert_eq!(
             (head.kind.as_str(), head.action.as_str()),
@@ -285,7 +340,76 @@ mod tests {
             namespace: "team-a".into(),
             ..Default::default()
         };
-        let err = watch(dir.path().to_path_buf(), req, FAST).err().unwrap();
+        let err = watch(
+            dir.path().to_path_buf(),
+            req,
+            FAST,
+            Arc::new(crate::store::NoStore),
+        )
+        .err()
+        .unwrap();
         assert_eq!(err.code(), tonic::Code::Unimplemented);
+    }
+
+    #[tokio::test]
+    async fn an_event_carries_the_referenced_containers_version_from_the_store() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        // A container stamped generation 2, observed 1 — a desired change still
+        // pending (ADR-0099's desired stamp leaves observed behind until the
+        // reconcile advances it). The CLI and the node API both write this store.
+        let cstore = delonix_state::Store::open(root.join("containers")).unwrap();
+        let mut c = delonix_compute::Container::new(
+            "0123456789ab".into(),
+            "web".into(),
+            "alpine".into(),
+            vec!["true".into()],
+            "64M".into(),
+        );
+        c.annotations
+            .insert("delonix.io/generation".into(), "2".into());
+        c.annotations
+            .insert("delonix.io/observed-generation".into(), "1".into());
+        cstore.save(&c).unwrap();
+
+        // The desired stamp's `applied` event for that container (ADR-0100).
+        delonix_node::events::emit(&root, "container", "applied", "0123456789ab", "web", None);
+
+        let req = WatchEventsRequest {
+            since: Some(pbjson_types::Timestamp {
+                seconds: 0,
+                nanos: 0,
+            }),
+            ..Default::default()
+        };
+        let store: Arc<dyn StorePort> = Arc::new(crate::store::LocalStore(root.clone()));
+        let mut s = watch(root.clone(), req, FAST, store).unwrap();
+        // retention head, then the applied event with its version resolved.
+        assert_eq!(next(&mut s).await.action, "replay");
+        let ev = next(&mut s).await;
+        assert_eq!(
+            (ev.kind.as_str(), ev.action.as_str()),
+            ("container", "applied")
+        );
+        assert_eq!(ev.target, "Container/web");
+        assert_eq!(ev.generation, 2, "desired generation read off the store");
+        assert_eq!(
+            ev.observed_generation, 1,
+            "observed behind — a desired change the reader shows as pending"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_state_event_without_a_versioned_record_reads_zero() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        // No container record: `version_of` finds nothing → 0/0 (unversioned),
+        // never an error — the state event still streams.
+        let store: Arc<dyn StorePort> = Arc::new(crate::store::LocalStore(root.clone()));
+        let mut s = watch(root.clone(), WatchEventsRequest::default(), FAST, store).unwrap();
+        delonix_node::events::emit(&root, "container", "die", "ghost", "ghost", Some("137"));
+        let ev = next(&mut s).await;
+        assert_eq!(ev.action, "die");
+        assert_eq!((ev.generation, ev.observed_generation), (0, 0));
     }
 }

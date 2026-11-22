@@ -1,0 +1,204 @@
+[
+ {
+  "file": "bins/delonix/src/cmd/hosts.rs",
+  "line": 25,
+  "field": "print",
+  "kind": "conflicts_with",
+  "targets": [
+   "off"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/man.rs",
+  "line": 45,
+  "field": "index",
+  "kind": "requires",
+  "targets": [
+   "dir"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/rbackup.rs",
+  "line": 860,
+  "field": "cron",
+  "kind": "conflicts_with",
+  "targets": [
+   "max_for_day"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/netns.rs",
+  "line": 86,
+  "field": "spec",
+  "kind": "conflicts_with",
+  "targets": [
+   "clear"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/volume.rs",
+  "line": 624,
+  "field": "driver",
+  "kind": "conflicts_with",
+  "targets": [
+   "parent"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/volume.rs",
+  "line": 633,
+  "field": "opt",
+  "kind": "conflicts_with",
+  "targets": [
+   "parent"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/volume.rs",
+  "line": 648,
+  "field": "namespace",
+  "kind": "requires",
+  "targets": [
+   "parent"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/volume.rs",
+  "line": 653,
+  "field": "pool",
+  "kind": "requires",
+  "targets": [
+   "size"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/volume.rs",
+  "line": 654,
+  "field": "pool",
+  "kind": "conflicts_with_all",
+  "targets": [
+   "parent",
+   "driver",
+   "opt",
+   "quota"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/volume.rs",
+  "line": 658,
+  "field": "size",
+  "kind": "requires",
+  "targets": [
+   "pool"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/volume.rs",
+  "line": 673,
+  "field": "namespace",
+  "kind": "conflicts_with",
+  "targets": [
+   "all_namespaces"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/volume.rs",
+  "line": 743,
+  "field": "namespace",
+  "kind": "conflicts_with",
+  "targets": [
+   "all_namespaces"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/system.rs",
+  "line": 203,
+  "field": "threshold",
+  "kind": "requires",
+  "targets": [
+   "auto"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/vm.rs",
+  "line": 927,
+  "field": "url_img",
+  "kind": "conflicts_with_all",
+  "targets": [
+   "disk"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/vm.rs",
+  "line": 1125,
+  "field": "reveal",
+  "kind": "requires",
+  "targets": [
+   "credentials"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/vm.rs",
+  "line": 1400,
+  "field": "vcpus_max",
+  "kind": "conflicts_with",
+  "targets": [
+   "no_hotplug"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/vm.rs",
+  "line": 1403,
+  "field": "memory_max",
+  "kind": "conflicts_with",
+  "targets": [
+   "no_hotplug"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/vm.rs",
+  "line": 1471,
+  "field": "node",
+  "kind": "required_unless_present",
+  "targets": [
+   "namespace"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/vm.rs",
+  "line": 1472,
+  "field": "node",
+  "kind": "conflicts_with",
+  "targets": [
+   "namespace"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/container.rs",
+  "line": 1631,
+  "field": "reveal",
+  "kind": "requires",
+  "targets": [
+   "credentials"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/container.rs",
+  "line": 1678,
+  "field": "detach",
+  "kind": "conflicts_with_all",
+  "targets": [
+   "interactive",
+   "tty"
+  ]
+ },
+ {
+  "file": "bins/delonix/src/cmd/container.rs",
+  "line": 2009,
+  "field": "net_rate_clear",
+  "kind": "conflicts_with",
+  "targets": [
+   "net_rate"
+  ]
+ }
+]

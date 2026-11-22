@@ -6,7 +6,7 @@ for the Python side, not from `latest`.
 
 | Service | Image (pinned) | Role | Profile | State |
 |---|---|---|---|---|
-| app | built from `Dockerfile` (python:3.13-slim) | the FastAPI service | default | validated |
+| app | built from `Dockerfile` (build python:3.11-slim → runtime distroless python3-debian12) | the FastAPI service | default | validated |
 | redis | `redis:7.4-alpine` | read-through cache | default | upstream-available |
 | rabbitmq | `rabbitmq:4.0-management-alpine` | `note.created` pub/sub | default | upstream-available |
 | sonarqube | `sonarqube:lts-community` | code quality | quality | upstream-available |

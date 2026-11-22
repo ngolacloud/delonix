@@ -1,255 +1,268 @@
-# GAP-0009 — Anexo in-toto/OCI de attestations (Onda 1A, áreas CNCF 3+4)
+# GAP-0009 — in-toto/OCI attestation attachment (Wave 1A, CNCF areas 3+4)
 
-> Pivô da campanha de aceitação CNCF. Entrega a área 4 (SBOM interoperável) quase
-> inteira e o mecanismo de anexo da área 3 (SLSA, GAP-0008). Base: develop @
-> `67ddef41`. Contrato de referência: `moby/buildkit`
+> Pivot of the CNCF acceptance campaign. Delivers almost the whole of area 4
+> (interoperable SBOM) and the attachment mechanism for area 3 (SLSA, GAP-0008).
+> Base: develop @ `67ddef41`. Reference contract: `moby/buildkit`
 > `exporter/containerimage/writer.go` + `util/attestation/types.go`.
 
-## Objectivo
-`delonix build --sbom` anexa à imagem um SBOM SPDX embrulhado em in-toto; `delonix
-image sbom <ref>` exporta o SPDX. A attestation fica descoberta por um consumidor
-standard (`cosign verify-attestation`, `docker buildx imagetools inspect`).
+## Objective
+`delonix build --sbom` attaches an SPDX SBOM wrapped in in-toto to the image;
+`delonix image sbom <ref>` exports the SPDX. The attestation is discoverable by a
+standard consumer (`cosign verify-attestation`, `docker buildx imagetools inspect`).
 
-## Contrato a implementar (literais do BuildKit)
-- **Statement in-toto cru** (NÃO DSSE): `_type: https://in-toto.io/Statement/v1`,
+## Contract to implement (BuildKit literals)
+- **Raw in-toto statement** (NOT DSSE): `_type: https://in-toto.io/Statement/v1`,
   `predicateType: https://spdx.dev/Document`, `subject: [{name, digest:{sha256}}]`,
   `predicate: <SPDX-2.3>`.
-- **Layer** do attestation manifest: `mediaType application/vnd.in-toto+json`,
+- **Layer** of the attestation manifest: `mediaType application/vnd.in-toto+json`,
   annotation `in-toto.io/predicate-type = https://spdx.dev/Document`.
 - **Attestation manifest**: `artifactType =
   application/vnd.docker.attestation.manifest.v1+json`, `config =` empty
-  (`application/vnd.oci.empty.v1+json`), `subject =` descriptor do manifest da
-  imagem alvo.
-- **Descoberta**: OCI 1.1 **referrers** via `subject` (push por digest). Opcional
-  (fase 2): referenciar também num index com `platform=unknown/unknown` +
+  (`application/vnd.oci.empty.v1+json`), `subject =` descriptor of the target
+  image's manifest.
+- **Discovery**: OCI 1.1 **referrers** via `subject` (push by digest). Optional
+  (phase 2): also reference it in an index with `platform=unknown/unknown` +
   annotations `vnd.docker.reference.type=attestation-manifest` /
-  `vnd.docker.reference.digest=<img>` (convenção buildx).
+  `vnd.docker.reference.digest=<img>` (buildx convention).
 
-## Pontos de enxerto (reutilização)
-- `delonix-scanner/lib.rs::sbom_spdx()` — SPDX-2.3 já pronto → só embrulhar.
-- `delonix-oci/registry.rs::push_layer_annotated()` (:2548) — constrói manifest
-  com `artifact_type` + layer anotada; **falta `.subject(...)`** → adicionar
-  variante `push_attestation(subject_descriptor, …)`.
-- `delonix-oci/sign.rs` — padrão de resolver o digest do manifest da imagem
-  (reusar para montar o `subject`).
-- `bins/delonix/src/cmd/build.rs:1410` — já chama `write_sbom` por build; ponto
-  de ligação do `--sbom` para anexar além de gravar local.
+## Graft points (reuse)
+- `delonix-scanner/lib.rs::sbom_spdx()` — SPDX-2.3 already ready → just wrap it.
+- `delonix-oci/registry.rs::push_layer_annotated()` (:2548) — builds a manifest
+  with `artifact_type` + annotated layer; **`.subject(...)` is missing** → add a
+  `push_attestation(subject_descriptor, …)` variant.
+- `delonix-oci/sign.rs` — pattern for resolving the digest of the image's manifest
+  (reuse to assemble the `subject`).
+- `bins/delonix/src/cmd/build.rs:1410` — already calls `write_sbom` per build;
+  the hook point for `--sbom` to attach in addition to saving locally.
 
-## Passos
-1. **Wrapper in-toto** (pure fn `intoto_statement(spdx, image_name, image_digest)`
-   em `delonix-scanner` ou `delonix-oci`) + testes de forma.
-2. **`push_attestation`** em `registry.rs`: resolve descriptor do alvo, monta
-   manifest com `subject`+`artifactType`, push por digest.
-3. **CLI**: `delonix image sbom <ref> [--attach]`; `build --sbom` liga o anexo.
-4. **Testes**: round-trip contra registry local (reusar `serve_anon_registry`),
-   verificar referrers/subject e o `predicate-type`.
+## Steps
+1. **in-toto wrapper** (pure fn `intoto_statement(spdx, image_name, image_digest)`
+   in `delonix-scanner` or `delonix-oci`) + shape tests.
+2. **`push_attestation`** in `registry.rs`: resolves the target descriptor, builds
+   the manifest with `subject`+`artifactType`, pushes by digest.
+3. **CLI**: `delonix image sbom <ref> [--attach]`; `build --sbom` wires the
+   attachment.
+4. **Tests**: round-trip against a local registry (reuse `serve_anon_registry`),
+   verify referrers/subject and the `predicate-type`.
 
-## Done (efeito verificável) — FEITO 2026-11-12
+## Done (verifiable effect) — DONE 2026-11-12
 
-Implementado:
-- Wrapper in-toto (`delonix-scanner`: `intoto_statement`, `sbom_intoto_statement`).
-- Anexo OCI (`delonix-oci/registry.rs`: `push_attestation` — `subject` +
-  `artifactType` + layer `vnd.in-toto+json` + annotation `predicate-type`),
-  **com fallback por referrers-tag-schema** (`sha256-<hex>` índice) para
-  registries sem Referrers API.
-- Leitor nativo (`list_referrers` + `Referrer`; CLI `delonix image attestations`),
-  com fallback ao tag-schema quando a API dá 404.
+Implemented:
+- in-toto wrapper (`delonix-scanner`: `intoto_statement`, `sbom_intoto_statement`).
+- OCI attachment (`delonix-oci/registry.rs`: `push_attestation` — `subject` +
+  `artifactType` + `vnd.in-toto+json` layer + `predicate-type` annotation),
+  **with a referrers-tag-schema fallback** (`sha256-<hex>` index) for registries
+  without a Referrers API.
+- Native reader (`list_referrers` + `Referrer`; CLI `delonix image attestations`),
+  with the tag-schema fallback when the API returns 404.
 - CLI `delonix image sbom <ref> --attach`.
 
-Prova:
-- **Unit** (mock registry, HTTP real in-process): `push_attestation_binds_to_the_
-  image_as_a_referrer` — push imagem → attach → Referrers API lista a attestation
-  (subject=digest, artifactType, predicate-type); blob = Statement exacto. +2 no
-  scanner. Suites: 196 (oci) + 30 (scanner), verdes.
-- **Live** (registry:3 real / distribution, imagem alpine:3.20 real):
-  1. `delonix image attestations` lista `sha256:5099…
+Proof:
+- **Unit** (mock registry, real in-process HTTP): `push_attestation_binds_to_the_
+  image_as_a_referrer` — push image → attach → Referrers API lists the attestation
+  (subject=digest, artifactType, predicate-type); blob = exact Statement. +2 in the
+  scanner. Suites: 196 (oci) + 30 (scanner), green.
+- **Live** (real registry:3 / distribution, real alpine:3.20 image):
+  1. `delonix image attestations` lists `sha256:5099…
      application/vnd.docker.attestation.manifest.v1+json  https://spdx.dev/Document`;
-  2. `curl` ao índice tag-schema devolve o referrer com a annotation;
-  3. **`docker buildx imagetools inspect`** (terceiro) lê o mesmo índice.
-  A Referrers API nativa deste registry deu 404 → o fallback tag-schema foi o que
-  tornou a attestation descoberta (como buildx/cosign/oras fazem).
+  2. `curl` to the tag-schema index returns the referrer with the annotation;
+  3. **`docker buildx imagetools inspect`** (third party) reads the same index.
+  This registry's native Referrers API returned 404 → the tag-schema fallback was
+  what made the attestation discoverable (as buildx/cosign/oras do).
 
-Notas:
-- Statement **cru, não DSSE** (shape BuildKit). `image sign` (cosign `.sig`)
-  intacto — mecanismos complementares.
-- `cosign verify-attestation` NÃO valida isto: exige assinatura DSSE própria do
-  cosign. Assinar a attestation (DSSE + cosign) é passo seguinte (GAP-0017/trust).
+Notes:
+- **Raw, not DSSE** statement (BuildKit shape). `image sign` (cosign `.sig`)
+  intact — complementary mechanisms.
+- `cosign verify-attestation` does NOT validate this: it requires cosign's own
+  DSSE signature. Signing the attestation (DSSE + cosign) is the next step
+  (GAP-0017/trust).
 
 ---
 
-# GAP-0008 — SLSA provenance no build (Onda 1B, área CNCF 3) — FEITO 2026-11-12
+# GAP-0008 — SLSA provenance at build time (Wave 1B, CNCF area 3) — DONE 2026-11-12
 
-Reutiliza inteiramente o mecanismo do GAP-0009 (in-toto wrapper + `push_attestation`
-+ fallback tag-schema). Só acrescenta: gerar o **predicate SLSA v1** durante o build.
+Reuses the GAP-0009 mechanism entirely (in-toto wrapper + `push_attestation` +
+tag-schema fallback). It only adds: generating the **SLSA v1 predicate** during
+the build.
 
-Implementado:
+Implemented:
 - `delonix-scanner`: `PREDICATE_TYPE_SLSA`, `ProvenanceMode{Min,Max}`, `Material`,
-  `ProvenanceFacts`, `slsa_provenance_predicate()` (pura; shape BuildKit
+  `ProvenanceFacts`, `slsa_provenance_predicate()` (pure; BuildKit shape
   `buildDefinition{buildType,externalParameters,internalParameters,
-  resolvedDependencies}` + `runDetails{builder,metadata}`; `byproducts` omitido
-  como no BuildKit). Min retira valores de build-args; Max inclui-os.
-- `build --provenance[=min|max]` (default max quando presente): `write_provenance`
-  re-parseia o Dockerfile, resolve as bases `FROM` no store → `resolvedDependencies`
-  (materials), e cacheia em `<root>/images/<id>.provenance.json`.
-- `image provenance <ref> [--attach]`: imprime, ou embrulha em in-toto (predicate
-  SLSA) e anexa via `push_attestation`.
+  resolvedDependencies}` + `runDetails{builder,metadata}`; `byproducts` omitted
+  as in BuildKit). Min withholds build-arg values; Max includes them.
+- `build --provenance[=min|max]` (default max when present): `write_provenance`
+  re-parses the Dockerfile, resolves the `FROM` bases in the store →
+  `resolvedDependencies` (materials), and caches to
+  `<root>/images/<id>.provenance.json`.
+- `image provenance <ref> [--attach]`: prints, or wraps in in-toto (SLSA
+  predicate) and attaches via `push_attestation`.
 
-Prova:
+Proof:
 - **Unit**: `slsa_max_includes_build_arg_values_and_materials`,
-  `slsa_min_withholds_build_arg_values_but_keeps_keys` (scanner 32 verdes).
-- **Live** (registry:3 + build real `FROM alpine:3.20`):
-  1. `build --provenance=max` gerou predicate SLSA v1 com material `alpine:3.20`
-     @ `bf8527eb…` (digest real), builder id, finishedOn, invocationId;
-  2. `image provenance --attach` publicou-o;
-  3. `image attestations` lista **as duas** attestations na mesma imagem:
-     `https://spdx.dev/Document` **e** `https://slsa.dev/provenance/v1`;
-  4. curl independente ao índice tag-schema: 2 referrers, predicate-types distintos.
+  `slsa_min_withholds_build_arg_values_but_keeps_keys` (scanner 32 green).
+- **Live** (registry:3 + real build `FROM alpine:3.20`):
+  1. `build --provenance=max` generated an SLSA v1 predicate with material
+     `alpine:3.20` @ `bf8527eb…` (real digest), builder id, finishedOn,
+     invocationId;
+  2. `image provenance --attach` published it;
+  3. `image attestations` lists **both** attestations on the same image:
+     `https://spdx.dev/Document` **and** `https://slsa.dev/provenance/v1`;
+  4. independent curl to the tag-schema index: 2 referrers, distinct
+     predicate-types.
 
-Resultado CNCF: **área 3 (SLSA) de ✗ → ◑ forte** (predicate emitido + anexado,
-verificável); **área 4 (SBOM) → ✔ no mecanismo** (gerado + anexado + descoberto).
-Clippy `-D warnings` limpo; folhas.tsv actualizado (image attestations/provenance).
+CNCF result: **area 3 (SLSA) from ✗ → ◑ strong** (predicate emitted + attached,
+verifiable); **area 4 (SBOM) → ✔ on the mechanism** (generated + attached +
+discovered). Clippy `-D warnings` clean; folhas.tsv updated (image
+attestations/provenance).
 
-Follow-up (não nesta onda): assinar as attestations (DSSE+cosign) p/
-`cosign verify-attestation` — encaixa no GAP-0017 (trust por policy).
+Follow-up (not in this wave): sign the attestations (DSSE+cosign) for
+`cosign verify-attestation` — fits into GAP-0017 (trust by policy).
 
 ---
 
-# GAP-0013 — Scanner policy + compare + CI gating (Onda 2, área CNCF 8) — FEITO 2026-11-12
+# GAP-0013 — Scanner policy + compare + CI gating (Wave 2, CNCF area 8) — DONE 2026-11-12
 
-Alavanca o OSV + `--fail-on` já existentes. Acrescenta a camada de maturidade
-que o Docker Scout tem e o Delonix não tinha.
+Leverages the existing OSV + `--fail-on`. Adds the maturity layer that Docker
+Scout has and Delonix did not.
 
-Implementado:
-- `delonix-scanner` (puro): `Policy{fail_on,ignore,ignore_unfixed}` + `Policy::load`,
+Implemented:
+- `delonix-scanner` (pure): `Policy{fail_on,ignore,ignore_unfixed}` + `Policy::load`,
   `evaluate_policy() -> PolicyOutcome{kept,waived,worst,failed}`,
-  `compare_findings() -> ScanDiff{added,removed}` (chave `(id,package)`).
+  `compare_findings() -> ScanDiff{added,removed}` (key `(id,package)`).
 - CLI `image scan`:
-  - `--policy <ficheiro>`: gate declarativo (threshold + waivers com audit trail +
-    `ignore_unfixed`); precede o `--fail-on`; sai 1 em falha.
-  - `--compare-to <image>`: delta de CVEs entre duas imagens (como `scout compare`).
-  - helper `findings_for` (reusa extract_sbom + load_advisories + scan sem imprimir).
+  - `--policy <file>`: declarative gate (threshold + waivers with audit trail +
+    `ignore_unfixed`); precedes `--fail-on`; exits 1 on failure.
+  - `--compare-to <image>`: CVE delta between two images (like `scout compare`).
+  - `findings_for` helper (reuses extract_sbom + load_advisories + scan without
+    printing).
 
-Prova:
-- **Unit** (scanner 35 verdes): `policy_waives_by_id_and_judges_the_rest_against_fail_on`,
+Proof:
+- **Unit** (scanner 35 green): `policy_waives_by_id_and_judges_the_rest_against_fail_on`,
   `policy_ignore_unfixed_drops_findings_with_no_fix`,
   `compare_reports_added_and_removed_by_id_and_package`.
-- **Live** (alpine:3.20 busybox 1.36.1-r31; advisory forjado fixed r40, High):
-  - (A) `scan --fail-on high` → **exit 1** (gate CI falha no finding);
-  - (B) `scan --policy` (waiver do CVE) → «policy waived 1 finding(s)» → **exit 0**;
+- **Live** (alpine:3.20 busybox 1.36.1-r31; forged advisory fixed r40, High):
+  - (A) `scan --fail-on high` → **exit 1** (CI gate fails on the finding);
+  - (B) `scan --policy` (CVE waiver) → "policy waived 1 finding(s)" → **exit 0**;
   - (C) `scan alpine:3.20 --compare-to debian:12-slim` → `- removed CVE … busybox High`
-    (o advisor apk não casa em dpkg — delta correcto).
-- Clippy `-D warnings` limpo; sem folha CLI nova (só flags em `image scan`).
+    (the apk advisory does not match on dpkg — correct delta).
+- Clippy `-D warnings` clean; no new CLI sheet (only flags on `image scan`).
 
-Resultado CNCF: **área 8 (scanning) de ◑ → ◑ forte / quase ✔** — policy declarativa,
-compare e gating CI, tudo sobre o OSV existente. Falta (GAP-0017) o trust de
-assinatura por policy, que reutiliza o anexo de attestations desta campanha.
+CNCF result: **area 8 (scanning) from ◑ → ◑ strong / nearly ✔** — declarative
+policy, compare and CI gating, all on top of the existing OSV. What remains
+(GAP-0017) is signature trust by policy, which reuses this campaign's attestation
+attachment.
 
 ---
 
-# GAP-0017 — Trust de assinatura por policy declarativa (Onda 2, áreas CNCF 4/8) — FEITO 2026-11-12
+# GAP-0017 — Signature trust by declarative policy (Wave 2, CNCF areas 4/8) — DONE 2026-11-12
 
-Fecha o eixo supply-chain. Reutiliza `sign.rs::verify_signature` (cosign por
-chave) + o padrão de admissão-no-pull (como `admission_scan_on_pull`).
+Closes the supply-chain axis. Reuses `sign.rs::verify_signature` (cosign by key) +
+the admission-on-pull pattern (like `admission_scan_on_pull`).
 
-Implementado (CLI, `scan.rs`):
-- `repo_matches(pattern, reference)` — pura: casa o repo (sem :tag/@digest) por
-  exacto ou wildcard prefixo (`host/ns/*`).
-- `admission_trust_on_pull(images, reference)` — lê `$DELONIX_TRUST_POLICY` ou
-  `<root>/trust.json`; se uma regra casa o repo, verifica a assinatura cosign
-  contra a chave de confiança; `mode:"enforce"` (default) RECUSA não-assinada,
-  `mode:"warn"` só avisa. Sem policy / sem regra a casar → sem exigência
-  (explícito, nunca allow silencioso para repo sob policy).
-- Hook em `image pull`: trust ANTES do scan-on-pull ("quem é" antes de "o que traz").
+Implemented (CLI, `scan.rs`):
+- `repo_matches(pattern, reference)` — pure: matches the repo (without
+  :tag/@digest) by exact or wildcard prefix (`host/ns/*`).
+- `admission_trust_on_pull(images, reference)` — reads `$DELONIX_TRUST_POLICY` or
+  `<root>/trust.json`; if a rule matches the repo, it verifies the cosign signature
+  against the trust key; `mode:"enforce"` (default) REFUSES unsigned,
+  `mode:"warn"` only warns. No policy / no matching rule → no requirement
+  (explicit, never a silent allow for a repo under policy).
+- Hook in `image pull`: trust BEFORE the scan-on-pull ("who it is" before "what it
+  carries").
 
-Formato `trust.json`:
+`trust.json` format:
 `{ "mode":"enforce", "rules":[ {"repo":"ghcr.io/ngolacloud/*", "key":"/path/key.pub"} ] }`
 
-Prova:
-- **Unit**: `repo_matches_exact_wildcard_and_drops_the_tag` (bin verde).
+Proof:
+- **Unit**: `repo_matches_exact_wildcard_and_drops_the_tag` (bin green).
 - **Live** (registry:3 + delonix `image sign`):
-  - (A) pull da imagem **assinada** → «→ trust: valid signature …» → **exit 0**;
-  - (B) pull da **não-assinada** (enforce) → «refused: not signed by a key trusted
-    for this repo per the trust policy …» → **exit 1**;
-  - (C) pull da não-assinada (mode=warn) → warning + imagem baixada → **exit 0**.
-- Clippy `-D warnings` limpo; sem folha CLI nova (env+ficheiro no caminho de pull).
+  - (A) pull of the **signed** image → "→ trust: valid signature …" → **exit 0**;
+  - (B) pull of the **unsigned** one (enforce) → "refused: not signed by a key
+    trusted for this repo per the trust policy …" → **exit 1**;
+  - (C) pull of the unsigned one (mode=warn) → warning + image pulled → **exit 0**.
+- Clippy `-D warnings` clean; no new CLI sheet (env+file on the pull path).
 
-Resultado CNCF: **áreas 4/8 reforçadas** — trust de assinatura declarativo por
-repo, fail-closed, aplicado no pull. Eixo supply-chain (3+4+8) agora coerente:
-SBOM+provenance anexados (0009/0008), scanning com policy/compare/gate (0013),
-e trust por policy (0017).
+CNCF result: **areas 4/8 reinforced** — declarative signature trust per repo,
+fail-closed, applied at pull. The supply-chain axis (3+4+8) is now coherent:
+SBOM+provenance attached (0009/0008), scanning with policy/compare/gate (0013),
+and trust by policy (0017).
 
-Follow-up (interop externa, bloqueado no host): assinar as attestations em DSSE +
-`.att` cosign para `cosign verify-attestation` as validar (cosign não instalável
-aqui). O trust-by-policy já é verificável nativamente.
+Follow-up (external interop, blocked on the host): sign the attestations in DSSE +
+cosign `.att` for `cosign verify-attestation` to validate them (cosign not
+installable here). Trust-by-policy is already verifiable natively.
 
 ---
 
-# GAP-0015 — Interop Kubernetes YAML: kube play/generate (Onda 3, área CNCF 2) — FEITO 2026-11-12
+# GAP-0015 — Kubernetes YAML interop: kube play/generate (Wave 3, CNCF area 2) — DONE 2026-11-12
 
-Maior diferencial CNCF do Podman (k8s é o centro do ecossistema). Reutilização
-máxima: o `PodSpec`/`PodContainer` do Delonix JÁ usa nomes de campo k8s (serde
-rename) — a única diferença para um Pod k8s v1 é o `apiVersion`.
+Podman's biggest CNCF differentiator (k8s is the centre of the ecosystem).
+Maximum reuse: Delonix's `PodSpec`/`PodContainer` ALREADY uses k8s field names
+(serde rename) — the only difference from a k8s v1 Pod is the `apiVersion`.
 
-Implementado:
-- `delonix kube play <k8s.yaml>` (`kube.rs::cmd_play`): parseia YAML k8s standard
-  (multi-doc), deserializa o `spec` directamente em `PodSpec` e chama
-  `pod::create_pod` (tornado `pub(crate)`). `kind: Pod` (apiVersion v1); Deployment/
-  ReplicaSet/StatefulSet/DaemonSet corridos como 1 pod do `spec.template.spec`;
-  kinds desconhecidos avisados e saltados.
-- `delonix kube generate <ref>`: já existia (sob `cluster kube`); **corrigido** o
-  bug de detecção de pod (filtrava por `.pod`, que guarda o nome da NETNS
-  `pod-<name>`; agora filtra pelo label `delonix.io/pod`).
-- Comando de topo `delonix kube {play,generate}` (main.rs) — paridade com
-  `podman kube play/generate`. O `cluster kube generate` mantém-se.
+Implemented:
+- `delonix kube play <k8s.yaml>` (`kube.rs::cmd_play`): parses standard k8s YAML
+  (multi-doc), deserializes the `spec` directly into `PodSpec` and calls
+  `pod::create_pod` (made `pub(crate)`). `kind: Pod` (apiVersion v1); Deployment/
+  ReplicaSet/StatefulSet/DaemonSet run as 1 pod from `spec.template.spec`; unknown
+  kinds warned and skipped.
+- `delonix kube generate <ref>`: already existed (under `cluster kube`);
+  **fixed** the pod-detection bug (it filtered by `.pod`, which stores the NETNS
+  name `pod-<name>`; now it filters by the `delonix.io/pod` label).
+- Top-level command `delonix kube {play,generate}` (main.rs) — parity with
+  `podman kube play/generate`. `cluster kube generate` is kept.
 
-Prova:
-- **Unit**: kube (12 verdes, inclui pod_manifest).
-- **Live** (host rootless, net-runtime-dir curto p/ SUN_LEN):
-  1. `kube play` de um Pod k8s **standard** (`apiVersion: v1`) → `played pod
-     demo-kube`, pod Running (ip 10.200.0.2), container a correr `sleep 3600`;
-  2. `kube generate demo-kube` → YAML k8s válido (apiVersion v1, kind Pod,
+Proof:
+- **Unit**: kube (12 green, includes pod_manifest).
+- **Live** (rootless host, short net-runtime-dir for SUN_LEN):
+  1. `kube play` of a **standard** k8s Pod (`apiVersion: v1`) → `played pod
+     demo-kube`, pod Running (ip 10.200.0.2), container running `sleep 3600`;
+  2. `kube generate demo-kube` → valid k8s YAML (apiVersion v1, kind Pod,
      metadata, containers name/image/command/args/resources);
-  3. validação estrutural independente (python yaml) → Pod v1 correcto;
-  4. **round-trip**: `kube play` do YAML GERADO → `played pod demo-rt`.
-  (kubectl --dry-run=client falha só por não haver cluster/openapi — não é
-  defeito do YAML.)
-- Clippy `-D warnings` limpo; folhas.tsv +2 (kube play/generate).
+  3. independent structural validation (python yaml) → correct Pod v1;
+  4. **round-trip**: `kube play` of the GENERATED YAML → `played pod demo-rt`.
+  (kubectl --dry-run=client fails only because there is no cluster/openapi — not a
+  defect of the YAML.)
+- Clippy `-D warnings` clean; folhas.tsv +2 (kube play/generate).
 
-Resultado CNCF: **área 2 (interop k8s) de ✗ → ◑ forte** — corre e gera YAML
-Kubernetes standard de workloads (a dimensão de interop, distinta da conformância
-CRI que já estava em 103/103). Fica a nota: campos k8s avançados (probes,
-lifecycle) são recusados por `POD_CONTAINER_FIELDS` — expansão incremental futura.
+CNCF result: **area 2 (k8s interop) from ✗ → ◑ strong** — runs and generates
+standard Kubernetes workload YAML (the interop dimension, distinct from CRI
+conformance which was already at 103/103). Note remains: advanced k8s fields
+(probes, lifecycle) are refused by `POD_CONTAINER_FIELDS` — future incremental
+expansion.
 
 ---
 
-# Área CNCF 6 — Interpolação Compose `${VAR}` + `.env` (Onda 4) — FEITO 2026-11-12
+# CNCF area 6 — Compose `${VAR}` interpolation + `.env` (Wave 4) — DONE 2026-11-12
 
-O maior gap NORMATIVO do Compose (`12-interpolation.md`), que o Delonix não tinha
-(lia o YAML directo por serde_yaml, sem substituição nem `.env`).
+The biggest NORMATIVE gap in Compose (`12-interpolation.md`), which Delonix did
+not have (it read the YAML directly via serde_yaml, without substitution or
+`.env`).
 
-Implementado (`compose.rs`, puro + ligado):
-- `interpolate(text, lookup)` — passe shell-style ANTES do parse YAML:
+Implemented (`compose.rs`, pure + wired):
+- `interpolate(text, lookup)` — shell-style pass BEFORE the YAML parse:
   `$VAR`, `${VAR}`, `${VAR:-def}`, `${VAR-def}`, `${VAR:?err}`, `${VAR?err}`,
-  `${VAR:+rep}`, `${VAR+rep}`, nesting no argumento, e `$$` → `$` literal.
-  Trabalha em bytes (UTF-8 multibyte passa intacto). Unset bare → vazio; `:?`/`?`
-  unset → erro com mensagem.
-- `parse_dotenv` — `.env` KEY=VALUE (comentários/aspas/`export` tratados).
-- `load_compose`: lê o `.env` do dir do projecto, env do processo OVERRIDE o
-  `.env` (precedência do docker compose), interpola cada ficheiro antes do parse.
+  `${VAR:+rep}`, `${VAR+rep}`, nesting in the argument, and `$$` → literal `$`.
+  Works on bytes (multibyte UTF-8 passes through intact). Bare unset → empty;
+  `:?`/`?` unset → error with message.
+- `parse_dotenv` — `.env` KEY=VALUE (comments/quotes/`export` handled).
+- `load_compose`: reads the `.env` from the project dir, process env OVERRIDES the
+  `.env` (docker compose precedence), interpolates each file before the parse.
 
-Prova:
-- **Unit** (compose 92 verdes): `interpolation_forms_and_escape` (todas as formas +
-  `$$`), `interpolation_required_unset_is_an_error`, `dotenv_parsing_strips_quotes_and_comments`.
+Proof:
+- **Unit** (compose 92 green): `interpolation_forms_and_escape` (all forms + `$$`),
+  `interpolation_required_unset_is_an_error`, `dotenv_parsing_strips_quotes_and_comments`.
 - **Live** (`compose config`):
-  - `.env` com `TAG=3.20` → `image: alpine:3.20`;
-  - `${PORT:-9000}` (PORT ausente) → `ports: ["9000:80"]`;
-  - `TAG=9.9` no shell → `image: alpine:9.9` (env vence o `.env`).
-- 89→92 testes compose sem regressão; clippy `-D warnings` limpo.
+  - `.env` with `TAG=3.20` → `image: alpine:3.20`;
+  - `${PORT:-9000}` (PORT absent) → `ports: ["9000:80"]`;
+  - `TAG=9.9` in the shell → `image: alpine:9.9` (env beats the `.env`).
+- 89→92 compose tests without regression; clippy `-D warnings` clean.
 
-Nota (correcção de alvo da área 6): NÃO existe suite de conformância Compose; o
-alvo é validar contra `compose-spec.json` + paridade `compose-go`. Interpolação
-era a peça normativa em falta — agora presente. Restam GAP-0005 (up restart, já
-corrigido antes) e a cauda longa de atributos (GAP-0011).
+Note (correction of the area 6 target): there is NO Compose conformance suite; the
+target is to validate against `compose-spec.json` + `compose-go` parity.
+Interpolation was the missing normative piece — now present. What remains is
+GAP-0005 (up restart, already fixed earlier) and the long tail of attributes
+(GAP-0011).
 
-Resultado CNCF: **área 6 (Compose) de ◑ → ◑ forte** — superfície comum +
-interpolação normativa + allowlist fail-closed.
+CNCF result: **area 6 (Compose) from ◑ → ◑ strong** — common surface + normative
+interpolation + fail-closed allowlist.

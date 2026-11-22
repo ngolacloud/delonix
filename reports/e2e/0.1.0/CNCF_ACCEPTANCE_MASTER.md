@@ -1,15 +1,15 @@
-# Delonix × Docker × Podman — Ficha mestra de aceitação CNCF
+# Delonix × Docker × Podman — CNCF acceptance master sheet
 
-> Consolidação das medições de 2026-11-12 (develop @ `67ddef41`). Cruza o código
-> do Delonix com o código oficial do BuildKit/buildah/compose-spec (via `gh`,
-> literais confirmados em `file:path:linha`). Supersede os números de
-> `CNCF_GAP_DOCKER.md`/`CNCF_GAP_PODMAN.md`/`BACKLOG.md` (2026-11-08) onde esta
-> ronda os corrigiu. Doutrina: só o *efeito/contrato verificado* conta;
-> implementado ≠ testado ≠ proposto.
+> Consolidation of the 2026-11-12 measurements (develop @ `67ddef41`). Cross-checks
+> the Delonix code against the official BuildKit/buildah/compose-spec code (via
+> `gh`, literals confirmed in `file:path:line`). Supersedes the numbers in
+> `CNCF_GAP_DOCKER.md`/`CNCF_GAP_PODMAN.md`/`BACKLOG.md` (2026-11-08) where this
+> round corrected them. Doctrine: only the *verified effect/contract* counts;
+> implemented ≠ tested ≠ proposed.
 
-## 0. Procedência
+## 0. Provenance
 
-| Área | Fonte Delonix | Fonte de referência |
+| Area | Delonix source | Reference source |
 |---|---|---|
 | 2 CRI | `reports/cri-conformance-0.1.1/03-full-suite-103.md` | `critest` v1.36.0 |
 | 3 SLSA | `delonix-oci/build.rs`, `sign.rs` | `moby/buildkit` `solver/llbsolver/provenance/types/types.go`, `frontend/attestations/parse.go` |
@@ -18,99 +18,98 @@
 | 6 Compose | `bins/delonix/src/cmd/compose.rs` | `compose-spec/compose-go/schema/compose-spec.json`, `compose-spec/compose-spec/12-interpolation.md` |
 | 8 Scan | `delonix-scanner/lib.rs` | `docker/scout-cli`, `containers/buildah` `--sbom` |
 
-## 1. Scorecard das 8 áreas de valor CNCF (estado de hoje)
+## 1. Scorecard of the 8 CNCF value areas (state today)
 
-Legenda: ✗ ausente · ◑ parcial · ✔ feito. **Δ** = correcção vs backlog 2026-11-08.
+Legend: ✗ absent · ◑ partial · ✔ done. **Δ** = correction vs the 2026-11-08 backlog.
 
-| # | Área | Docker | Podman | **Delonix (medido)** | Est. | Δ |
+| # | Area | Docker | Podman | **Delonix (measured)** | Est. | Δ |
 |---|---|---|---|---|---|---|
-| 1 | Linhagem de runtime | containerd+runc | crun+conmon | runtime Rust runc-compat, fora da cadeia containerd | ✗ | — |
-| 2 | Conformância OCI/CRI | 100% | via containerd/cri-o | **CRI rootful-VM 103/103 limpo** · rootless 84/19 · interop k8s YAML em falta | ◑→forte | **↑** era 90/13 |
-| 3 | Provenance SLSA | BuildKit v1/v0.2 | — | predicate não emitido; `sign.rs` cosign existe | ✗ | — |
-| 4 | SBOM interoperável | BuildKit SPDX+in-toto | buildah CycloneDX/SPDX | **SPDX-2.3 já emitido**; falta wrapper in-toto + anexo OCI | ◑ forte | **↑** backlog subestimava |
-| 5 | Build cloud-native | cache 6-backend, multi-arch, LLB | --manifest, --cache-to | cache local + cache-mount; `--platform` single; SBOM auto | ✗ | — |
-| 6 | Compose Specification | Compose Spec | kube play | allowlist fail-closed, superfície comum; **sem interpolação `${VAR}`** | ◑ | reframe do alvo |
-| 7 | Governança aberta | Moby aberta | LFX+PGP+LTS | repo privado, org própria | ✗ | — |
-| 8 | Scanning maduro CI | Scout policy/compare | delega | OSV+staleness+`--fail-on`; sem policy/compare | ◑ | — |
+| 1 | Runtime lineage | containerd+runc | crun+conmon | Rust runc-compat runtime, outside the containerd chain | ✗ | — |
+| 2 | OCI/CRI conformance | 100% | via containerd/cri-o | **CRI rootful-VM 103/103 clean** · rootless 84/19 · k8s YAML interop missing | ◑→strong | **↑** was 90/13 |
+| 3 | SLSA Provenance | BuildKit v1/v0.2 | — | predicate not emitted; `sign.rs` cosign exists | ✗ | — |
+| 4 | Interoperable SBOM | BuildKit SPDX+in-toto | buildah CycloneDX/SPDX | **SPDX-2.3 already emitted**; missing in-toto wrapper + OCI attachment | ◑ strong | **↑** backlog underestimated |
+| 5 | Cloud-native build | 6-backend cache, multi-arch, LLB | --manifest, --cache-to | local cache + cache-mount; single `--platform`; auto SBOM | ✗ | — |
+| 6 | Compose Specification | Compose Spec | kube play | fail-closed allowlist, common surface; **no `${VAR}` interpolation** | ◑ | target reframe |
+| 7 | Open governance | open Moby | LFX+PGP+LTS | private repo, own org | ✗ | — |
+| 8 | Mature CI scanning | Scout policy/compare | delegates | OSV+staleness+`--fail-on`; no policy/compare | ◑ | — |
 
-**Já alinhado (não refazer):** rootless-first, daemonless, pods nativos,
-`policy.json` runtime, cosign/sigstore (`sign.rs`), OSV (formato CNCF),
-cache-mount, SBOM automático por build.
+**Already aligned (do not redo):** rootless-first, daemonless, native pods,
+runtime `policy.json`, cosign/sigstore (`sign.rs`), OSV (CNCF format),
+cache-mount, automatic per-build SBOM.
 
-## 2. Medições-chave (com evidência)
+## 2. Key measurements (with evidence)
 
-### 2.1 Área 2 — CRI 103/103 (salto material)
-`reports/cri-conformance-0.1.1/03-full-suite-103.md`: VM golden rootful+CNI,
-`critest` v1.36.0 → **103 Passed | 0 Failed | 19 Skipped** (corrida única, sem
-retries). Fecha `rshared` (ADR-0093), OOM (barreira cgroup), AppArmor,
-HostNetwork/HostIpc, shared-PID. `rshared` atrás de privilégio (recusado em
-rootless com `DX-1117`). **Falta da área 2:** interop k8s YAML (`kube play/generate`,
-GAP-0015) — distinta da conformância CRI.
+### 2.1 Area 2 — CRI 103/103 (material jump)
+`reports/cri-conformance-0.1.1/03-full-suite-103.md`: golden rootful+CNI VM,
+`critest` v1.36.0 → **103 Passed | 0 Failed | 19 Skipped** (single run, no
+retries). Closes `rshared` (ADR-0093), OOM (cgroup barrier), AppArmor,
+HostNetwork/HostIpc, shared-PID. `rshared` behind privilege (refused in rootless
+with `DX-1117`). **Missing in area 2:** k8s YAML interop (`kube play/generate`,
+GAP-0015) — distinct from CRI conformance.
 
-### 2.2 Áreas 3+4 — supply-chain: o anexo in-toto/OCI é o pivô
-- **Delonix já tem:** SPDX-2.3 (`sbom_spdx`, `delonix-scanner/lib.rs:605`),
-  assinatura cosign (`sign.rs`), push de artefacto OCI no mesmo repo
-  (`registry.rs::push_signature`), leitura/resolução de digests.
-- **Falta (partilhado por 3 e 4):** embrulhar em in-toto Statement **cru** (não
-  DSSE) e anexar à imagem via o mecanismo do BuildKit:
+### 2.2 Areas 3+4 — supply-chain: the in-toto/OCI attachment is the pivot
+- **Delonix already has:** SPDX-2.3 (`sbom_spdx`, `delonix-scanner/lib.rs:605`),
+  cosign signature (`sign.rs`), OCI artefact push to the same repo
+  (`registry.rs::push_signature`), digest read/resolution.
+- **Missing (shared by 3 and 4):** wrap in a **raw** in-toto Statement (not
+  DSSE) and attach it to the image via the BuildKit mechanism:
   - layer `application/vnd.in-toto+json` + annotation `in-toto.io/predicate-type`
     (`writer.go:633,639`);
   - manifest `artifactType=application/vnd.docker.attestation.manifest.v1+json`,
-    `subject=<imagem>` (`writer.go:51,675`);
-  - descriptor no index `platform=unknown/unknown` + annotations
+    `subject=<image>` (`writer.go:51,675`);
+  - descriptor in the index `platform=unknown/unknown` + annotations
     `vnd.docker.reference.type=attestation-manifest` /
     `vnd.docker.reference.digest=<digest>` (`util/attestation/types.go:4-7`).
-- **Falta (só área 3):** gerar o predicate SLSA durante o build — `predicateType
-  https://slsa.dev/provenance/v1` (default), `buildType`, `buildDefinition`/
-  `runDetails`, flag `--provenance mode=min|max` (default max). O `build.rs`
-  constrói mas não instrumenta materials/invocation.
+- **Missing (area 3 only):** generate the SLSA predicate during the build —
+  `predicateType https://slsa.dev/provenance/v1` (default), `buildType`,
+  `buildDefinition`/`runDetails`, flag `--provenance mode=min|max` (default max).
+  `build.rs` builds but does not instrument materials/invocation.
 
-### 2.3 Área 5 — build cloud-native (a mais fraca)
-- **Cache:** só local (`build.rs:623`) + cache-mount (`build.rs:24-47`). **Sem**
-  `--cache-to/--cache-from` (BuildKit tem 6 backends:
+### 2.3 Area 5 — cloud-native build (the weakest)
+- **Cache:** local only (`build.rs:623`) + cache-mount (`build.rs:24-47`).
+  **No** `--cache-to/--cache-from` (BuildKit has 6 backends:
   `registry·local·inline·gha·s3·azblob`, `buildkitd/main.go:943-956`, `mode=min|max`;
-  buildah tem cache por registry). Delonix abaixo até do buildah aqui.
-- **Multi-arch:** `--platform linux/<arch>` **único** (`build.rs:213-228`), cross
-  via binfmt/qemu do host (`build.rs:1122`). **Não** aceita lista nem **emite
-  `ImageIndex`** (BuildKit monta-o automático, `writer.go:246-313`; `registry.rs`
-  só *lê* index). 
-- **LLB frontends:** fora de âmbito (decisão arquitectural — parser Dockerfile próprio).
-- **Host/ops:** falta `generate systemd/Quadlet` p/ workloads (GAP-0016).
+  buildah has per-registry cache). Delonix is below even buildah here.
+- **Multi-arch:** `--platform linux/<arch>` **single** (`build.rs:213-228`), cross
+  via the host's binfmt/qemu (`build.rs:1122`). **Does not** accept a list nor
+  **emit an `ImageIndex`** (BuildKit assembles it automatically, `writer.go:246-313`;
+  `registry.rs` only *reads* an index).
+- **LLB frontends:** out of scope (architectural decision — own Dockerfile parser).
+- **Host/ops:** missing `generate systemd/Quadlet` for workloads (GAP-0016).
 
-### 2.4 Área 6 — Compose (reframe do alvo)
-- **Não existe suite de conformância Compose** (≠ `critest`). Conformidade =
-  **JSON Schema `compose-go/schema/compose-spec.json`** + paridade com o parser
-  `compose-go`. O alvo «suite verde» do backlog é inválido.
-- Delonix: allowlist **fail-closed** (recusa com razão, nunca ignora), 94 chaves
-  rastreadas (`SPEC_SERVICE_KEYS`), 3 condições `depends_on`, `extends`,
-  `profiles`, `x-`, secrets/configs, deploy/resources, `version` obsoleto tratado.
-- **Gaps:** interpolação `${VAR}`/`.env` **ausente** (normativa, `12-interpolation.md`)
-  — o maior; `include` recusado (workaround `-f`); cauda longa de ~35 atributos
-  recusada; `up` não reinicia serviço parado (GAP-0005/DEF-003); `develop.watch`/
-  `models`/`jobs` ausentes (opcional/nicho).
+### 2.4 Area 6 — Compose (target reframe)
+- **No Compose conformance suite exists** (≠ `critest`). Conformance =
+  **JSON Schema `compose-go/schema/compose-spec.json`** + parity with the
+  `compose-go` parser. The backlog's "green suite" target is invalid.
+- Delonix: **fail-closed** allowlist (refuses with a reason, never ignores), 94
+  tracked keys (`SPEC_SERVICE_KEYS`), 3 `depends_on` conditions, `extends`,
+  `profiles`, `x-`, secrets/configs, deploy/resources, obsolete `version` handled.
+- **Gaps:** `${VAR}`/`.env` interpolation **absent** (normative, `12-interpolation.md`)
+  — the biggest; `include` refused (workaround `-f`); long tail of ~35 attributes
+  refused; `up` does not restart a stopped service (GAP-0005/DEF-003); `develop.watch`/
+  `models`/`jobs` absent (optional/niche).
 
-### 2.5 Área 8 — scanning
-OSV (array+ZIP, `lib.rs:895-1015`), `db_is_stale` (diferencial a favor),
-`--fail-on` por severidade (gate CI primitivo). **Falta:** `policy` declarativa,
-`compare` entre imagens, trust-por-policy (GAP-0017, lente Podman).
+### 2.5 Area 8 — scanning
+OSV (array+ZIP, `lib.rs:895-1015`), `db_is_stale` (differentiator in our favour),
+`--fail-on` by severity (primitive CI gate). **Missing:** declarative `policy`,
+`compare` between images, trust-by-policy (GAP-0017, Podman lens).
 
-## 3. A pergunta de admissão CNCF
+## 3. The CNCF admission question
 
-A tabela técnica **não** é o critério de entrada. O nível **Sandbox** avalia
-sobretudo o não-técnico:
+The technical table is **not** the entry criterion. The **Sandbox** level
+assesses mostly the non-technical:
 
-| Critério Sandbox | Delonix |
+| Sandbox criterion | Delonix |
 |---|---|
-| Licença OSI (Apache-2.0) | ✔ LICENSE presente |
-| **Repositório público** | **✗ privado** |
-| Governança neutra / IP sem dono único | ◑ ficheiros existem; org e controlo do dono |
-| Código de conduta | ✔ |
-| Adopção/comunidade (sem exigir escala) | ✗ |
-| Diferenciação cloud-native | ✔ runtime Rust rootless/daemonless + microVMs |
+| OSI licence (Apache-2.0) | ✔ LICENSE present |
+| **Public repository** | **✗ private** |
+| Neutral governance / IP without a single owner | ◑ files exist; org and control belong to the owner |
+| Code of conduct | ✔ |
+| Adoption/community (no scale required) | ✗ |
+| Cloud-native differentiation | ✔ Rust rootless/daemonless runtime + microVMs |
 
-**Veredicto:** tecnicamente o Delonix já é competitivo para Sandbox numa
-dimensão forte (CRI 103/103 — prova que muitos candidatos não têm) e tem
-meio-caminho em supply-chain. **O bloqueador de admissão é a área 7
-(governança): enquanto o repo for privado e a org for de dono único, a entrada
-é NO-GO independentemente da qualidade do motor.** A engenharia não é o gargalo;
-a decisão de abertura é.
+**Verdict:** technically Delonix is already competitive for Sandbox on a strong
+dimension (CRI 103/103 — evidence that many candidates lack) and is halfway on
+supply-chain. **The admission blocker is area 7 (governance): while the repo is
+private and the org has a single owner, entry is NO-GO regardless of the engine's
+quality.** Engineering is not the bottleneck; the decision to open up is.

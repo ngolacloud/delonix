@@ -29,6 +29,10 @@ delonix-linux = { workspace = true }
 # R3h-D: likewise, the bin backs the CRI's SDN/CNI port (`NetworkOps`) with the
 # `delonix-sdn` adapter directly, so the interface names no SDN type.
 delonix-sdn = { workspace = true }
+# ADR-0095: the bin backs the CRI's warm-plane port (`WarmOps`) with the
+# `delonix-warm` orchestrator directly (a bin may name an adapter), so the
+# `delonix-cri` interface names no warm-plane type.
+delonix-warm = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }
 

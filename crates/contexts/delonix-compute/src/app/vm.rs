@@ -405,8 +405,8 @@ where
             boot.api_socket,
         );
         vm.pid = boot.pid;
-        // Registado JUNTO do pid, e a partir do MESMO pid: é o par que torna o
-        // `stop` capaz de distinguir este VMM de um pid reciclado mais tarde.
+        // Recorded ALONGSIDE the pid, and from the SAME pid: it is the pair that
+        // lets `stop` tell this VMM apart from a pid recycled later.
         vm.pid_starttime = boot.pid.and_then(proc_starttime);
         vm.status = Status::Running;
         vm.restart_policy = cfg.restart_policy.clone();
@@ -1820,10 +1820,10 @@ pub fn boot_spec_of(cfg: &VmConfig) -> VmBootSpec {
         // again a hypervisor-side network that has gone, and refuse or redefine
         // one left on another subnet.
         network_subnet: _,
-        // Consumido em `prepare_local_overlay` no momento da criação: depois de
-        // o overlay existir, o tamanho é uma propriedade DELE e não há nada a
-        // reaplicar no arranque (e `prepare_local_overlay` salta um overlay que
-        // já existe). Por isso não entra no `VmBootSpec`.
+        // Consumed in `prepare_local_overlay` at creation time: once the overlay
+        // exists, the size is a property OF IT and there is nothing to reapply on
+        // boot (and `prepare_local_overlay` skips an overlay that already exists).
+        // So it does not go into the `VmBootSpec`.
         disk_size_gib: _,
         // A request-time gate (ADR-0050 D6), consumed in `create_with` BEFORE
         // the backend is chosen: once the record names a backend that passed
@@ -2017,9 +2017,9 @@ pub fn config_from(vm: &Vm) -> VmConfig {
         // record does not keep it, and `VmEngine::restart_config` resolves the
         // declared one when a `start` needs it.
         network_subnet: None,
-        // `None` de propósito: o overlay já tem o tamanho com que nasceu, e um
-        // restart não o redimensiona. Reafirmar aqui um número seria convidar um
-        // resize acidental em cada arranque.
+        // `None` on purpose: the overlay already has the size it was born with,
+        // and a restart does not resize it. Reasserting a number here would be
+        // inviting an accidental resize on every boot.
         disk_size_gib: None,
         kernel: b.kernel.clone(),
         initrd: b.initrd.clone(),

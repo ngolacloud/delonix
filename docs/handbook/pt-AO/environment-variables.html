@@ -335,10 +335,10 @@ conjunto de sockets. A história completa, e como desmontar a infra isolada, est
 <tbody>
 <tr>
 <td><code>DELONIX_EDITOR_TIMEOUT</code></td>
-<td><a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/install.sh" target="_blank" rel="noopener"><code>scripts/install.sh</code></a> (secção de extensões de editor, <code>editor_cli</code>)</td>
-<td>Tecto, em segundos, de cada chamada que o instalador faz a um editor da família VS Code (sonda <code>--version</code>, <code>--list-extensions</code>, <code>--install-extension</code>).</td>
+<td><a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/install-vscode.sh" target="_blank" rel="noopener"><code>scripts/<wbr>install-vscode.<wbr>sh</code></a> (<code>editor_cli</code>)</td>
+<td>Tecto, em segundos, de cada chamada que o instalador da extensão faz a um editor da família VS Code (sonda <code>--version</code>, <code>--list-extensions</code>, <code>--install-extension</code>).</td>
 <td>Segundos em inteiro positivo; passado a <code>timeout -k 5</code>. Por definir: 120.</td>
-<td>O passo é best-effort e nunca pode pendurar a instalação do motor: um editor que abre uma janela em vez de responder na CLI é saltado com um aviso quando o tecto se esgota (saída 124/137). Levanta-o num host lento com um perfil de editor frio (medido aqui: 20 s para a primeira instalação num perfil novo); <code>--no-editor-plugin</code> salta o passo por completo.</td>
+<td>O passo é best-effort e nunca pode pendurar: um editor que abre uma janela em vez de responder na CLI é saltado com um aviso quando o tecto se esgota (saída 124/137). Levanta-o num host lento com um perfil de editor frio (medido aqui: 20 s para a primeira instalação num perfil novo). A extensão tem agora o seu próprio instalador — o <code>install.sh</code> (só runtime) ignora esta variável.</td>
 </tr>
 <tr>
 <td><code>DELONIX_PERF_CONF</code></td>

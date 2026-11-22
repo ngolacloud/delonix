@@ -30,14 +30,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn range_inclusivo_nos_extremos() {
+    fn range_inclusive_at_the_bounds() {
         assert!(is_workload_ipv4(WORKLOAD_IPV4_LO));
         assert!(is_workload_ipv4(WORKLOAD_IPV4_HI));
         assert!(is_workload_ipv4(Ipv4Addr::new(10, 227, 3, 9)));
     }
 
     #[test]
-    fn fora_do_range_recusado() {
+    fn out_of_range_rejected() {
         assert!(!is_workload_ipv4(Ipv4Addr::new(10, 199, 255, 255)));
         assert!(!is_workload_ipv4(Ipv4Addr::new(10, 255, 0, 0)));
         assert!(!is_workload_ipv4(Ipv4Addr::new(192, 168, 1, 1)));

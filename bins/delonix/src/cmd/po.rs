@@ -351,13 +351,13 @@ mod tests {
     }
 
     #[test]
-    fn parse_po_entrada_simples() {
+    fn parse_po_simple_entry() {
         let m = parse_po("msgid \"hello\"\nmsgstr \"olá\"\n");
         assert_eq!(m.get("hello").map(String::as_str), Some("olá"));
     }
 
     #[test]
-    fn parse_po_continuacao_e_escapes() {
+    fn parse_po_continuation_and_escapes() {
         let src = "msgid \"\"\n\"line one \\\"quoted\\\"\\n\"\n\"line two\"\nmsgstr \"\"\n\"linha um\\n\"\n\"linha dois\"\n";
         let m = parse_po(src);
         assert_eq!(
@@ -367,7 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_po_ignora_cabecalho_e_comentarios() {
+    fn parse_po_ignores_header_and_comments() {
         let src =
             "# comentário\nmsgid \"\"\nmsgstr \"meta\"\n\n# outro\nmsgid \"a\"\nmsgstr \"b\"\n";
         let m = parse_po(src);
@@ -376,9 +376,9 @@ mod tests {
     }
 
     #[test]
-    fn catalogo_embutido_parseia_e_tem_entradas() {
+    fn embedded_catalog_parses_and_has_entries() {
         // If someone breaks the data/pt.po, this test blows up BEFORE the release.
-        assert!(!catalog().is_empty(), "data/pt.po vazio ou malformado");
+        assert!(!catalog().is_empty(), "data/pt.po empty or malformed");
     }
 
     /// BUG FIXED (i18n gap): `t_dyn` used to do a single exact-string lookup
@@ -389,7 +389,7 @@ mod tests {
     /// template it claims to, and rejects the ones deliberately excluded
     /// (`Io`/`Json`/`Runtime` — OS errno/serde text, not ours to translate).
     #[test]
-    fn split_error_wrapper_reconhece_prefixo_e_sufixo() {
+    fn split_error_wrapper_recognizes_prefix_and_suffix() {
         assert_eq!(
             split_error_wrapper("no such VM: dev (see `delonix vm ls`)"),
             Some(("no such VM: ", "dev", " (see `delonix vm ls`)"))

@@ -462,6 +462,7 @@ pub(crate) fn desired_of(
                 k::SYSTEM_CONTAINER => super::system_container::desired(doc)?,
                 k::HTTP_ROUTE | k::INGRESS => super::httproute::desired(doc)?,
                 k::GATEWAY => super::tunnel::desired(doc)?,
+                k::NODE => super::node::desired(doc)?,
                 k::GITOPS_SOURCE => super::gitops::desired(doc)?,
                 _ => reconcile::Desired {
                     kind: kind.to_string(),
@@ -513,6 +514,7 @@ pub(crate) fn actual_of(docs: &[manifest::ManifestDoc]) -> Result<Vec<reconcile:
     out.extend(super::service::actual()?);
     out.extend(super::ippool::actual()?);
     out.extend(super::ipaddress::actual()?);
+    out.extend(super::node::actual()?);
     out.extend(super::snapshot::actual()?);
     out.extend(super::storage_pool::actual()?);
     out.extend(super::pod::actual()?);
@@ -701,12 +703,12 @@ pub(crate) fn build_plan(docs: &[manifest::ManifestDoc], stack: &str) -> Result<
                 c.conditions.push(cond);
             }
         }
-        // O mesmo, para o Kind MAIS USADO — e onde a lacuna era maior: 43 campos
-        // de spec contra onze comparados. Num container já a correr, mudar `env`,
-        // `user`, `capAdd`, `readOnly` ou `command` dava «no changes» e
-        // `--detailed-exitcode` 0, ou seja um gate de deriva em CI verde por cima
-        // de deriva real. O raciocínio já estava escrito aqui em cima e aplicava-se
-        // só ao `Vm`; era o Container que precisava dele mais.
+        // Same thing, for the MOST USED Kind — and where the gap was widest: 43
+        // spec fields against eleven compared. On a container already running,
+        // changing `env`, `user`, `capAdd`, `readOnly` or `command` gave "no
+        // changes" and `--detailed-exitcode` 0, i.e. a drift gate green in CI on
+        // top of real drift. The reasoning was already written up above and
+        // applied only to `Vm`; the Container was the one that needed it most.
         if c.kind == k::CONTAINER && !recreated {
             if let Some(cond) =
                 super::container::unconverged_fields_condition(doc, created_containers.get(&c.name))
@@ -912,6 +914,7 @@ pub(crate) fn compared_fields_table() -> Vec<(&'static str, &'static [&'static s
             k::IP_ADDRESS,
             super::ipaddress::RECONCILED_IP_ADDRESS_FIELDS,
         ),
+        (k::NODE, super::node::RECONCILED_NODE_FIELDS),
         (k::SNAPSHOT, super::snapshot::RECONCILED_SNAPSHOT_FIELDS),
         (
             k::STORAGE_POOL,
@@ -1490,18 +1493,18 @@ fn describe(file: Option<PathBuf>) -> Result<()> {
 
     // Kinds the manifest brings but the stack does not know how to apply: better
     // to say so than to ignore silently (the `apply` would also ignore them, without warning).
-    let desconhecidos: Vec<&str> = docs
+    let unknown: Vec<&str> = docs
         .iter()
         .map(|doc| doc.kind.as_str())
         .filter(|k| !super::kinds::in_stack(k))
         .collect();
-    if !desconhecidos.is_empty() {
+    if !unknown.is_empty() {
         println!();
         println!(
             "{}",
             super::po::tf(
                 "WARNING: kinds not supported by the stack (ignored by `apply`): {kinds}",
-                &[("kinds", &desconhecidos.join(", "))],
+                &[("kinds", &unknown.join(", "))],
             )
         );
     }
@@ -1732,6 +1735,7 @@ fn presence(
         k::SERVICE => super::service::presence_of(doc),
         k::IPPOOL => super::ippool::presence_of(doc),
         k::IP_ADDRESS => super::ipaddress::presence_of(doc),
+        k::NODE => super::node::presence_of(doc),
         k::SNAPSHOT => super::snapshot::presence_of(doc),
         k::STORAGE_POOL => super::storage_pool::presence_of(doc),
         k::NETWORK_GATEWAY => super::network_gateway::presence_of(doc),
@@ -1964,7 +1968,7 @@ fn apply(
 ) -> Result<()> {
     // `--replace` is the flag that AUTHORIZES a destructive recreate, so a value
     // it cannot possibly match is refused here rather than ignored. Accepting
-    // `--replace lixo` in silence gives the illusion of having authorised
+    // `--replace junk` in silence gives the illusion of having authorised
     // something; the recreate is then refused downstream by `refuse_unallowed`,
     // and the error the user reads talks about the resource, never about the
     // typo they made. `all` and `<Kind>/<name>` are the two shapes that mean
@@ -2693,6 +2697,13 @@ const LAYERS: &[Layer] = &[
         kind: k::GATEWAY,
         icon: "🌍",
     },
+    // The node's own scheduling config (ADR-0101, A6): labels, taints, cordon. Near the
+    // end so a stack that both declares the node and its workloads sets the node up with
+    // the rest; only GitOps follows.
+    Layer {
+        kind: k::NODE,
+        icon: "🏷",
+    },
     // A pull source LAST of all (ADR-0021): its timer may fire the moment it is written.
     Layer {
         kind: k::GITOPS_SOURCE,
@@ -2971,6 +2982,7 @@ fn apply_layer(kind: &str, docs: &[manifest::ManifestDoc], base: &std::path::Pat
         k::NETWORK_GATEWAY => super::network_gateway::apply(docs),
         k::HTTP_ROUTE => super::httproute::apply(docs),
         k::GATEWAY => super::tunnel::apply(docs),
+        k::NODE => super::node::apply(docs),
         k::GITOPS_SOURCE => super::gitops::apply(docs),
         other => unreachable!("a layer with no applier: {other}"),
     }
@@ -3096,6 +3108,16 @@ pub(crate) fn no_teardown_reason(kind: &str) -> Option<&'static str> {
              remove one on purpose with `delonix delete config <name>`"
         }
         k::APP => "an App's output is an image — shared content-addressed cache, owned by no stack",
+        // The node's own config (ADR-0101): a singleton the engine never destroys.
+        // Dropping the record because a manifest stops naming it would silently
+        // uncordon or relabel the live node — the opposite of what a `destroy`/
+        // `--prune` should risk. Change it on purpose with `kind: Node` or the
+        // `node/v1` `SetNode*` RPCs.
+        k::NODE => {
+            "a node's own scheduling config is a singleton, owned by no stack; dropping it because \
+             a manifest stops naming it would silently uncordon or relabel the live node. Change it \
+             on purpose with `kind: Node` or the node API's `SetNode*` calls"
+        }
         // A tunnel's record is keyed by a live agent.
         k::GATEWAY => "a tunnel has no labels to stamp ownership on",
         _ => return None,
@@ -3559,6 +3581,20 @@ fn converge_and_stamp(
                         })?;
                     super::tunnel::converge_doc(doc)?
                 }
+                // `node::apply_one` rewrites the shared record in place (nothing is
+                // recreated), so converging a Node IS applying it.
+                k::NODE => {
+                    let doc = docs
+                        .iter()
+                        .find(|d| d.kind == c.kind && manifest::plan_name(d) == c.name)
+                        .ok_or_else(|| {
+                            delonix_model::Error::Invalid(format!(
+                                "Node/{}: not in the manifest",
+                                c.name
+                            ))
+                        })?;
+                    super::node::converge_doc(doc)?
+                }
                 // A Pod has no hot field at all, so the planner can never emit
                 // `Update` for one. Saying so beats a silent no-op if that ever
                 // changes.
@@ -3945,7 +3981,7 @@ fn validate(file: Option<PathBuf>, strict: bool) -> Result<()> {
     let self_target_count = self_targets.len();
     issues.extend(self_targets);
     // Fields the load has just warned about. Saying `OK` on the line after
-    // `unknown field 'resources.memoria' — ignored` was the engine contradicting
+    // `unknown field 'resources.ram' — ignored` was the engine contradicting
     // itself inside two lines: the reference graph WAS fine, and the manifest
     // still did not mean what it says. The count makes the verdict match what
     // was printed; `--strict` turns it into an exit code for a pipeline.
@@ -4062,6 +4098,20 @@ fn volume_refs(doc: &manifest::ManifestDoc) -> Vec<String> {
         .collect()
 }
 
+/// A workload (`Container` or `VirtualMachine`) ALREADY on the machine, carried
+/// into the reference graph with the two things a bare name cannot tell apart:
+/// the `namespace` it lives in — so a bare reference matching the same name in
+/// two namespaces is the `AmbiguousContainer` `Store::load` raises, caught at
+/// `validate` instead of halfway through an `apply` — and its `labels`, so a
+/// `Service` selector is matched against what actually RUNS, not only against
+/// what the manifest declares.
+#[derive(Clone)]
+pub(crate) struct ExistingWorkload {
+    pub name: String,
+    pub namespace: String,
+    pub labels: std::collections::BTreeMap<String, String>,
+}
+
 /// Resolves all the manifest cross-references against what it DECLARES plus
 /// what already EXISTS in the stores (read, best-effort). Returns the list of
 /// problems (empty = intact graph). **Touches nothing** — it is the base shared
@@ -4080,15 +4130,31 @@ pub(crate) fn validate_graph(docs: &[manifest::ManifestDoc]) -> Vec<String> {
         .and_then(|s| s.list())
         .map(|vs| vs.into_iter().map(|v| v.name).collect())
         .unwrap_or_default();
-    let mut existing_containers: Vec<String> = super::util::open_stores()
+    // Containers (one flat store) and VMs (per-namespace subtrees), each carried
+    // with its namespace and labels — the two things a bare name cannot tell
+    // apart (see [`ExistingWorkload`]). Best-effort: a store that does not open
+    // contributes nothing.
+    let mut existing_workloads: Vec<ExistingWorkload> = super::util::open_stores()
         .and_then(|(_, cstore)| Ok(cstore.list()?))
-        .map(|cs| cs.into_iter().map(|c| c.name).collect())
+        .map(|cs| {
+            cs.into_iter()
+                .map(|c| ExistingWorkload {
+                    name: c.name,
+                    namespace: c.namespace,
+                    labels: c.labels,
+                })
+                .collect()
+        })
         .unwrap_or_default();
-    existing_containers.extend(
+    existing_workloads.extend(
         delonix_vm::list(&root)
             .unwrap_or_default()
             .into_iter()
-            .map(|v| v.name),
+            .map(|v| ExistingWorkload {
+                name: v.name,
+                namespace: v.namespace,
+                labels: v.labels,
+            }),
     );
     let existing_secrets: Vec<String> = delonix_state::SecretStore::open(&root)
         .map(|s| s.list().into_iter().map(|sec| sec.name).collect())
@@ -4103,7 +4169,7 @@ pub(crate) fn validate_graph(docs: &[manifest::ManifestDoc]) -> Vec<String> {
         docs,
         &existing_networks,
         &existing_volumes,
-        &existing_containers,
+        &existing_workloads,
         &existing_secrets,
         &existing_configs,
         &super::system_container::registered_names(),
@@ -4142,11 +4208,22 @@ fn validate_graph_with(
     existing_containers: &[String],
     existing_secrets: &[String],
 ) -> Vec<String> {
+    // A bare name on the machine, with no namespace or labels stated, is one in
+    // the `default` namespace — exactly what these containment-only tests meant
+    // before the graph learned about namespaces.
+    let existing_workloads: Vec<ExistingWorkload> = existing_containers
+        .iter()
+        .map(|n| ExistingWorkload {
+            name: n.clone(),
+            namespace: "default".to_string(),
+            labels: Default::default(),
+        })
+        .collect();
     validate_graph_full(
         docs,
         existing_networks,
         existing_volumes,
-        existing_containers,
+        &existing_workloads,
         existing_secrets,
         &[],
         &[],
@@ -4159,7 +4236,7 @@ fn validate_graph_full(
     docs: &[manifest::ManifestDoc],
     existing_networks: &[String],
     existing_volumes: &[String],
-    existing_containers: &[String],
+    existing_workloads: &[ExistingWorkload],
     existing_secrets: &[String],
     existing_configs: &[String],
     existing_system_containers: &[String],
@@ -4187,8 +4264,9 @@ fn validate_graph_full(
     // the firewall chain all hang off.
     // A VM is a workload target too: a route published by `VirtualMachine.spec.expose`
     // names it as its backend (ADR-0046), and `Dependency` documents already say
-    // «containers/VMs».
-    let mut containers = declared(&[k::CONTAINER, k::POD, k::VM]);
+    // «containers/VMs». These three Kinds are the `workload_kinds` the reference
+    // resolver below treats as the targets a bare/qualified name may point at.
+    //
     // What a container-scope policy CANNOT govern, declared in this very manifest:
     // a VM (its firewall is the provider's, `scope: vm`). It used to pass this
     // check and fail at apply with «no such container», after the layers before
@@ -4202,7 +4280,6 @@ fn validate_graph_full(
     system_containers.extend(existing_system_containers.iter().cloned());
     networks.extend(existing_networks.iter().cloned());
     volumes.extend(existing_volumes.iter().cloned());
-    containers.extend(existing_containers.iter().cloned());
     secrets.extend(existing_secrets.iter().cloned());
     configs.extend(existing_configs.iter().cloned());
 
@@ -4231,21 +4308,125 @@ fn validate_graph_full(
         declared_secret_keys.insert(doc.metadata.name.clone(), keys);
     }
 
+    // Resolves a workload reference (`target`, `backend.service`, a Dependency's
+    // `from`/`to`) the way `apply` does through `Store::load`
+    // (crates/adapters/delonix-state/src/store.rs): a QUALIFIED `<namespace>/<name>`
+    // matches that exact pair, a bare name matches by name. The graph used to test
+    // `containers.contains(reference)` with bare names only, so a `target:
+    // prod/web` — which `apply` resolves fine — was refused as «not a declared or
+    // existing Container». That is `validate` refusing what `apply` accepts, the
+    // dishonest-validation class this module already fights.
+    //
+    // `declared_scoped` carries the `<namespace>/<name>` identity of every declared
+    // workload (default elided by `scoped_plan_name`, as everywhere else), so a
+    // qualified reference resolves iff the namespace actually matches.
+    let workload_kinds = |kind: &str| matches!(kind, k::CONTAINER | k::POD | k::VM);
+    let declared_scoped: HashSet<String> = docs
+        .iter()
+        .filter(|d| workload_kinds(d.kind.as_str()))
+        .map(|d| {
+            manifest::scoped_plan_name(
+                d.metadata.namespace.as_deref().unwrap_or("default"),
+                &d.metadata.name,
+            )
+        })
+        .collect();
+    let declared_bare: HashSet<String> = docs
+        .iter()
+        .filter(|d| workload_kinds(d.kind.as_str()))
+        .map(|d| d.metadata.name.clone())
+        .collect();
+    // The on-machine workloads, indexed for the two checks a bare name cannot do
+    // on its own now that the namespace is known:
+    //   * `existing_scoped` — the exact `<namespace>/<name>` pairs, so a qualified
+    //     reference resolves iff that PRECISE pair runs (no longer the old lenient
+    //     "any namespace" match: `apply`'s qualified `Store::load` requires the
+    //     exact namespace, so this is what keeps `validate` honest with it).
+    //   * `existing_ns_by_base` — base name → the namespaces that carry it. More
+    //     than one is the `AmbiguousContainer` a bare `Store::load` raises, so the
+    //     bare reference is refused here, naming the candidates to qualify with.
+    let mut existing_scoped: HashSet<String> = HashSet::new();
+    let mut existing_ns_by_base: std::collections::HashMap<
+        String,
+        std::collections::BTreeSet<String>,
+    > = std::collections::HashMap::new();
+    for w in existing_workloads {
+        existing_scoped.insert(manifest::scoped_plan_name(&w.namespace, &w.name));
+        existing_ns_by_base
+            .entry(w.name.clone())
+            .or_default()
+            .insert(w.namespace.clone());
+    }
+
+    // The three outcomes a reference can have, so a bare name resolving against
+    // two namespaces is reported as the ambiguity it is, not silently as resolved.
+    enum Resolution {
+        Resolved,
+        NotFound,
+        /// Candidate `<namespace>/<name>` to qualify with, sorted.
+        Ambiguous(Vec<String>),
+    }
+    let resolve_ref = |reference: &str| -> Resolution {
+        match reference.split_once('/') {
+            Some((ns, base)) => {
+                // Qualified: resolves iff declared OR existing with EXACTLY this
+                // (namespace, name). A name only in ANOTHER namespace is the
+                // `NotFound` a qualified `Store::load` returns; a qualified name
+                // is never ambiguous — it already states its namespace.
+                let scoped = manifest::scoped_plan_name(ns, base);
+                if declared_scoped.contains(&scoped) || existing_scoped.contains(&scoped) {
+                    Resolution::Resolved
+                } else {
+                    Resolution::NotFound
+                }
+            }
+            None => {
+                // Bare: a DECLARED workload resolves (unchanged — declared-homonym
+                // ambiguity belongs to the dedup, not here; see the session's
+                // out-of-scope). For a name only on the machine, more than one
+                // namespace is what `Store::load` refuses as `AmbiguousContainer`.
+                if declared_bare.contains(reference) {
+                    Resolution::Resolved
+                } else {
+                    match existing_ns_by_base.get(reference) {
+                        None => Resolution::NotFound,
+                        Some(nss) if nss.len() <= 1 => Resolution::Resolved,
+                        Some(nss) => Resolution::Ambiguous(
+                            nss.iter().map(|ns| format!("{ns}/{reference}")).collect(),
+                        ),
+                    }
+                }
+            }
+        }
+    };
+    // The one message every ambiguous bare reference gets, whatever Kind names it.
+    let ambiguity_issue = |kind: &str, name: &str, reference: &str, cands: &[String]| -> String {
+        super::po::tf(
+            "{kind} '{name}' → '{reference}' is ambiguous: workloads named '{reference}' exist in more than one namespace ({cands}) — qualify it as <namespace>/{reference}",
+            &[
+                ("kind", kind),
+                ("name", name),
+                ("reference", reference),
+                ("cands", &cands.join(", ")),
+            ],
+        )
+    };
+
     let mut issues = Vec::new();
 
-    // Uma rota nomeia DUAS redes, e nomear uma que não existe é o mesmo engano
-    // que o `vm init` cometia: um manifesto que se recusa a si próprio. Ambas
-    // as pontas são verificadas, e a mensagem diz QUAL delas falta.
+    // A route names TWO networks, and naming one that does not exist is the
+    // same mistake `vm init` used to make: a manifest that refuses itself. Both
+    // ends are checked, and the message says WHICH of them is missing.
     for doc in docs.iter().filter(|d| d.kind == k::NETWORK_ROUTE) {
         if let Ok(spec) = manifest::spec_of::<super::netroute::NetworkRouteSpec>(doc) {
-            for (lado, rede) in [("from", &spec.from), ("to", &spec.to)] {
-                if !networks.contains(rede) {
+            for (side, net) in [("from", &spec.from), ("to", &spec.to)] {
+                if !networks.contains(net) {
                     issues.push(super::po::tf(
                         "NetworkRoute '{name}' → {side} network '{net}' is not declared nor does it exist",
                         &[
                             ("name", &doc.metadata.name),
-                            ("side", lado),
-                            ("net", rede),
+                            ("side", side),
+                            ("net", net),
                         ],
                     ));
                 }
@@ -4370,6 +4551,26 @@ fn validate_graph_full(
                         }
                     }
                 }
+                // `credentials.password.secret` must resolve to a Secret too
+                // (#823). `CredentialsSpec::validate` only checks the name's
+                // FORMAT — existence is "a question for the moment it is read" —
+                // so a dangling name passed `validate` and `apply` with rc 0 and
+                // only surfaced at `container ls --credentials --reveal`. Gate it
+                // in the graph, exactly like `secret: []` above.
+                if let Some(sref) = doc
+                    .spec
+                    .get("credentials")
+                    .and_then(|v| v.get("password"))
+                    .and_then(|v| v.get("secret"))
+                    .and_then(|v| v.as_str())
+                {
+                    if !secrets.contains(sref) {
+                        issues.push(super::po::tf(
+                            "{kind} '{name}' → credentials.password.secret '{sref}' is not a declared or existing Secret",
+                            &[("kind", &doc.kind), ("name", name), ("sref", sref)],
+                        ));
+                    }
+                }
             }
             k::POD => {
                 // A Pod names the network its shared netns attaches to, and
@@ -4465,14 +4666,18 @@ fn validate_graph_full(
                             ));
                         }
                     } else if scope == "vm" {
-                        // `containers` holds the declared and existing VMs too;
-                        // whether the VM's backend has a firewall is the
-                        // apply's question (ADR-0052), not the graph's.
-                        if !containers.contains(target) {
-                            issues.push(super::po::tf(
+                        // The declared and existing VMs resolve here too; whether
+                        // the VM's backend has a firewall is the apply's question
+                        // (ADR-0052), not the graph's.
+                        match resolve_ref(target) {
+                            Resolution::Resolved => {}
+                            Resolution::Ambiguous(c) => {
+                                issues.push(ambiguity_issue(&doc.kind, name, target, &c))
+                            }
+                            Resolution::NotFound => issues.push(super::po::tf(
                                 "{kind} '{name}' (scope vm) → target '{target}' is not a declared or existing VirtualMachine",
                                 &[("kind", &doc.kind), ("name", name), ("target", target)],
-                            ));
+                            )),
                         }
                     } else if let Some(why) = container_scope_target_problem(
                         &doc.kind,
@@ -4482,11 +4687,17 @@ fn validate_graph_full(
                         &declared_vms,
                     ) {
                         issues.push(why);
-                    } else if !containers.contains(target) {
-                        issues.push(super::po::tf(
-                            "{kind} '{name}' → target '{target}' is not a declared or existing Container",
-                            &[("kind", &doc.kind), ("name", name), ("target", target)],
-                        ));
+                    } else {
+                        match resolve_ref(target) {
+                            Resolution::Resolved => {}
+                            Resolution::Ambiguous(c) => {
+                                issues.push(ambiguity_issue(&doc.kind, name, target, &c))
+                            }
+                            Resolution::NotFound => issues.push(super::po::tf(
+                                "{kind} '{name}' → target '{target}' is not a declared or existing Container",
+                                &[("kind", &doc.kind), ("name", name), ("target", target)],
+                            )),
+                        }
                     }
                 }
             }
@@ -4511,11 +4722,17 @@ fn validate_graph_full(
                         &declared_vms,
                     ) {
                         issues.push(why);
-                    } else if !containers.contains(target) {
-                        issues.push(super::po::tf(
-                            "{kind} '{name}' → target '{target}' is not a declared or existing Container",
-                            &[("kind", &doc.kind), ("name", name), ("target", target)],
-                        ));
+                    } else {
+                        match resolve_ref(target) {
+                            Resolution::Resolved => {}
+                            Resolution::Ambiguous(c) => {
+                                issues.push(ambiguity_issue(&doc.kind, name, target, &c))
+                            }
+                            Resolution::NotFound => issues.push(super::po::tf(
+                                "{kind} '{name}' → target '{target}' is not a declared or existing Container",
+                                &[("kind", &doc.kind), ("name", name), ("target", target)],
+                            )),
+                        }
                     }
                 }
             }
@@ -4547,11 +4764,18 @@ fn validate_graph_full(
                         }
                         for rule in &spec.rules {
                             for pr in &rule.paths {
-                                if !containers.contains(&pr.backend.service) {
-                                    issues.push(super::po::tf(
+                                match resolve_ref(&pr.backend.service) {
+                                    Resolution::Resolved => {}
+                                    Resolution::Ambiguous(c) => issues.push(ambiguity_issue(
+                                        &doc.kind,
+                                        name,
+                                        &pr.backend.service,
+                                        &c,
+                                    )),
+                                    Resolution::NotFound => issues.push(super::po::tf(
                                         "HTTPRoute '{name}' → backend '{service}' is not a declared or existing Container",
                                         &[("name", name), ("service", &pr.backend.service)],
-                                    ));
+                                    )),
                                 }
                             }
                         }
@@ -4601,7 +4825,9 @@ fn validate_graph_full(
                             k::VOLUME => volumes.contains(&spec.target_name),
                             k::VM => {
                                 declared_vms.contains(&spec.target_name)
-                                    || existing_containers.contains(&spec.target_name)
+                                    || existing_workloads
+                                        .iter()
+                                        .any(|w| w.name == spec.target_name)
                             }
                             _ => {
                                 issues.push(super::po::tf(
@@ -4625,17 +4851,20 @@ fn validate_graph_full(
                 // `from` and each `to` must be declared/existing containers.
                 let from = doc.spec.get("from").and_then(|v| v.as_str());
                 match from {
-                    Some(f) if !containers.contains(f) => {
-                        issues.push(super::po::tf(
+                    Some(f) => match resolve_ref(f) {
+                        Resolution::Resolved => {}
+                        Resolution::Ambiguous(c) => {
+                            issues.push(ambiguity_issue(&doc.kind, name, f, &c))
+                        }
+                        Resolution::NotFound => issues.push(super::po::tf(
                             "Dependency '{name}' → from '{f}' is not a declared or existing Container",
                             &[("name", name), ("f", f)],
-                        ));
-                    }
+                        )),
+                    },
                     None => issues.push(super::po::tf(
                         "Dependency '{name}' → `from` is required",
                         &[("name", name)],
                     )),
-                    _ => {}
                 }
                 // `to` can be a scalar OR a list.
                 let tos: Vec<&str> = match doc.spec.get("to") {
@@ -4653,12 +4882,68 @@ fn validate_graph_full(
                     ));
                 }
                 for t in tos {
-                    if !containers.contains(t) {
-                        issues.push(super::po::tf(
+                    match resolve_ref(t) {
+                        Resolution::Resolved => {}
+                        Resolution::Ambiguous(c) => {
+                            issues.push(ambiguity_issue(&doc.kind, name, t, &c))
+                        }
+                        Resolution::NotFound => issues.push(super::po::tf(
                             "Dependency '{name}' → to '{t}' is not a declared or existing Container",
                             &[("name", name), ("t", t)],
-                        ));
+                        )),
                     }
+                }
+            }
+            k::SERVICE => {
+                // A Service selects workloads by label (ADR-0032). An EMPTY
+                // `selector.matchLabels` can never match anything — `matches_labels`
+                // is false on an empty set — so the Service is permanently dead and
+                // resolves to nothing for the life of the manifest. `apply` already
+                // warns about it; refuse it here, before it is applied.
+                //
+                // A NON-empty selector is matched, by the SAME `matches_labels` the
+                // DNS index and `match_count` use, against what is declared in this
+                // manifest AND what already runs on the machine, both scoped to the
+                // Service's namespace (`match_count` scopes the same way). Matching
+                // NEITHER means nothing will ever answer the Service's name, so it is
+                // refused here. This only became safe once the graph could see the
+                // LABELS of the existing workloads: a Service resolving against a
+                // live-but-undeclared backend must NOT be refused, and now it is not
+                // — `existing_workloads` carries exactly those labels.
+                match manifest::spec_of::<super::service::ServiceSpec>(doc) {
+                    Ok(spec) => {
+                        let sel = &spec.selector.match_labels;
+                        let svc_ns = doc.metadata.namespace.as_deref().unwrap_or("default");
+                        if sel.is_empty() {
+                            issues.push(super::po::tf(
+                                "Service '{name}' → selector.matchLabels is empty; it selects no workload and can never resolve",
+                                &[("name", name)],
+                            ));
+                        } else {
+                            let declared_match = docs
+                                .iter()
+                                .filter(|d| workload_kinds(d.kind.as_str()))
+                                .filter(|d| {
+                                    d.metadata
+                                        .namespace
+                                        .as_deref()
+                                        .unwrap_or("default")
+                                        .eq_ignore_ascii_case(svc_ns)
+                                })
+                                .any(|d| delonix_sdn::matches_labels(&d.metadata.labels, sel));
+                            let existing_match = existing_workloads
+                                .iter()
+                                .filter(|w| w.namespace.eq_ignore_ascii_case(svc_ns))
+                                .any(|w| delonix_sdn::matches_labels(&w.labels, sel));
+                            if !declared_match && !existing_match {
+                                issues.push(super::po::tf(
+                                    "Service '{name}' → selector matches no declared or existing workload in namespace '{ns}'; nothing will answer its name",
+                                    &[("name", name), ("ns", svc_ns)],
+                                ));
+                            }
+                        }
+                    }
+                    Err(e) => issues.push(e.to_string()),
                 }
             }
             _ => {}
@@ -4868,14 +5153,14 @@ spec: { target: cc, direction: ingress, defaultPolicy: deny, rules: [] }
     /// level — and, like that one, the symptom hid because every `apply` is
     /// idempotent and converged by the wrong path.
     #[test]
-    fn hot_fields_sao_um_subconjunto_dos_comparados() {
+    fn hot_fields_are_a_subset_of_the_compared() {
         for (kind, compared) in compared_fields_table() {
             for hot in super::reconcile::hot_fields_for(kind) {
                 assert!(
                     compared.contains(hot),
-                    "{kind}: '{hot}' e hot mas nao esta nos campos comparados — \
-                     o braco do `converge` e inalcancavel e a mudanca no manifesto \
-                     e um no-op que reporta sucesso"
+                    "{kind}: '{hot}' is hot but is not in the compared fields — \
+                     the `converge` arm is unreachable and the manifest change \
+                     is a no-op that reports success"
                 );
             }
         }
@@ -5519,6 +5804,19 @@ spec: { target: cc, direction: ingress, defaultPolicy: deny, rules: [] }
         validate_graph_with(&docs(yaml), &[], &[], &[], &[])
     }
 
+    /// An [`ExistingWorkload`] (a record already on the machine) for the tests
+    /// that exercise ambiguity and live-label matching.
+    fn ew(name: &str, namespace: &str, labels: &[(&str, &str)]) -> ExistingWorkload {
+        ExistingWorkload {
+            name: name.to_string(),
+            namespace: namespace.to_string(),
+            labels: labels
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        }
+    }
+
     /// A `scope: systemcontainer` policy names a system container, declared in
     /// the manifest or registered; a Container of that name is not one.
     #[test]
@@ -5539,7 +5837,15 @@ kind: NetworkPolicy
 metadata: {name: p2}
 spec: {target: other, direction: ingress, scope: systemcontainer}
 "#;
-        let issues = validate_graph_full(&docs(yaml), &[], &[], &["other".into()], &[], &[], &[]);
+        let issues = validate_graph_full(
+            &docs(yaml),
+            &[],
+            &[],
+            &[ew("other", "default", &[])],
+            &[],
+            &[],
+            &[],
+        );
         assert_eq!(issues.len(), 1, "{issues:?}");
         assert!(issues[0].contains("'other'"), "{issues:?}");
         let issues = validate_graph_full(&docs(yaml), &[], &[], &[], &[], &[], &["other".into()]);
@@ -5565,7 +5871,7 @@ spec:
   networkRoutes:
     - { name: r, spec: { from: front, to: back } }
   containers:
-    - { name: web, spec: { image: nginx, network: front } }
+    - { name: web, labels: { app: web }, spec: { image: nginx, network: front } }
   pods:
     - { name: worker, spec: { network: back, containers: [{ name: a, image: nginx }] } }
   services:
@@ -5626,14 +5932,37 @@ spec:
         assert!(issues.iter().any(|i| i.contains("nowhere")), "{issues:?}");
     }
 
-    /// A `Service` whose selector matches nothing is NOT a validation error, on
-    /// purpose. It selects by label against workloads that are alive when the
-    /// DNS answers (ADR-0032), so the same manifest is legitimate when the
-    /// backends arrive from another stack or a later apply — blocking it here
-    /// would refuse a valid ordering. `apply` already warns about an EMPTY
-    /// selector, the case that is certainly a mistake.
+    /// A `Service` whose non-empty selector matches a workload DECLARED in the
+    /// same manifest validates — the selector is checked against the workload's
+    /// labels with the same `matches_labels` the DNS index uses, in the Service's
+    /// namespace.
     #[test]
-    fn a_service_selecting_nothing_yet_still_validates() {
+    fn a_service_matching_a_declared_workload_validates() {
+        let issues = check(
+            "\
+apiVersion: compute.delonix.io/v1beta1
+kind: Container
+metadata: { name: web, namespace: prod, labels: { app: web } }
+spec: { image: nginx }
+---
+apiVersion: core.delonix.io/v1alpha1
+kind: Stack
+metadata: { name: s, namespace: prod }
+spec:
+  services:
+    - { name: svc, spec: { selector: { matchLabels: { app: web } }, port: 80 } }
+",
+        );
+        assert!(issues.is_empty(), "{issues:?}");
+    }
+
+    /// Now that the graph sees the labels of what is declared AND of what runs, a
+    /// `Service` whose non-empty selector matches NEITHER is refused: nothing will
+    /// ever answer its name. Before this slice the graph had no labels to check
+    /// against, so it had to let a dead selector pass (the old
+    /// `a_service_selecting_nothing_yet_still_validates`).
+    #[test]
+    fn a_service_matching_no_workload_is_refused() {
         let issues = check(
             "\
 apiVersion: core.delonix.io/v1alpha1
@@ -5644,11 +5973,181 @@ spec:
     - { name: svc, spec: { selector: { matchLabels: { app: later } }, port: 80 } }
 ",
         );
+        assert_eq!(issues.len(), 1, "{issues:?}");
+        assert!(
+            issues[0].contains("matches no declared or existing workload"),
+            "{issues:?}"
+        );
+    }
+
+    /// The honesty the refusal above hinges on: a selector that matches a
+    /// LIVE-but-undeclared workload (in the Service's namespace) must NOT be
+    /// refused — the Service resolves against it at apply. No false positive
+    /// against the running machine.
+    #[test]
+    fn a_service_matching_a_live_workload_is_not_refused() {
+        let yaml = "\
+apiVersion: core.delonix.io/v1alpha1
+kind: Stack
+metadata: { name: s, namespace: prod }
+spec:
+  services:
+    - { name: svc, spec: { selector: { matchLabels: { app: web } }, port: 80 } }
+";
+        // Nothing declared matches, but a live container in `prod` is labelled `app: web`.
+        let issues = validate_graph_full(
+            &docs(yaml),
+            &[],
+            &[],
+            &[ew("web", "prod", &[("app", "web")])],
+            &[],
+            &[],
+            &[],
+        );
         assert!(issues.is_empty(), "{issues:?}");
+        // A live container with the label in ANOTHER namespace does not rescue it:
+        // the Service selects namespace-scoped, so this one is still refused.
+        let other_ns = validate_graph_full(
+            &docs(yaml),
+            &[],
+            &[],
+            &[ew("web", "staging", &[("app", "web")])],
+            &[],
+            &[],
+            &[],
+        );
+        assert_eq!(other_ns.len(), 1, "{other_ns:?}");
+        assert!(
+            other_ns[0].contains("matches no declared or existing workload"),
+            "{other_ns:?}"
+        );
+    }
+
+    /// A BARE workload reference that matches records ALREADY on the machine in
+    /// more than one namespace is the `AmbiguousContainer` a bare `Store::load`
+    /// raises — `validate` refuses it here, before `apply` fails halfway, naming
+    /// the `<ns>/<name>` candidates to qualify with. A single namespace resolves.
+    #[test]
+    fn a_bare_reference_matching_two_namespaces_is_ambiguous() {
+        let yaml = "\
+apiVersion: networking.delonix.io/v1beta1
+kind: NetworkAccessRule
+metadata: { name: allow }
+spec: { target: web, direction: ingress, port: '80' }
+";
+        // `web` runs in both `prod` and `staging`: a bare `target: web` is ambiguous.
+        let issues = validate_graph_full(
+            &docs(yaml),
+            &[],
+            &[],
+            &[ew("web", "prod", &[]), ew("web", "staging", &[])],
+            &[],
+            &[],
+            &[],
+        );
+        assert_eq!(issues.len(), 1, "{issues:?}");
+        assert!(issues[0].contains("ambiguous"), "{issues:?}");
+        assert!(issues[0].contains("prod/web"), "{issues:?}");
+        assert!(issues[0].contains("staging/web"), "{issues:?}");
+        // The same `web` in a SINGLE namespace resolves — no ambiguity.
+        let one = validate_graph_full(
+            &docs(yaml),
+            &[],
+            &[],
+            &[ew("web", "prod", &[])],
+            &[],
+            &[],
+            &[],
+        );
+        assert!(one.is_empty(), "{one:?}");
+    }
+
+    /// The other half of the rule above: an EMPTY `matchLabels` can never select
+    /// anything (`matches_labels` is false on an empty set), so the Service is
+    /// permanently dead. It is the one case `apply` already calls a mistake, and
+    /// before this arm existed `stack validate` said OK to it.
+    #[test]
+    fn a_service_with_an_empty_selector_is_refused() {
+        let issues = check(
+            "\
+apiVersion: core.delonix.io/v1alpha1
+kind: Stack
+metadata: { name: s, namespace: prod }
+spec:
+  services:
+    - { name: svc, spec: { selector: { matchLabels: {} }, port: 80 } }
+",
+        );
+        assert_eq!(issues.len(), 1, "{issues:?}");
+        assert!(
+            issues[0].contains("selector.matchLabels is empty"),
+            "{issues:?}"
+        );
+    }
+
+    /// A workload reference may name its target the way `apply` does through
+    /// `Store::load`: `<namespace>/<name>`. The graph used to test bare-name
+    /// containment only, so a `target: prod/web` — which an apply resolves — was
+    /// refused as «not a declared or existing Container». Both the qualified form
+    /// and the bare name resolve to the one declared workload.
+    #[test]
+    fn a_qualified_workload_reference_resolves() {
+        let qualified = check(
+            "\
+apiVersion: compute.delonix.io/v1beta1
+kind: Container
+metadata: { name: web, namespace: prod }
+spec: { image: nginx }
+---
+apiVersion: networking.delonix.io/v1beta1
+kind: NetworkAccessRule
+metadata: { name: allow }
+spec: { target: prod/web, direction: ingress, port: '80' }
+",
+        );
+        assert!(qualified.is_empty(), "qualified: {qualified:?}");
+
+        let bare = check(
+            "\
+apiVersion: compute.delonix.io/v1beta1
+kind: Container
+metadata: { name: web, namespace: prod }
+spec: { image: nginx }
+---
+apiVersion: networking.delonix.io/v1beta1
+kind: NetworkAccessRule
+metadata: { name: allow }
+spec: { target: web, direction: ingress, port: '80' }
+",
+        );
+        assert!(bare.is_empty(), "bare: {bare:?}");
+    }
+
+    /// The qualified form is honest about the namespace: `other/web`, when the
+    /// only `web` is declared in `prod`, is the `NotFound` `Store::load` returns —
+    /// not a silent match. This is what keeps the qualified form from becoming a
+    /// way to name any workload regardless of namespace.
+    #[test]
+    fn a_qualified_reference_to_another_namespace_is_unresolved() {
+        let issues = check(
+            "\
+apiVersion: compute.delonix.io/v1beta1
+kind: Container
+metadata: { name: web, namespace: prod }
+spec: { image: nginx }
+---
+apiVersion: networking.delonix.io/v1beta1
+kind: NetworkAccessRule
+metadata: { name: allow }
+spec: { target: other/web, direction: ingress, port: '80' }
+",
+        );
+        assert_eq!(issues.len(), 1, "{issues:?}");
+        assert!(issues[0].contains("other/web"), "{issues:?}");
     }
 
     #[test]
-    fn grafo_integro_nao_tem_problemas() {
+    fn healthy_graph_has_no_problems() {
         let issues = check(
             "\
 apiVersion: delonix.io/v1
@@ -5674,12 +6173,12 @@ spec: { direction: ingress, target: web }
         );
         assert!(
             issues.is_empty(),
-            "esperava grafo íntegro, veio: {issues:?}"
+            "expected a healthy graph, got: {issues:?}"
         );
     }
 
     #[test]
-    fn network_por_declarar_e_sinalizada() {
+    fn undeclared_network_is_flagged() {
         let issues = check(
             "\
 apiVersion: delonix.io/v1
@@ -5693,7 +6192,7 @@ spec: { image: nginx, network: fantasma }
     }
 
     #[test]
-    fn builtins_de_rede_nao_sao_referencias() {
+    fn network_builtins_are_not_references() {
         // host/none (container) and bridge (vm) are not a kind: Network.
         let issues = check(
             "\
@@ -5712,7 +6211,7 @@ spec: { disk: d, network: bridge }
     }
 
     #[test]
-    fn volume_nomeado_por_declarar_e_sinalizado_mas_bind_mount_nao() {
+    fn undeclared_named_volume_is_flagged_but_bind_mount_is_not() {
         // `/host/ok` (absolute) and `./relative` (relative) are the TWO forms
         // of bind mount `delonix_volume::VolumeStore::resolve_spec_in`
         // recognizes (`named = !starts_with('/') && !starts_with('.')`) — a
@@ -5732,7 +6231,7 @@ spec: { image: nginx, volumes: [\"semvolume:/x\", \"/host/ok:/y\", \"./addons:/z
     }
 
     #[test]
-    fn firewallpolicy_valida_target_como_ingress_egress() {
+    fn firewallpolicy_validates_target_like_ingress_egress() {
         // FirewallPolicy resolves the target the same way (scope-aware) as Ingress/Egress.
         let issues = check(
             "\
@@ -5757,7 +6256,7 @@ spec: { direction: egress, target: fantasma }
     }
 
     #[test]
-    fn firewallpolicy_direction_e_scope_incompativel_apanhados_no_validate() {
+    fn firewallpolicy_direction_and_incompatible_scope_caught_in_validate() {
         // invalid direction.
         let i = check(
             "apiVersion: delonix.io/v1\nkind: NetworkPolicy\nmetadata: { name: a }\nspec: { direction: sideways, target: x }\n",
@@ -5788,7 +6287,7 @@ spec: { direction: ingress, scope: network, target: n }
     }
 
     #[test]
-    fn egress_scope_network_valida_target_contra_redes() {
+    fn egress_scope_network_validates_target_against_networks() {
         // scope: network → the target must be a Network (not a container).
         let issues = check(
             "\
@@ -5816,7 +6315,7 @@ spec: { direction: egress, scope: network, target: rede-fantasma, defaultPolicy:
     }
 
     #[test]
-    fn ingress_target_inexistente_e_sinalizado() {
+    fn nonexistent_ingress_target_is_flagged() {
         let issues = check(
             "\
 apiVersion: delonix.io/v1
@@ -5830,7 +6329,7 @@ spec: { direction: ingress, target: nao-existe }
     }
 
     #[test]
-    fn duplicado_no_manifesto_e_sinalizado() {
+    fn duplicate_in_the_manifest_is_flagged() {
         let issues = check(
             "\
 apiVersion: delonix.io/v1
@@ -5849,7 +6348,7 @@ spec: {}
     }
 
     #[test]
-    fn vm_volumes_object_style_valida_a_referencia() {
+    fn vm_volumes_object_style_validates_the_reference() {
         // `Vm.volumes` are objects {name, mountPath} — the ref must be resolved.
         let issues = check(
             "\
@@ -5869,7 +6368,7 @@ spec: { disk: d, volumes: [ { name: dados, mountPath: /mnt/d }, { name: fantasma
     }
 
     #[test]
-    fn secret_por_declarar_e_sinalizado_em_container_e_storage() {
+    fn undeclared_secret_is_flagged_in_container_and_storage() {
         let issues = check(
             "\
 apiVersion: delonix.io/v1
@@ -5880,30 +6379,30 @@ spec: { stringData: { password: x } }
 apiVersion: delonix.io/v1
 kind: Container
 metadata: { name: web }
-spec: { image: nginx, secret: [creds, fantasma] }
+spec: { image: nginx, secret: [creds, ghost] }
 ---
 apiVersion: delonix.io/v1
 kind: Volume
 metadata: { name: nas }
-spec: { nfs: { server: h, share: /s, passwordSecret: outro-fantasma } }
+spec: { nfs: { server: h, share: /s, passwordSecret: other-ghost } }
 ",
         );
-        // `creds` resolves; `fantasma` (container) and `outro-fantasma` (storage) do not.
+        // `creds` resolves; `ghost` (container) and `other-ghost` (storage) do not.
         assert_eq!(issues.len(), 2, "{issues:?}");
         assert!(
-            issues.iter().any(|i| i.contains("secret 'fantasma'")),
+            issues.iter().any(|i| i.contains("secret 'ghost'")),
             "{issues:?}"
         );
         assert!(
             issues
                 .iter()
-                .any(|i| i.contains("passwordSecret 'outro-fantasma'")),
+                .any(|i| i.contains("passwordSecret 'other-ghost'")),
             "{issues:?}"
         );
     }
 
     #[test]
-    fn storage_passwordsecret_sem_chave_password_e_sinalizado() {
+    fn storage_passwordsecret_without_password_key_is_flagged() {
         // The Secret exists but declares only `token` (inline) — the mount would read `password`.
         let issues = check(
             "\
@@ -5959,7 +6458,7 @@ spec: { type: cifs, server: h, share: /s, passwordSecret: creds }
     }
 
     #[test]
-    fn recurso_ja_existente_na_maquina_resolve_a_referencia() {
+    fn resource_already_on_the_machine_resolves_the_reference() {
         let d = docs(
             "\
 apiVersion: delonix.io/v1
@@ -5981,7 +6480,7 @@ spec: { image: nginx, network: prod-net }
     /// (`-f delonix-manifest.yaml`). So this one uses the relative form on
     /// purpose, which is the only form that proves anything.
     #[test]
-    fn stack_name_vem_do_directorio_mesmo_com_caminho_relativo() {
+    fn stack_name_comes_from_the_directory_even_with_a_relative_path() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("o-meu-projecto");
         std::fs::create_dir_all(&dir).unwrap();
@@ -6017,7 +6516,7 @@ spec: {}
     /// `manifest::load` expands a Stack into its children and the Stack document
     /// itself does not survive the load.
     #[test]
-    fn um_kind_stack_da_o_nome_e_ganha_ao_directorio() {
+    fn a_kind_stack_gives_the_name_and_wins_over_the_directory() {
         let tmp = tempfile::tempdir().unwrap();
         let file = tmp.path().join("m.yaml");
         std::fs::write(
@@ -6060,6 +6559,7 @@ spec: {}
             k::NETWORK_GATEWAY,
             k::HTTP_ROUTE,
             k::GATEWAY,
+            k::NODE,
             k::GITOPS_SOURCE,
         ]
     }
@@ -6159,7 +6659,7 @@ spec: {}
     /// time, so the two cannot drift apart — this test is what fixes that
     /// property, not just the current ordering.
     #[test]
-    fn a_ordem_de_remocao_e_a_inversa_da_de_criacao() {
+    fn removal_order_is_the_inverse_of_creation() {
         let mk = |kind: &str| super::reconcile::Change {
             kind: kind.to_string(),
             name: "x".into(),
@@ -6196,13 +6696,6 @@ spec: {}
         assert!(idx("Container") < idx("Pod"));
     }
 
-    /// **Perda silenciosa numa superfície de segurança.** O `apply_fw_doc`
-    /// SUBSTITUI as regras de uma direcção, por isso duas políticas para o mesmo
-    /// alvo+direcção fazem a segunda apagar as regras da primeira — e ambas
-    /// reportavam sucesso. Medido: o `stack validate` dizia «OK, todas as
-    /// referências resolvidas» para exactamente esse manifesto.
-    ///
-    /// Recusado e não fundido, ao contrário do `kind: Dependency`: uma
     /// A `kind: Pod` is a reference target like any other workload.
     ///
     /// Before this, `Pod` was recommended and unusable at the same time: with
@@ -6223,134 +6716,142 @@ spec: {}
         assert!(issues.is_empty(), "{issues:?}");
     }
 
-    /// Dependency declara o acesso de UM peer e várias somam-se; uma
-    /// FirewallPolicy declara o estado desejado INTEIRO de uma direcção,
-    /// `defaultPolicy` incluído, logo duas são duas respostas à mesma pergunta.
+    /// **Silent loss on a security surface.** `apply_fw_doc` REPLACES the rules
+    /// of a direction, so two policies for the same target+direction make the
+    /// second erase the first's rules — and both reported success. Measured:
+    /// `stack validate` said "OK, all references resolved" for exactly that
+    /// manifest.
+    ///
+    /// Refused and not merged, unlike `kind: Dependency`: a Dependency declares
+    /// ONE peer's access and several add up; a FirewallPolicy declares the WHOLE
+    /// desired state of a direction, `defaultPolicy` included, so two are two
+    /// answers to the same question.
     #[test]
-    fn duas_politicas_para_o_mesmo_alvo_e_direccao_sao_recusadas() {
+    fn two_policies_for_the_same_target_and_direction_are_refused() {
         let mk = |name: &str, dir: &str| -> super::manifest::ManifestDoc {
             serde_yaml::from_str(&format!(
                 "apiVersion: delonix.io/v1\nkind: NetworkPolicy\nmetadata: {{ name: {name} }}\nspec: {{ direction: {dir}, target: db }}\n"
             ))
             .unwrap()
         };
-        let dois = vec![mk("a", "ingress"), mk("b", "ingress")];
-        let issues = super::validate_graph_with(&dois, &[], &[], &["db".into()], &[]);
+        let two = vec![mk("a", "ingress"), mk("b", "ingress")];
+        let issues = super::validate_graph_with(&two, &[], &[], &["db".into()], &[]);
         assert_eq!(issues.len(), 1, "{issues:?}");
         assert!(
             issues[0].contains("ingress") && issues[0].contains("db"),
             "{issues:?}"
         );
 
-        // Uma por DIRECÇÃO não colide — são estados desejados de coisas
-        // diferentes, e é assim que se escreve uma política completa.
-        let por_direccao = vec![mk("a", "ingress"), mk("b", "egress")];
+        // One per DIRECTION does not collide — they are desired states of
+        // different things, and that is how a complete policy is written.
+        let per_direction = vec![mk("a", "ingress"), mk("b", "egress")];
         assert!(
-            super::validate_graph_with(&por_direccao, &[], &[], &["db".into()], &[]).is_empty()
+            super::validate_graph_with(&per_direction, &[], &[], &["db".into()], &[]).is_empty()
         );
     }
 
-    /// Todos os Kinds convergentes da tabela — a fonte que o `converge_and_stamp`
-    /// e o `actual_of` também consultam.
-    fn convergentes() -> Vec<&'static str> {
+    /// Every convergent Kind in the table — the source that `converge_and_stamp`
+    /// and `actual_of` also consult.
+    fn convergent() -> Vec<&'static str> {
         crate::cmd::kinds::all()
             .filter(|f| f.converges)
             .map(|f| f.kind)
             .collect()
     }
 
-    /// **Três listas que têm de concordar, e que derivaram.** A coluna
-    /// `converges` decide TRÊS coisas — se o `actual_of` sonda a presença em vez
-    /// de usar o adaptador, se o `converge_and_stamp` aplica um Update, e se
-    /// carimba a posse — enquanto os braços do `match` em `desired_of` e a
-    /// tabela do `--fields` continuam escritos à parte.
+    /// **Three lists that must agree, and that drifted.** The `converges` column
+    /// decides THREE things — whether `actual_of` probes presence instead of
+    /// using the adapter, whether `converge_and_stamp` applies an Update, and
+    /// whether it stamps ownership — while the `match` arms in `desired_of` and
+    /// the `--fields` table are still written separately.
     ///
-    /// Aconteceu mesmo, quando isto era uma constante ao lado: o `Vm`, o
-    /// `FirewallPolicy` e o `ShareVolume` ganharam adaptador e ficaram de fora,
-    /// por isso o `converge_and_stamp` SALTAVA-OS. O sintoma escondeu-se porque o
-    /// `apply` de cada Kind continua a correr na cadeia antiga e é idempotente —
-    /// convergiam pelo caminho errado, e o resultado observado parecia certo.
+    /// It actually happened, back when this was a constant off to the side: `Vm`,
+    /// `FirewallPolicy` and `ShareVolume` gained an adapter and were left out, so
+    /// `converge_and_stamp` SKIPPED them. The symptom hid because each Kind's
+    /// `apply` still runs on the old chain and is idempotent — they converged by
+    /// the wrong path, and the observed result looked right.
     ///
-    /// A tabela única fecha a divergência entre as três CONSUMIDORAS; este teste
-    /// continua a ser preciso porque o `--fields` e o `desired_of` não saem dela.
+    /// The single table closes the divergence between the three CONSUMERS; this
+    /// test is still needed because `--fields` and `desired_of` are not derived
+    /// from it.
     #[test]
-    fn as_tres_listas_de_kinds_convergentes_concordam() {
-        // Tudo o que a tabela declara tem de ter uma linha no `--fields`...
-        let com_campos: Vec<&str> = compared_fields_table()
+    fn the_three_lists_of_convergent_kinds_agree() {
+        // Everything the table declares must have a row in `--fields`...
+        let with_fields: Vec<&str> = compared_fields_table()
             .into_iter()
             .map(|(k, _)| k)
             .collect();
-        for k in convergentes() {
+        for k in convergent() {
             assert!(
-                com_campos.contains(&k),
-                "{k} converge mas o `--fields` não diz que campos compara"
+                with_fields.contains(&k),
+                "{k} converges but `--fields` does not say which fields it compares"
             );
         }
-        // ...e o inverso: nada no `--fields` pode estar fora dela, senão a
-        // tabela promete uma comparação que o apply nunca faz.
-        for k in com_campos {
+        // ...and the inverse: nothing in `--fields` may be outside it, otherwise
+        // the table promises a comparison the apply never makes.
+        for k in with_fields {
             assert!(
                 crate::cmd::kinds::converges(k),
-                "o `--fields` lista {k} mas o converge_and_stamp salta-o"
+                "`--fields` lists {k} but converge_and_stamp skips it"
             );
         }
-        // E um Kind convergente nunca pode ter uma desculpa de não-convergência.
-        for k in convergentes() {
+        // And a convergent Kind can never have a non-convergence excuse.
+        for k in convergent() {
             assert_eq!(
                 super::not_converged_reason(k),
                 super::NOT_CONVERGED_GENERIC,
-                "{k} converge e ainda assim tem uma razão para não convergir"
+                "{k} converges and yet has a reason not to converge"
             );
         }
     }
 
-    /// Os Kinds do ciclo do stack sem presença observável — o `presence`
-    /// devolve-lhes `-`, e é essa a marca que o `wait` tem de ler como pronta.
+    /// The Kinds in the stack cycle with no observable presence — `presence`
+    /// returns `-` for them, and that is the marker `wait` has to read as ready.
     ///
-    /// Sai da coluna `presence` de `cmd::kinds` e já não de uma lista escrita
-    /// aqui: era a sexta lista paralela, e a que menos se via.
+    /// Comes from the `presence` column of `cmd::kinds` and no longer from a list
+    /// written here: it was the sixth parallel list, and the least visible one.
     ///
-    /// **O `NetworkRoute` não está entre eles**, e a razão é a mudança que o
-    /// trouxe para os convergentes: passou a ter registo próprio
-    /// (`infra::RouteDef`), logo passou a ter presença observável de verdade —
-    /// `yes`/`no`, com o estado vivo ao lado. Classificá-lo como declarativo faria
-    /// o `wait` dar por pronta uma rota que ainda não existe.
-    fn declarativos() -> Vec<&'static str> {
+    /// **`NetworkRoute` is not among them**, and the reason is the change that
+    /// brought it into the convergent set: it gained its own record
+    /// (`infra::RouteDef`), so it gained a genuinely observable presence —
+    /// `yes`/`no`, with the live state alongside. Classifying it as declarative
+    /// would make `wait` call a route that does not exist yet ready.
+    fn declarative() -> Vec<&'static str> {
         crate::cmd::kinds::all()
             .filter(|f| f.in_stack && f.presence == crate::cmd::kinds::Presence::Declarative)
             .map(|f| f.kind)
             .collect()
     }
 
-    /// **Um marcador de presença `-` não é «ausente».** O `wait` decidia
-    /// prontidão com `present == "yes"`, e os Kinds declarativos NUNCA dizem
-    /// `"yes"` — qualquer manifesto com um deles esgotava o `--timeout` inteiro
-    /// e saía com erro sobre uma stack inteiramente a correr.
+    /// **A `-` presence marker is not "absent".** `wait` decided readiness with
+    /// `present == "yes"`, and declarative Kinds NEVER say `"yes"` — any manifest
+    /// with one of them exhausted the whole `--timeout` and exited with an error
+    /// about a stack that was entirely running.
     ///
-    /// O `"?"` continua pendente de propósito: é também o que um erro de store
-    /// devolve, e dar «pronto» a um desconhecido é o mesmo defeito ao contrário.
+    /// `"?"` stays pending on purpose: it is also what a store error returns, and
+    /// calling an unknown "ready" is the same defect in reverse.
     #[test]
-    fn um_kind_declarativo_nao_fica_pendente_para_sempre() {
+    fn a_declarative_kind_does_not_stay_pending_forever() {
         assert_eq!(
-            declarativos().len(),
+            declarative().len(),
             4,
-            "a lista mudou — confirma o `presence`"
+            "the list changed — double-check `presence`"
         );
-        for k in declarativos() {
+        for k in declarative() {
             assert!(
                 !super::is_pending("-", k, "declarative"),
-                "{k} é declarativo e ficaria pendente para sempre"
+                "{k} is declarative and would stay pending forever"
             );
         }
-        // Ausente continua pendente — é o que o `wait` existe para esperar.
+        // Absent stays pending — that is what `wait` exists to wait for.
         assert!(super::is_pending("no", "Container", "-"));
         assert!(super::is_pending("no", "VirtualMachine", "-"));
-        // Presente é julgado pelo estado, como antes.
+        // Present is judged by state, as before.
         assert!(!super::is_pending("yes", "Container", "Running"));
         assert!(super::is_pending("yes", "Container", "Exited"));
         assert!(super::is_pending("yes", "Container", "unhealthy"));
         assert!(!super::is_pending("yes", "Volume", "-"));
-        // Desconhecido (store ilegível) NÃO é pronto.
+        // Unknown (unreadable store) is NOT ready.
         assert!(super::is_pending(
             "?",
             "Volume",
@@ -6415,85 +6916,85 @@ spec: {}
         assert!(super::digests_from_plan_file(&bad).is_err());
     }
 
-    /// Um Kind que o `apply` aplica tem de ter braço no `presence()`, senão cai
-    /// no `_ => ("?", "unsupported kind")` — que o `ls`/`describe` imprimem e o
-    /// `wait` conta como pendente para sempre. Aconteceu com o `NetworkRoute`,
-    /// que está no ciclo do stack e é aplicado desde que existe.
+    /// A Kind that `apply` applies must have an arm in `presence()`, otherwise it
+    /// falls into `_ => ("?", "unsupported kind")` — which `ls`/`describe` print
+    /// and `wait` counts as pending forever. It happened with `NetworkRoute`,
+    /// which is in the stack cycle and is applied as soon as it exists.
     ///
-    /// Sem I/O: `util::state_root()` só constrói um `PathBuf` e estes braços
-    /// nunca abrem store nenhum.
+    /// No I/O: `util::state_root()` only builds a `PathBuf` and these arms never
+    /// open any store.
     #[test]
-    fn todo_o_kind_declarativo_de_kinds_tem_braco_no_presence() {
+    fn every_declarative_kind_has_an_arm_in_presence() {
         let d = docs("apiVersion: delonix.io/v1\nkind: Network\nmetadata:\n  name: n1\nspec: {}\n");
         let doc = &d[0];
-        for k in declarativos() {
+        for k in declarative() {
             assert!(
                 crate::cmd::kinds::in_stack(k),
-                "{k} saiu do ciclo do stack — este teste deixou de dizer o que promete"
+                "{k} left the stack cycle — this test no longer says what it promises"
             );
             let (present, status) = super::presence(k, doc, &[]);
-            assert_eq!(present, "-", "{k}: presence devolveu {present}/{status}");
+            assert_eq!(present, "-", "{k}: presence returned {present}/{status}");
         }
     }
 
-    /// O inverso da asserção acima, e é o que faltava — foi por aqui que o
-    /// `kind: NetworkRoute` entrou.
+    /// The inverse of the assertion above, and the piece that was missing — this
+    /// is where `kind: NetworkRoute` slipped in.
     ///
-    /// Ele foi acrescentado ao ciclo do stack, ao `apply` e ao `validate_graph`,
-    /// ficou a NÃO convergir, e **nada falhou**: a razão genérica cobria-o.
-    /// O resultado é o pior dos dois mundos — o plano imprime-o com `!` e uma
-    /// frase que se lê como «ninguém chegou lá», quando o que estava a acontecer
-    /// era que uma EXCEPÇÃO ao isolamento entre redes não podia ser fechada pelo
-    /// manifesto que a abriu.
+    /// It was added to the stack cycle, to `apply` and to `validate_graph`, ended
+    /// up NOT converging, and **nothing failed**: the generic reason covered it.
+    /// The result is the worst of both worlds — the plan prints it with `!` and a
+    /// phrase that reads like "nobody got there", when what was actually happening
+    /// was that an EXCEPTION to network isolation could not be closed by the
+    /// manifest that opened it.
     ///
-    /// Ou o Kind converge, ou o obstáculo concreto está escrito. Não há terceira
-    /// hipótese, e é isso que este teste passa a exigir.
+    /// Either the Kind converges, or the concrete obstacle is written down. There
+    /// is no third option, and that is what this test now demands.
     #[test]
-    fn todo_kind_nao_convergente_tem_razao_especifica() {
+    fn every_non_convergent_kind_has_a_specific_reason() {
         for k in crate::cmd::kinds::stack_kinds().filter(|k| !crate::cmd::kinds::converges(k)) {
             assert_ne!(
                 super::not_converged_reason(k),
                 super::NOT_CONVERGED_GENERIC,
-                "{k} não converge e traz a razão genérica — \
-                 «não converge nesta versão» lê-se como «ninguém chegou lá». \
-                 Ou o Kind converge, ou escreve-se o obstáculo concreto em \
+                "{k} does not converge and carries the generic reason — \
+                 \"does not converge in this version\" reads like \"nobody got there\". \
+                 Either the Kind converges, or the concrete obstacle is written in \
                  `not_converged_reason`."
             );
         }
     }
 
-    /// Um Kind que converge tem de poder ser DESFEITO, ou dizer porque não.
+    /// A Kind that converges must be able to be TORN DOWN, or say why not.
     ///
-    /// O meio-buraco irmão do anterior: um Kind convergente e possuível entra no
-    /// plano, o `--prune` promete removê-lo, e o `destroy_one` cai no braço
-    /// genérico com «not implemented» **a meio de um destroy** — depois de já ter
-    /// removido os recursos anteriores na ordem de teardown. Um destroy que falha
-    /// a meio é pior que um que recusa à cabeça.
+    /// The half-hole sibling of the previous one: a convergent, ownable Kind
+    /// enters the plan, `--prune` promises to remove it, and `destroy_one` falls
+    /// into the generic arm with "not implemented" **halfway through a destroy** —
+    /// after already removing the earlier resources in teardown order. A destroy
+    /// that fails halfway is worse than one that refuses up front.
     #[test]
-    fn todo_kind_convergente_tem_teardown_ou_razao() {
-        for k in convergentes() {
-            let removivel = crate::cmd::kinds::has_teardown(k);
-            let tem_razao = super::no_teardown_reason(k).is_some();
+    fn every_convergent_kind_has_teardown_or_reason() {
+        for k in convergent() {
+            let removable = crate::cmd::kinds::has_teardown(k);
+            let has_reason = super::no_teardown_reason(k).is_some();
             assert!(
-                removivel || tem_razao,
-                "{k} converge mas o `destroy_one` não o remove nem diz porquê — \
-                 um `--prune` promete-o e o destroy recusa-o a meio"
+                removable || has_reason,
+                "{k} converges but `destroy_one` neither removes it nor says why — \
+                 a `--prune` promises it and the destroy refuses it halfway"
             );
             assert!(
-                !(removivel && tem_razao),
-                "{k} tem teardown E razão para não ter teardown — \
-                 as duas coisas não podem ser verdade"
+                !(removable && has_reason),
+                "{k} has teardown AND a reason for having none — \
+                 the two cannot both be true"
             );
         }
-        // E o inverso: nada se remove que não convirja, senão o teardown
-        // atravessa um Kind que o plano nunca nomeou.
+        // And the inverse: nothing is removed that does not converge, otherwise
+        // teardown crosses a Kind the plan never named.
         for k in crate::cmd::kinds::all()
             .filter(|f| f.teardown)
             .map(|f| f.kind)
         {
             assert!(
                 crate::cmd::kinds::converges(k),
-                "o teardown remove {k}, que não converge"
+                "teardown removes {k}, which does not converge"
             );
         }
     }

@@ -34,10 +34,16 @@ pub fn run_spec<'h>(
         inherit_userns: l.inherit_userns(),
         log_path: l.log_path.clone(),
         mounts: l.mounts.clone(),
-        on_started: if l.slirp_ports.is_empty() {
-            None
-        } else {
+        // Attach slirp4netns whenever the new netns wants an uplink — published
+        // ports (`-p`) OR the default rootless outbound uplink (`--net private`).
+        // `--net none` wants a netns with NO connectivity, so it is excluded by
+        // `wants_started_hook`. The SAME hook slot serves both uplinks: rootless
+        // attaches slirp, rootful wires veth+bridge — the caller's closure picks by
+        // `l.rootful_uplink`. Gated on `new_netns` so the re-exec pass never re-attaches.
+        on_started: if l.new_netns() && l.wants_started_hook() {
             Some(slirp_hook)
+        } else {
+            None
         },
         hosts_ip,
         dns,
@@ -50,6 +56,11 @@ pub fn run_spec<'h>(
         run_uid: c.run_uid,
         run_gid: c.run_gid,
         replaces_record: l.replaces_record,
+        // The docker-style `run`/`start` path has no inherited OCI stdio: its
+        // stdout/stderr go to the log driver (shim), never straight to a file.
+        // Only `oci-runtime start` (runc model) sets these — see oci_runtime.rs.
+        oci_stdout: None,
+        oci_stderr: None,
     }
 }
 
@@ -81,6 +92,9 @@ mod tests {
     fn launch() -> Launch {
         Launch {
             slirp_ports: vec![],
+            rootless_uplink: false,
+            rootful_uplink: false,
+            uplink_ip: None,
             rootfs: "/r".into(),
             mounts: vec![],
             detach: true,

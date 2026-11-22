@@ -1186,9 +1186,9 @@ EOF2
   # `-` when the chain or the rule is absent: absence is an answer, never a 0.
   fwcount() {
     local ch n
-    ch=$(nft_ list map ip dlxing fwmap 2>/dev/null | grep -oP "$1 : jump \Kfw[0-9a-f]+")
+    ch=$(nft_ list map inet dlxing fwmap 2>/dev/null | grep -oP "$1 : jump \Kfw[0-9a-f]+")
     [ -n "$ch" ] || { echo -; return; }
-    n=$(nft_ list chain ip dlxing "$ch" 2>/dev/null | grep -F -- "$2" | grep -oP 'packets \K[0-9]+' | head -1)
+    n=$(nft_ list chain inet dlxing "$ch" 2>/dev/null | grep -F -- "$2" | grep -oP 'packets \K[0-9]+' | head -1)
     echo "${n:--}"
   }
   # Replies received. NOT `… | grep … || echo 0`: under `pipefail` a ping with no
@@ -1241,7 +1241,7 @@ EOF2
   spec='{"enabled":true,"policyIn":"","policyOut":"","namespace":"fwA","rules":[{"dir":"out","proto":"any","port":"","src":"","action":"allow"},{"dir":"out","proto":"tcp","port":"80; flush ruleset","src":"","action":"deny"}]}'
   hex=$(printf '%s' "$spec" | od -An -v -tx1 | tr -d ' \n')
   chain_of_a() {
-    nft_ list chain ip dlxing "$(nft_ list map ip dlxing fwmap | grep -oP "$A : jump \Kfw[0-9a-f]+")" 2>/dev/null \
+    nft_ list chain inet dlxing "$(nft_ list map inet dlxing fwmap | grep -oP "$A : jump \Kfw[0-9a-f]+")" 2>/dev/null \
       | sed 's/packets [0-9]* bytes [0-9]*//'
   }
   before=$(chain_of_a)
@@ -1354,9 +1354,9 @@ EOF2
   }
   fwcount() {
     local ch n
-    ch=$(nft_ list map ip dlxing fwmap 2>/dev/null | grep -oP "$1 : jump \Kfw[0-9a-f]+")
+    ch=$(nft_ list map inet dlxing fwmap 2>/dev/null | grep -oP "$1 : jump \Kfw[0-9a-f]+")
     [ -n "$ch" ] || { echo -; return; }
-    n=$(nft_ list chain ip dlxing "$ch" 2>/dev/null | grep -F -- "$2" | grep -oP 'packets \K[0-9]+' | head -1)
+    n=$(nft_ list chain inet dlxing "$ch" 2>/dev/null | grep -F -- "$2" | grep -oP 'packets \K[0-9]+' | head -1)
     echo "${n:--}"
   }
   recv() {
@@ -1442,9 +1442,9 @@ EOF2
   }
   fwcount() {
     local ch n
-    ch=$(nft_ list map ip dlxing fwmap 2>/dev/null | grep -oP "$1 : jump \Kfw[0-9a-f]+")
+    ch=$(nft_ list map inet dlxing fwmap 2>/dev/null | grep -oP "$1 : jump \Kfw[0-9a-f]+")
     [ -n "$ch" ] || { echo -; return; }
-    n=$(nft_ list chain ip dlxing "$ch" 2>/dev/null | grep -F -- "$2" | grep -oP 'packets \K[0-9]+' | head -1)
+    n=$(nft_ list chain inet dlxing "$ch" 2>/dev/null | grep -F -- "$2" | grep -oP 'packets \K[0-9]+' | head -1)
     echo "${n:--}"
   }
   fw_raw() { local ip="$1" spec="$2" hex
@@ -2206,7 +2206,7 @@ YAML
     dlx stack destroy -f "$dir/m.yaml" >/dev/null 2>&1; rm -rf "$dir"; return
   }
   npairs() {
-    nsenter -t "$pin" -U -m -n -- nft list map ip dlxing netpair 2>/dev/null \
+    nsenter -t "$pin" -U -m -n -- nft list map inet dlxing netpair 2>/dev/null \
       | DLX_A="$br_web" DLX_B="$br_db" python3 -c '
 import os, re, sys
 a, b = os.environ["DLX_A"], os.environ["DLX_B"]
@@ -2655,9 +2655,9 @@ EOF2
   }
   fwcount() {
     local ch n
-    ch=$(nft_ list map ip dlxing fwmap 2>/dev/null | grep -oP "$1 : jump \Kfw[0-9a-f]+")
+    ch=$(nft_ list map inet dlxing fwmap 2>/dev/null | grep -oP "$1 : jump \Kfw[0-9a-f]+")
     [ -n "$ch" ] || { echo -; return; }
-    n=$(nft_ list chain ip dlxing "$ch" 2>/dev/null | grep -F -- "$2" | grep -oP 'packets \K[0-9]+' | head -1)
+    n=$(nft_ list chain inet dlxing "$ch" 2>/dev/null | grep -F -- "$2" | grep -oP 'packets \K[0-9]+' | head -1)
     echo "${n:--}"
   }
   recv() {

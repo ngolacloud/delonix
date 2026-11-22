@@ -2217,6 +2217,52 @@
       },
       "type": "object"
     },
+    "NodeSpec": {
+      "additionalProperties": false,
+      "description": "`spec` of `kind: Node`. Every field is optional: an omitted field leaves the stored\nvalue untouched (partial merge), so declaring one dimension never resets another.",
+      "properties": {
+        "overcommit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OvercommitSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Operator-declared CPU/memory overcommit ratios. Omit to leave them unchanged.",
+          "x-delonix-update": "replace"
+        },
+        "schedulable": {
+          "description": "Whether the node accepts new workloads. `false` cordons it (the node then refuses\na new workload create — ADR-0101 §3). Omit to leave schedulability unchanged.",
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "x-delonix-update": "replace"
+        },
+        "taints": {
+          "description": "The complete taint set, when present — a full replace. Omit the key to leave the\nnode's taints as they are.",
+          "items": {
+            "$ref": "#/$defs/TaintSpec"
+          },
+          "type": [
+            "array",
+            "null"
+          ],
+          "x-delonix-update": "replace"
+        },
+        "unschedulableReason": {
+          "description": "A note recorded with a cordon; ignored when `schedulable` is not `false`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "x-delonix-update": "replace"
+        }
+      },
+      "type": "object"
+    },
     "NodesSpec": {
       "description": "The nodes of a role. **Unifies the three modes**: `kind`/`vm` say how many\n(`replicas`), `ssh` says which ones (`hosts`) — because there the machines already exist\nand we do not create them.",
       "properties": {
@@ -2292,6 +2338,24 @@
       },
       "required": [
         "maxRatio"
+      ],
+      "type": "object"
+    },
+    "OvercommitSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "cpu": {
+          "format": "double",
+          "type": "number"
+        },
+        "memory": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "cpu",
+        "memory"
       ],
       "type": "object"
     },
@@ -2845,7 +2909,7 @@
       "properties": {
         "host": {
           "default": null,
-          "description": "Host name to match (e.g.: `loja.exemplo.ao`). Empty/omitted = any Host.",
+          "description": "Host name to match (e.g.: `shop.example.com`). Empty/omitted = any Host.",
           "type": [
             "string",
             "null"
@@ -4672,6 +4736,27 @@
       ],
       "type": "object"
     },
+    "TaintSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "effect": {
+          "description": "`NoSchedule`, `PreferNoSchedule` or `NoExecute`.",
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "value": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "effect"
+      ],
+      "type": "object"
+    },
     "TcpReadinessSpec": {
       "additionalProperties": false,
       "description": "`spec.readiness.tcp` — every field optional, the defaults being 2 s,\n500 ms, 1 success to admit and 2 failures to eject.",
@@ -6232,6 +6317,31 @@
           },
           "spec": {
             "$ref": "#/$defs/IpAddressSpec"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "Node"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "then": {
+        "properties": {
+          "apiVersion": {
+            "enum": [
+              "core.delonix.io/v1beta1",
+              "delonix.io/v1"
+            ]
+          },
+          "spec": {
+            "$ref": "#/$defs/NodeSpec"
           }
         }
       }

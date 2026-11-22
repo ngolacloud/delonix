@@ -124,12 +124,12 @@ pub const SNAPSHOT: &str = "Snapshot";
 /// ADR-0090 (it is NOT lowered into `Secret` — that would encrypt data the
 /// writer chose to keep in the clear).
 pub const CONFIG: &str = "Config";
-/// This node, as a resource one can read back (ADR-0086 D3, D7). **Reserved**:
-/// declared at `v1beta1` with no apply of its own yet — the capacity is already
-/// served by `NodeService.GetCapacity`, but what a declarative `kind: Node`
-/// writes (labels, taints, schedulability) is deliberately left for the phase
-/// that builds the uniform read-back surface (ResourceService, ADR-0087/0090).
-/// Node-scoped, like the other node resources of D7.
+/// This node, as a resource one can read back AND declare (ADR-0086 D3, D7;
+/// ADR-0101 A6). Its capacity is served by `NodeService.GetCapacity`; its
+/// placement labels, taints, schedulability (cordon) and overcommit are written
+/// by a declarative `kind: Node` apply and by the `node/v1` `SetNode*` RPCs, both
+/// over the one shared `delonix-model::node_meta` record. Node-scoped, like the
+/// other node resources of D7.
 pub const NODE: &str = "Node";
 pub const HTTP_ROUTE: &str = "HTTPRoute";
 pub const GATEWAY: &str = "Gateway";
@@ -819,6 +819,33 @@ const FACTS: &[KindFacts] = &[
         presence: Presence::Registry,
     },
     KindFacts {
+        // ADR-0101 (A6). This node as a declarative resource — its placement labels,
+        // taints, schedulability (cordon) and overcommit. Was RESERVED (no apply);
+        // A6 gives it one, writing the SAME `delonix-model::node_meta` record the
+        // `node/v1` `SetNode*` RPCs write. Node-scoped (D7), a node-wide singleton;
+        // it converges in place (the record is rewritten, nothing is recreated) and
+        // has no teardown (removing the node's own config does not destroy the node).
+        // Kept near the end of the apply order so a stack that both configures the
+        // node and declares workloads sets the node up with the rest, before GitOps.
+        kind: NODE,
+        plural: "nodes",
+        short: &[],
+        api_version: "core.delonix.io/v1beta1",
+        // The compute host itself — the substrate the compute Kinds run on.
+        domain: Domain::Compute,
+        form: Form::Primary,
+        in_stack: true,
+        // Applied by `stack apply -f node.yaml`, but NOT nestable in a `kind: Stack`
+        // aggregate: a node is a node-wide singleton, not a tenant resource a Stack
+        // groups and owns. `stack_group_absent_reason` says so.
+        stack_group: "",
+        converges: true,
+        teardown: false,
+        // Genuinely node-scoped (D7), not merely provisional like the others.
+        namespaced: Namespaced::Never,
+        presence: Presence::Registry,
+    },
+    KindFacts {
         // ADR-0021. LAST in apply order, after everything it could pull: the
         // timer it installs may fire as soon as it is written, and the stack it
         // reconciles into should already be what this same apply declared.
@@ -906,27 +933,6 @@ const FACTS: &[KindFacts] = &[
         // lowers it away, so a document that somehow reaches `ls` is described
         // rather than called unsupported.
         presence: Presence::Declarative,
-    },
-    KindFacts {
-        // ADR-0086 D3/D7. RESERVED: this node as a readable resource, declared at
-        // `v1beta1` with no apply yet — `NodeService.GetCapacity` already serves
-        // the capacity, but the declarative Kind's read-back/labels/taints land
-        // with the ResourceService (ADR-0087/0090). Node-scoped (D7), out of the
-        // stack cycle, no group, not observable.
-        kind: NODE,
-        plural: "nodes",
-        short: &[],
-        api_version: "core.delonix.io/v1beta1",
-        // The compute host itself — the substrate the compute Kinds run on.
-        domain: Domain::Compute,
-        form: Form::Reserved,
-        in_stack: false,
-        stack_group: "",
-        converges: false,
-        teardown: false,
-        // Genuinely node-scoped (D7), not merely provisional like the others.
-        namespaced: Namespaced::Never,
-        presence: Presence::NotObservable,
     },
     KindFacts {
         kind: STACK,
@@ -1051,9 +1057,9 @@ pub fn stack_group_absent_reason(kind: &str) -> Option<&'static str> {
              it would promise an apply that does not happen"
         }
         NODE => {
-            "a Reserved Kind has no apply yet (ADR-0086 D3, built under ADR-0090), so \
-             `stack apply` never runs it — grouping it would promise an apply that does \
-             not happen"
+            "a Node is the compute host itself, a node-wide singleton — `stack apply -f node.yaml` \
+             applies it, but nesting it in a `kind: Stack` aggregate would make a tenant's stack \
+             own and prune the node it runs on (ADR-0101)"
         }
         _ => return None,
     })
@@ -1186,15 +1192,31 @@ mod tests {
     }
     use super::*;
 
-    /// **A Kind the stack applies must be a Kind a Stack can hold.** Four were
-    /// not — `NetworkRoute`, `NetworkAccessRule`, `Service`, `App` — because the
-    /// group list was written by hand next to the table instead of coming off it.
+    /// **A Kind the stack applies is groupable in a Stack, or says why not.**
+    /// Four were neither — `NetworkRoute`, `NetworkAccessRule`, `Service`, `App`
+    /// — because the group list was written by hand next to the table instead of
+    /// coming off it.
+    ///
+    /// The "or says why" is the THIRD state, and it is not a loosening: `Node`
+    /// (ADR-0101 A6) is applied by `stack apply -f node.yaml` and is deliberately
+    /// NOT nestable in a `kind: Stack` aggregate, because a tenant's stack would
+    /// then own and prune the node it runs on. Before A6 the Kind was reserved
+    /// (`in_stack: false`) and the question never came up; A6 gave it an apply and
+    /// this invariant, which only knew two states, started failing on a table that
+    /// was right — `main` is green because `Node` is still reserved there.
+    ///
+    /// Nothing is lost by accepting the third state, and the reason is the test
+    /// below: `a_kind_without_a_group_says_why` asserts the BICONDITIONAL over
+    /// every Kind, so "no group" always comes with a written reason and a
+    /// FORGOTTEN group — the defect this test exists for — still fails there. It
+    /// is the shape `not_converged_reason` and `no_teardown_reason` already use.
     #[test]
-    fn every_kind_applied_by_the_stack_has_a_group() {
+    fn every_kind_applied_by_the_stack_has_a_group_or_says_why() {
         for f in all().filter(|f| f.in_stack) {
             assert!(
-                !f.stack_group.is_empty(),
-                "{} is applied by `stack apply` and has no group in `kind: Stack`",
+                !f.stack_group.is_empty() || stack_group_absent_reason(f.kind).is_some(),
+                "{} is applied by `stack apply`, has no group in `kind: Stack`, and \
+                 does not say why — give it a group or a stack_group_absent_reason",
                 f.kind
             );
         }
@@ -1277,10 +1299,10 @@ mod tests {
 
     /// Two rows for one Kind means half the code reads one and half the other.
     #[test]
-    fn nenhum_kind_aparece_duas_vezes() {
+    fn no_kind_appears_twice() {
         let mut seen = std::collections::BTreeSet::new();
         for f in all() {
-            assert!(seen.insert(f.kind), "{} está duplicado na tabela", f.kind);
+            assert!(seen.insert(f.kind), "{} is duplicated in the table", f.kind);
         }
     }
 
@@ -1288,11 +1310,11 @@ mod tests {
     /// are contiguous at the head of the table: a row inserted between them
     /// changes the apply order without anyone editing an «order» anywhere.
     #[test]
-    fn os_kinds_do_stack_sao_um_prefixo_contiguo() {
+    fn the_stack_kinds_are_a_contiguous_prefix() {
         let first_out = FACTS.iter().position(|f| !f.in_stack).unwrap();
         assert!(
             FACTS[first_out..].iter().all(|f| !f.in_stack),
-            "um Kind do stack está DEPOIS de um que não é — a ordem de apply mudou em silêncio"
+            "a stack Kind is AFTER one that is not — the apply order changed in silence"
         );
         assert_eq!(stack_kinds().count(), first_out);
     }
@@ -1301,17 +1323,17 @@ mod tests {
     /// cannot be part of the stack cycle — and if it were, `apply` would look
     /// for documents that no longer exist.
     #[test]
-    fn um_kind_que_baixa_para_outro_nao_pertence_ao_ciclo_do_stack() {
+    fn a_kind_that_lowers_into_another_is_not_part_of_the_stack_cycle() {
         for f in all() {
             if matches!(f.form, Form::Sugar(_) | Form::Aggregate) {
                 assert!(
                     !f.in_stack,
-                    "{} é reescrito no load e está no ciclo do stack",
+                    "{} is rewritten on load and is in the stack cycle",
                     f.kind
                 );
                 assert!(
                     !f.converges,
-                    "{} é reescrito no load e diz convergir",
+                    "{} is rewritten on load and claims to converge",
                     f.kind
                 );
             }
@@ -1325,12 +1347,12 @@ mod tests {
     /// by hand: promising to remove something the destroy refuses would fail
     /// HALFWAY, after the rest of the stack is already gone.
     #[test]
-    fn so_um_kind_convergente_tem_teardown() {
+    fn only_a_converging_kind_has_teardown() {
         for f in all() {
             if f.teardown {
                 assert!(
                     f.converges,
-                    "{} tem teardown e não converge — o `--prune` promete o que o destroy recusa",
+                    "{} has teardown and does not converge — `--prune` promises what destroy refuses",
                     f.kind
                 );
             }
@@ -1340,10 +1362,10 @@ mod tests {
     /// A Kind outside the stack cycle is never applied, so it can neither
     /// converge nor be torn down. Catches the copy-paste of a row.
     #[test]
-    fn fora_do_ciclo_nao_converge_nem_e_removido() {
+    fn outside_the_cycle_it_neither_converges_nor_is_removed() {
         for f in all().filter(|f| !f.in_stack) {
-            assert!(!f.converges, "{} converge fora do ciclo", f.kind);
-            assert!(!f.teardown, "{} tem teardown fora do ciclo", f.kind);
+            assert!(!f.converges, "{} converges outside the cycle", f.kind);
+            assert!(!f.teardown, "{} has teardown outside the cycle", f.kind);
         }
     }
 
@@ -1356,12 +1378,12 @@ mod tests {
     /// The paired check lives in `stack.rs`, where `presence()` can be called:
     /// this one says the column is filled in, that one says it is TRUE.
     #[test]
-    fn um_kind_do_ciclo_do_stack_tem_presenca_observavel() {
+    fn a_kind_in_the_stack_cycle_has_observable_presence() {
         for f in all().filter(|f| f.in_stack) {
             assert_ne!(
                 f.presence,
                 Presence::NotObservable,
-                "{} é aplicado pelo stack e não tem presença — cairia no «unsupported kind»",
+                "{} is applied by the stack and has no presence — it would fall into «unsupported kind»",
                 f.kind
             );
         }
@@ -1400,7 +1422,7 @@ mod tests {
     /// The lowering target has to be a Kind that exists — a typo here sends the
     /// reader looking for a Kind the engine never had.
     #[test]
-    fn o_destino_de_uma_reducao_existe() {
+    fn the_target_of_a_lowering_exists() {
         for f in all() {
             let Some(to) = f.form.successor() else {
                 continue;
@@ -1409,7 +1431,7 @@ mod tests {
             for k in to.split('/') {
                 assert!(
                     facts(k).is_some(),
-                    "{} baixa para {k}, que não existe",
+                    "{} lowers into {k}, which does not exist",
                     f.kind
                 );
             }

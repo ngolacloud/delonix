@@ -1,0 +1,81 @@
+{
+ "objecto_do_ensaio": {
+  "repo": "/home/walter/workspaces/NgolaCloud/projects/delonix-runtime",
+  "branch": "develop",
+  "commit": "b4c06e081d6daa84f9f49f05e2387a4587d885a3",
+  "commit_subject": "test(cli): suite de auditoria da CLI — inventário, matriz de parâmetros e diferencial",
+  "ultimo_tag_contido": "v0.1.2",
+  "describe": "consolidacao-pre-20261120-2217-18-gb4c06e081",
+  "alteracoes_locais_total": 0,
+  "nota": "Árvore de trabalho LIMPA (git status --porcelain vazio). Esta corrida mede o binário pós-correcção 3148f8d7 (a flag mal escrita deixa de ser consumida como imagem/container), imediatamente anterior a este HEAD. A linha de base de 0.1.2 em 78c4488b (1720 PASS / 6 FAIL) fica preservada no histórico git e no RELATORIO-AUDITORIA-CLI.pt-AO.md."
+ },
+ "binario_sob_ensaio": {
+  "caminho": "/home/walter/workspaces/NgolaCloud/projects/delonix-runtime/target/release/delonix",
+  "porque_este": "regra do repo: medir SEMPRE o binario da arvore, com os cinco irmaos no mesmo directorio (exec_server prefere o irmao ao lado do executavel antes do PATH)",
+  "version_text": "delonix 0.1.2\ndaemonless, rootless-first container & microVM engine (kernel-native, Rust)\ncommit: b4c06e081 (+95 commits since v0.1.2) · built: 2026-11-21 · Apache-2.0",
+  "digests_sha256": {
+   "delonix": "efa0bcbc92a587d67089aef1fe53ced9000ec58f5b2266aba603bcdf113b5d39",
+   "delonix-cri": "fe4b6b866ccc649bfeb70bae6ec2e912ef54c8979f0f1b8a2b788280874b7e92",
+   "delonix-mgmt": "da48a363bfb3fef37611b6dc080937aabc54247faa8c5ab421e15ca5e9d7185b",
+   "delonix-mcp": "9f3179e6f1ae3184c0623345e34b8cab5dc4479d9d12c939da4207c03c8ea0c0",
+   "delonix-node-api": "c88d96b50d0841d4c82fa3f34a70a5fd9684b503f7e0afb6144894af9d862d20"
+  },
+  "cinco_irmaos_co_localizados": true,
+  "construidos_juntos": "cargo build --release -p delonix-bin -p delonix-cri-bin -p delonix-mgmt-bin -p delonix-mcp-bin -p delonix-node-api-bin (2026-11-22)",
+  "perfil": "release (opt-level=3, lto=thin, codegen-units=1, strip=debuginfo)",
+  "toolchain": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+  "features": "default (nenhuma feature explicita no make build)"
+ },
+ "host": {
+  "distro": "Zorin OS 18.1",
+  "kernel": "Linux 7.0.0-43-generic",
+  "arch": "x86_64",
+  "modo": "rootless (uid 1000, walter)",
+  "cgroup": "cgroup2fs",
+  "cgroup_proprio": "/user.slice/user-1000.slice/user@1000.service/app.slice/app-org.chromium.Chromium-17368.scope",
+  "controladores_delegados_scope_sessao": "memory pids",
+  "controladores_delegados_base_motor": "cpuset cpu io memory pids (user@1000.service)",
+  "consequencia_delegacao": "o scope da sessão delega só `memory pids`; a base que o motor usa (user@1000.service/dlx-containers) delega `cpuset cpu io memory pids`. --memory/--cpus aplicam-se na base; --cpuset/--io-weight/--device-* foram medidos como RECUSA (exit 69) com mensagem que nomeia a causa.",
+  "subuid": "walter:100000:65536",
+  "subgid": "walter:100000:65536",
+  "userns_nao_privilegiado": "1",
+  "apparmor_restrict_userns": "0",
+  "ip_unprivileged_port_start": "1024 (REPOSTO; na corrida de base deste host estava em 80)",
+  "br_netfilter": "carregado",
+  "bridge_nf_call_iptables": "1",
+  "kvm": "crw-rw----+ root kvm; legivel/escrevivel por walter (ACL)",
+  "estado_do_motor_no_host": "DELONIX_ROOT e DELONIX_NET_RUNTIME_DIR isolados sob /tmp; roots reais do host NAO tocados"
+ },
+ "armadilhas_de_ambiente_registadas": [
+  "~/.local/bin/delonix-cri de 2026-11-13 esta ANTES de /usr/local/bin no PATH. A suite mede sempre pelo caminho do target, onde os cinco irmaos foram construidos juntos a 2026-11-22, para o exec_server pegar o irmao ao lado do executavel e nao o do PATH.",
+  "DELONIX_ROOT e DELONIX_NET_RUNTIME_DIR isolados nos dois: isolar so o root poe dois roots a disputar /tmp/delonix-net-1000/*.sock (incidente ja medido neste repo). O runtime dir vive num caminho curto porque o sun_path de um socket unix tem 108 bytes.",
+  "ip_unprivileged_port_start=1024 nesta corrida: o diferencial usa portas altas (18xxx), nao afectado; mas um `-p 80:` passaria a exigir privilegio."
+ ],
+ "comparadores": {
+  "docker": {
+   "client": "29.10.0",
+   "server": "29.10.0",
+   "endpoint": "unix:///var/run/docker.sock",
+   "modo": "ROOTFUL (dockerd corre como root)",
+   "driver": "overlay2",
+   "compose_plugin": "5.7.1",
+   "assimetria": "Docker e rootful e o Delonix e medido rootless: uma diferenca de resultado pode vir do MODO, nao do motor. Registada em cada caso afectado."
+  },
+  "podman": {
+   "version": "4.9.3",
+   "modo": "rootless",
+   "driver": "overlay",
+   "rede": "netavark",
+   "runtime": "runc version 1.5.3 (commit v1.5.3-0-g46365c62, spec 1.3.0, libseccomp 2.5.5)",
+   "socket": "/run/user/1000/podman/podman.sock (inexistente; CLI directa)"
+  },
+  "delonix": {
+   "version": "0.1.2 (commit b4c06e081)",
+   "modo": "rootless, daemonless"
+  }
+ },
+ "fixture_partilhada": {
+  "imagem": "busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e",
+  "porque_digest": "a mesma fixture nos tres motores: um tag resolve-se de forma diferente em cada store"
+ }
+}

@@ -29,7 +29,7 @@ class SectionTitles(unittest.TestCase):
         self.assertEqual(agents_toc.section_titles(text), ["A", "B"])
 
     def test_excludes_the_toc_block_itself(self):
-        # A regenerated file must not list the index's own "## Índice" heading.
+        # A regenerated file must not list the index's own "## Index" heading.
         built = agents_toc.build("# T\n\nintro\n\n## A\n\n## B\n")
         self.assertEqual(agents_toc.section_titles(built), ["A", "B"])
 

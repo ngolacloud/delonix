@@ -1,36 +1,37 @@
-//! Regressão: o registo de uma rede de ingress era nomeado com `sanitize(name)`,
-//! que **corta a 12 caracteres**.
+//! Regression: the record for an ingress network was named with `sanitize(name)`,
+//! which **truncates to 12 characters**.
 //!
-//! Esse limite existe para nomes de DISPOSITIVO (o kernel tem `IFNAMSIZ`); num
-//! nome de ficheiro é perda pura. `producao-alpha` e `producao-alpine`
-//! partilhavam o ficheiro `producao-alp.json` — e o que se lê num registo é a
-//! BRIDGE, por isso os workloads da segunda iam parar à bridge da primeira,
-//! com as duas a aparecerem separadas no `network ls`.
+//! That limit exists for DEVICE names (the kernel has `IFNAMSIZ`); in a file
+//! name it is pure loss. `producao-alpha` and `producao-alpine` shared the file
+//! `producao-alp.json` — and what a record stores is the BRIDGE, so the second
+//! network's workloads ended up on the first network's bridge, while the two
+//! still showed up as separate in `network ls`.
 //!
-//! Só filesystem: `network_create` não toca em netlink nem em namespaces.
+//! Filesystem only: `network_create` touches neither netlink nor namespaces.
 
 use std::sync::{Mutex, OnceLock};
 
 /// Names the root and sets `DELONIX_ROOT` once per process; the directory
 /// itself exists while a [`RootLease`] does.
-fn raiz() -> &'static std::path::PathBuf {
-    static RAIZ: OnceLock<std::path::PathBuf> = OnceLock::new();
-    RAIZ.get_or_init(|| {
-        // Varre o que corridas ANTERIORES deixaram: a pasta é nomeada pelo pid e
-        // nada a removia no fim, por isso cada `cargo test` deixava uma para
-        // trás — mediram-se 23 em `/tmp` a 2026-08-15, e foram elas que
-        // tornaram INÚTIL um check de caos que contava `/tmp/delonix-net-*`
-        // (passava com a correcção revertida, porque a glob apanhava estes
-        // restos).
+fn root() -> &'static std::path::PathBuf {
+    static ROOT: OnceLock<std::path::PathBuf> = OnceLock::new();
+    ROOT.get_or_init(|| {
+        // Sweep what PREVIOUS runs left behind: the folder is named by the pid
+        // and nothing removed it at the end, so every `cargo test` left one
+        // behind — 23 were measured in `/tmp` on 2026-08-15, and they were what
+        // made a chaos check that counted `/tmp/delonix-net-*` USELESS (it
+        // passed with the fix reverted, because the glob caught these
+        // leftovers).
         //
-        // Só remove as de pid MORTO. É o mesmo princípio de posse que esta série
-        // aplicou ao reaper de slirp e ao `kill_pidfile`: uma varredura
-        // destrutiva prova que o alvo não está em uso, e duas corridas em
-        // paralelo (várias sessões trabalham neste clone) não se destroem.
+        // Only pids that are DEAD get removed. It is the same ownership
+        // principle this series applied to the slirp reaper and to
+        // `kill_pidfile`: a destructive sweep proves the target is not in use,
+        // and two parallel runs (several sessions work on this clone) do not
+        // destroy each other.
         //
         // The sweep only covers runs that were KILLED; a run that ends normally
         // removes its own root through the last [`RootLease`].
-        limpa_restos_de_corridas_mortas();
+        sweep_dead_runs();
         let d = std::env::temp_dir().join(format!("delonix-net-naming-{}", std::process::id()));
         std::env::set_var("DELONIX_ROOT", &d);
         d
@@ -48,7 +49,7 @@ static LEASES: Mutex<usize> = Mutex::new(0);
 struct RootLease(&'static std::path::Path);
 
 fn lease() -> RootLease {
-    let root = raiz();
+    let root = root();
     let mut n = LEASES.lock().unwrap_or_else(|e| e.into_inner());
     if *n == 0 {
         let _ = std::fs::remove_dir_all(root);
@@ -68,19 +69,19 @@ impl Drop for RootLease {
     }
 }
 
-/// Remove as pastas `delonix-net-naming-<pid>` cujo processo já não existe.
+/// Removes the `delonix-net-naming-<pid>` folders whose process no longer exists.
 ///
-/// `/proc/<pid>` é a prova; sem ela não se toca. Best-effort de ponta a ponta —
-/// uma falha aqui nunca pode chumbar um teste que não é sobre limpeza.
-fn limpa_restos_de_corridas_mortas() {
+/// `/proc/<pid>` is the proof; without it nothing is touched. Best-effort
+/// end to end — a failure here can never fail a test that is not about cleanup.
+fn sweep_dead_runs() {
     let tmp = std::env::temp_dir();
     let Ok(rd) = std::fs::read_dir(&tmp) else {
         return;
     };
     for e in rd.flatten() {
-        let nome = e.file_name();
-        let Some(nome) = nome.to_str() else { continue };
-        let Some(pid) = nome.strip_prefix("delonix-net-naming-") else {
+        let name = e.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Some(pid) = name.strip_prefix("delonix-net-naming-") else {
             continue;
         };
         if pid.parse::<u32>().is_ok() && !std::path::Path::new(&format!("/proc/{pid}")).exists() {
@@ -89,21 +90,21 @@ fn limpa_restos_de_corridas_mortas() {
     }
 }
 
-fn dir_de_redes() -> std::path::PathBuf {
-    raiz().join("ingress").join("networks")
+fn networks_dir() -> std::path::PathBuf {
+    root().join("ingress").join("networks")
 }
 
 #[test]
-fn nomes_com_os_mesmos_12_caracteres_nao_partilham_registo() {
+fn names_sharing_the_same_12_chars_do_not_share_a_record() {
     let _root = lease();
     let a = delonix_sdn::infra::network_create("producao-alpha").expect("alpha");
     let b = delonix_sdn::infra::network_create("producao-alpine").expect("alpine");
 
-    assert_ne!(a.prefix, b.prefix, "duas redes no mesmo /16");
-    assert_ne!(a.bridge, b.bridge, "duas redes na mesma bridge");
+    assert_ne!(a.prefix, b.prefix, "two networks on the same /16");
+    assert_ne!(a.bridge, b.bridge, "two networks on the same bridge");
 
-    // E cada nome resolve para o SEU registo — antes, o segundo `network_get`
-    // devolvia o primeiro, com a bridge errada.
+    // And each name resolves to ITS OWN record — before, the second
+    // `network_get` returned the first, with the wrong bridge.
     let ga = delonix_sdn::infra::network_get("producao-alpha").expect("get alpha");
     let gb = delonix_sdn::infra::network_get("producao-alpine").expect("get alpine");
     assert_eq!(
@@ -115,61 +116,63 @@ fn nomes_com_os_mesmos_12_caracteres_nao_partilham_registo() {
         ("producao-alpine", b.bridge.as_str())
     );
 
-    let listadas: Vec<String> = delonix_sdn::infra::network_list()
+    let listed: Vec<String> = delonix_sdn::infra::network_list()
         .into_iter()
         .map(|d| d.name)
         .filter(|n| n.starts_with("producao-"))
         .collect();
-    assert_eq!(listadas.len(), 2, "o `ls` devia ver as duas: {listadas:?}");
+    assert_eq!(listed.len(), 2, "`ls` should see both: {listed:?}");
 }
 
 #[test]
-fn remover_uma_nao_destroi_a_vizinha_de_nome_parecido() {
+fn removing_one_does_not_destroy_a_similarly_named_neighbor() {
     let _root = lease();
-    let manter = delonix_sdn::infra::network_create("contabilidade-a").expect("a");
+    let keep = delonix_sdn::infra::network_create("contabilidade-a").expect("a");
     delonix_sdn::infra::network_create("contabilidade-b").expect("b");
 
     delonix_sdn::infra::network_remove("contabilidade-b");
 
-    // O `rm` da segunda mandava `netdel` à bridge da PRIMEIRA e apagava-lhe o
-    // registo — a rede que ninguém pediu para remover ficava sem bridge e sem
-    // ficheiro, e o operador só descobria quando os workloads dela calassem.
-    let sobrevivente = delonix_sdn::infra::network_get("contabilidade-a")
-        .expect("a rede que não foi removida desapareceu");
-    assert_eq!(sobrevivente.bridge, manter.bridge);
-    assert_eq!(sobrevivente.prefix, manter.prefix);
+    // The second network's `rm` sent `netdel` to the FIRST network's bridge and
+    // deleted its record — the network nobody asked to remove was left with no
+    // bridge and no file, and the operator only found out when its workloads
+    // went silent.
+    let survivor = delonix_sdn::infra::network_get("contabilidade-a")
+        .expect("the network that was not removed disappeared");
+    assert_eq!(survivor.bridge, keep.bridge);
+    assert_eq!(survivor.prefix, keep.prefix);
     assert!(delonix_sdn::infra::network_get("contabilidade-b").is_none());
 }
 
 #[test]
-fn remover_um_nome_inexistente_nao_toca_em_nada() {
+fn removing_a_nonexistent_name_touches_nothing() {
     let _root = lease();
-    let antes = delonix_sdn::infra::network_create("logistica-primaria").expect("cria");
-    // Partilha os 12 primeiros caracteres com a de cima, e nunca foi criada.
+    let before = delonix_sdn::infra::network_create("logistica-primaria").expect("create");
+    // Shares the first 12 characters with the one above, and was never created.
     delonix_sdn::infra::network_remove("logistica-primaria-2");
-    let depois = delonix_sdn::infra::network_get("logistica-primaria").expect("continua lá");
-    assert_eq!(depois.bridge, antes.bridge);
+    let after = delonix_sdn::infra::network_get("logistica-primaria").expect("still there");
+    assert_eq!(after.bridge, before.bridge);
 }
 
 #[test]
-fn registo_legado_continua_a_ser_lido_e_migra_a_escrita() {
+fn legacy_record_is_still_read_and_the_write_migrates_it() {
     let _root = lease();
-    // Um registo escrito pela fórmula ANTIGA (truncada a 12), como está hoje no
-    // disco de quem já corre isto. Perdê-lo seria perder a bridge e o /16 de uma
-    // rede possivelmente com workloads ligados.
-    std::fs::create_dir_all(dir_de_redes()).unwrap();
-    let legado = dir_de_redes().join("arquivo-anti.json");
+    // A record written by the OLD formula (truncated to 12), as it sits today on
+    // the disk of anyone already running this. Losing it would mean losing the
+    // bridge and the /16 of a network possibly with workloads attached.
+    std::fs::create_dir_all(networks_dir()).unwrap();
+    let legacy = networks_dir().join("arquivo-anti.json");
     std::fs::write(
-        &legado,
+        &legacy,
         r#"{"name":"arquivo-antigo","bridge":"dlxnaaaabbbb","prefix":"10.249"}"#,
     )
     .unwrap();
 
-    let lido = delonix_sdn::infra::network_get("arquivo-antigo").expect("o legado devia ser lido");
-    assert_eq!(lido.bridge, "dlxnaaaabbbb");
-    assert_eq!(lido.prefix, "10.249");
+    let read = delonix_sdn::infra::network_get("arquivo-antigo")
+        .expect("the legacy record should be read");
+    assert_eq!(read.bridge, "dlxnaaaabbbb");
+    assert_eq!(read.prefix, "10.249");
 
-    // Uma rede, não duas, mesmo a meio da migração.
+    // One network, not two, even mid-migration.
     assert_eq!(
         delonix_sdn::infra::network_list()
             .iter()
@@ -178,41 +181,41 @@ fn registo_legado_continua_a_ser_lido_e_migra_a_escrita() {
         1
     );
 
-    // A escrita seguinte migra-o: `network_create` é idempotente por nome, por
-    // isso devolve o registo existente sem lhe mudar o prefixo.
-    let de_novo = delonix_sdn::infra::network_create("arquivo-antigo").expect("idempotente");
+    // The next write migrates it: `network_create` is idempotent by name, so it
+    // returns the existing record without changing its prefix.
+    let again = delonix_sdn::infra::network_create("arquivo-antigo").expect("idempotent");
     assert_eq!(
-        de_novo.prefix, "10.249",
-        "a idempotência não pode renumerar a rede"
+        again.prefix, "10.249",
+        "idempotency must not renumber the network"
     );
 
-    // O ficheiro legado só desaparece quando algo o reescreve — força-o por um
-    // caminho que escreve mesmo (declarar o gateway).
+    // The legacy file only disappears once something rewrites it — force it
+    // through a path that does write (declaring the gateway).
     delonix_sdn::infra::network_create_with_gateway("arquivo-antigo", "10.249", Some("10.249.0.9"))
-        .expect("declara gateway");
-    assert!(!legado.exists(), "o registo legado ficou para trás");
+        .expect("declare gateway");
+    assert!(!legacy.exists(), "the legacy record was left behind");
     assert_eq!(
         delonix_sdn::infra::network_get("arquivo-antigo")
             .unwrap()
             .bridge,
         "dlxnaaaabbbb",
-        "a migração não pode inventar uma bridge nova"
+        "the migration must not invent a new bridge"
     );
 }
 
-/// NOTA: este passa também no código antigo, por outra razão (o nome do
-/// ficheiro não é o que a fórmula antiga procurava). É guarda da fórmula NOVA —
-/// que a verificação do campo `name` continue a existir — e não prova da
-/// correção; essa são os quatro de cima.
+/// NOTE: this one passes on the old code too, for a different reason (the file
+/// name is not what the old formula looked for). It guards the NEW formula —
+/// that the `name` field check keeps existing — and is not proof of the fix;
+/// that is the four above.
 #[test]
-fn um_registo_de_outra_rede_nao_e_aceite_como_este() {
+fn a_record_from_another_network_is_not_accepted_as_this_one() {
     let _root = lease();
-    // Defesa em profundidade: mesmo que dois nomes caiam no mesmo ficheiro, o
-    // campo `name` do registo é a autoridade. O resultado é «não existe» — uma
-    // recusa — e nunca a rede errada.
-    std::fs::create_dir_all(dir_de_redes()).unwrap();
+    // Defense in depth: even if two names fall into the same file, the record's
+    // `name` field is the authority. The result is "does not exist" — a
+    // refusal — and never the wrong network.
+    std::fs::create_dir_all(networks_dir()).unwrap();
     std::fs::write(
-        dir_de_redes().join("intruso-0000ffff.json"),
+        networks_dir().join("intruso-0000ffff.json"),
         r#"{"name":"outra-qualquer","bridge":"dlxn00000000","prefix":"10.248"}"#,
     )
     .unwrap();

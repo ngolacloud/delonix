@@ -1,104 +1,107 @@
-# 54 — P2: o `container run` como caso de uso do Compute
+# 54 — P2: `container run` as a Compute use case
 
-**Data:** 2026-09-16 · **Base:** `origin/main` `db9efa3b` (v3.1.0 +78) · **ADR:** 0040 (P2, D3)
+**Date:** 2026-09-16 · **Base:** `origin/main` `db9efa3b` (v3.1.0 +78) · **ADR:** 0040 (P2, D3)
 
-## A pergunta
+## The question
 
-O ADR-0040 põe no `delonix-compute` "a especificação de execução única" e os casos de uso
-que a executam, e dá como critério de saída da P2 que cada caso de uso migrado tenha
-**zero caminhos por subprocesso** no CRI, no mgmt e no MCP. Hoje o CRI arranca um container
-montando o argv de `delonix container run` (`start_argv`) e executando o binário.
+ADR-0040 puts in `delonix-compute` "the single execution specification" and the use
+cases that run it, and sets as P2's exit criterion that every migrated use case have
+**zero subprocess paths** in CRI, mgmt and MCP. Today the CRI starts a container by
+assembling `delonix container run`'s argv (`start_argv`) and executing the binary.
 
-O `cmd_run` (`bins/delonix-runtime-bin/src/cmd/container.rs`) tem **1074 linhas** e depende
-do binário inteiro. Não se move de uma vez: um contexto não pode depender de adapters
-(`delonix-image`, `delonix-net`, `delonix-runtime`, `delonix-volume`). Este documento fixa as
-fases, as portas e a ordem.
+`cmd_run` (`bins/delonix-runtime-bin/src/cmd/container.rs`) is **1074 lines** and depends
+on the whole binary. It does not move all at once: a context cannot depend on adapters
+(`delonix-image`, `delonix-net`, `delonix-runtime`, `delonix-volume`). This document fixes
+the phases, the ports and the order.
 
-## O que já está feito
+## What is already done
 
-| PR | O quê |
+| PR | What |
 |---|---|
-| #340 | `RunOpts` (a especificação) no `delonix-compute` |
-| #342 | tipos da forma de Pod e os seus tradutores; avisos como `Notice` |
-| #344 | `preflight::check_run_opts` — as combinações que só lêem a especificação, antes de qualquer efeito |
+| #340 | `RunOpts` (the specification) in `delonix-compute` |
+| #342 | Pod shape types and their translators; warnings as `Notice` |
+| #344 | `preflight::check_run_opts` — the combinations that only read the specification, before any effect |
 
-## As fases do `cmd_run`, medidas
+## The phases of `cmd_run`, measured
 
-| # | Fase | Natureza | Depende de |
+| # | Phase | Nature | Depends on |
 |---|---|---|---|
-| 1 | política do nó (`policy::enforce`) | pura sobre um ficheiro lido | estado do nó |
-| 2 | validar a especificação, expandir portas, recusar portas ocupadas | pura + sondas do host | `delonix-net` (parse), store (dono da porta) |
-| 3 | re-exec para a netns de uma rede custom/pod | efeito | `infra`, processo |
-| 4 | resolver volumes e CDI | I/O | `VolumeStore`, `/etc/cdi` |
-| 5 | resolver/puxar a imagem, id, preparar o rootfs | I/O | `ImageStore` |
-| 6 | **construir o registo `Container`** | **pura dado o que 4 e 5 resolveram** | nome livre (store), `--env-file`, `--user` contra o rootfs, perfil seccomp, segredos |
-| 7 | anexar à rede/pod, publicar portas | efeito | `infra`, slirp |
-| 8 | montar o `RunSpec` | puro, mas o tipo é do adapter | `delonix-runtime` |
-| 9 | criar ou supervisionar | efeito | `runtime::create_with`, fork |
-| 10 | pós-arranque (`--rm`, id, `--wait`) | efeito + terminal | store, output |
+| 1 | node policy (`policy::enforce`) | pure, over a read file | node state |
+| 2 | validate the spec, expand ports, refuse taken ports | pure + host probes | `delonix-net` (parse), store (port owner) |
+| 3 | re-exec into the netns of a custom network/pod | effect | `infra`, process |
+| 4 | resolve volumes and CDI | I/O | `VolumeStore`, `/etc/cdi` |
+| 5 | resolve/pull the image, id, prepare the rootfs | I/O | `ImageStore` |
+| 6 | **build the `Container` record** | **pure given what 4 and 5 resolved** | free name (store), `--env-file`, `--user` against the rootfs, seccomp profile, secrets |
+| 7 | attach to network/pod, publish ports | effect | `infra`, slirp |
+| 8 | build the `RunSpec` | pure, but the type belongs to the adapter | `delonix-runtime` |
+| 9 | create or supervise | effect | `runtime::create_with`, fork |
+| 10 | post-start (`--rm`, id, `--wait`) | effect + terminal | store, output |
 
-A fase 6 é a maior porção de regra de negócio (nome por omissão e a sua validação, limites
-da casa e a hierarquia do kubelet, env da imagem + `--env-file` + `-e`, labels, userns,
-`--security-opt`, logs, DNS, knows) e hoje está entrelaçada com I/O pontual.
+Phase 6 is the largest portion of business rule (default name and its validation,
+house limits and the kubelet hierarchy, image env + `--env-file` + `-e`, labels, userns,
+`--security-opt`, logs, DNS, knobs) and is today entangled with ad-hoc I/O.
 
-## As portas
+## The ports
 
-Os contextos-alvo (`networking`, `artifact`, `storage`) ainda não existem. As portas nascem
-no `delonix-compute`, com o nome que o ADR lhes dá, e mudam de casa quando o contexto
-existir — um `pub use` no Compute mantém os chamadores.
+The target contexts (`networking`, `artifact`, `storage`) do not exist yet. The ports are
+born in `delonix-compute`, under the name the ADR gives them, and move house when the
+context exists — a `pub use` in Compute keeps the callers working.
 
-| Porta | Casa final (ADR) | Implementação hoje | Fases |
+| Port | Final home (ADR) | Implementation today | Phases |
 |---|---|---|---|
-| `ImageStore` (resolver config + preparar rootfs) | `delonix-artifact` | `delonix-image::ImageStore` | 5 |
-| `StorageProvider` (resolver `-v`) | `delonix-storage` | `delonix-volume::HostVolumes` | 4 |
+| `ImageStore` (resolve config + prepare rootfs) | `delonix-artifact` | `delonix-image::ImageStore` | 5 |
+| `StorageProvider` (resolve `-v`) | `delonix-storage` | `delonix-volume::HostVolumes` | 4 |
 | `NetworkProvider` (attach, publish, shaping, firewall) | `delonix-networking` | `delonix-net::infra` | 3, 7 |
-| `WorkloadRuntime` (criar, supervisionar, remover) | `delonix-compute` | `delonix-runtime::workload::HostWorkload` | 9 |
-| `ContainerRecords` (listar, gravar) | `delonix-compute` | `delonix-runtime-core::Store` | 2, 6, 9 |
+| `WorkloadRuntime` (create, supervise, remove) | `delonix-compute` | `delonix-runtime::workload::HostWorkload` | 9 |
+| `ContainerRecords` (list, write) | `delonix-compute` | `delonix-runtime-core::Store` | 2, 6, 9 |
 
-Em P3 as implementações saem do binário para o adapter de cada porta, e o binário fica só
-com a composição e com o texto do terminal: `DeviceResolver` → `delonix-runtime::cdi::HostDevices`,
+In P3 the implementations leave the binary for each port's adapter, and the binary is
+left only with composition and terminal text: `DeviceResolver` → `delonix-runtime::cdi::HostDevices`,
 `NetworkProvider` → `delonix-net::run_network::HostNetwork`, `StorageProvider` →
 `delonix-volume::HostVolumes`, `WorkloadRuntime` → `delonix-runtime::workload::HostWorkload` (P3h:
-o `run` e o `start` arrancam só por ele; a rede e o terminal entram como ganchos, porque um adapter
-não depende de outro). A resolução do `--user` foi para
-`delonix-image::rootfs_user`, que devolve o erro como dado (`UserLookupError`) para o binário o
-traduzir.
+`run` and `start` are driven only by it; network and terminal come in as hooks, because an
+adapter does not depend on another). `--user` resolution moved to
+`delonix-image::rootfs_user`, which returns the error as data (`UserLookupError`) for the
+binary to translate.
 
-O `--user <nome>` estava partido em todo o `run` rootless desde que o rootfs passou a overlay
-(v0.59.0): o `merged/` só é montado pelo init, dentro do userns, e a resolução lia um directório
-vazio. Medido na `main` (`-u nobody` em `alpine:3.20` → «does not exist in the image»). A
-resolução passa a ler as camadas (upper, depois as lowers, com os whiteouts), e nunca segue um
-symlink do `/etc/passwd`, que seria um ficheiro do host.
+`--user <name>` had been broken in every rootless `run` since the rootfs became overlay
+(v0.59.0): `merged/` is only mounted by init, inside the userns, and the resolution was
+reading an empty directory. Measured on `main` (`-u nobody` on `alpine:3.20` → «does not
+exist in the image»). Resolution now reads the layers (upper, then the lowers, with
+whiteouts), and never follows a symlink from `/etc/passwd`, which would be a host file.
 
-O `RunSpec` (fase 8) é o contrato de `WorkloadRuntime` e fica do lado do adapter: o caso de
-uso entrega um `Container` completo mais o que só existe no momento de arrancar (rootfs,
-netns a juntar, hooks), e o adapter monta o `RunSpec`.
+`RunSpec` (phase 8) is `WorkloadRuntime`'s contract and stays on the adapter side: the
+use case hands over a complete `Container` plus what only exists at start time (rootfs,
+netns to join, hooks), and the adapter builds the `RunSpec`.
 
-## Ordem de migração
+## Migration order
 
-Cada passo é um PR, sem mudança de comportamento salvo defeito medido, e com a bateria E2E
-de `container run` a passar.
+Each step is a PR, with no behaviour change except a measured defect, and with the
+`container run` E2E battery passing.
 
-1. **Construtor do registo (fase 6) puro** — `compute::run::build_record(opts, ResolvedRun)`
-   onde `ResolvedRun` traz o que as fases 4–5 e as leituras pontuais já resolveram (config
-   da imagem, mounts, conteúdo dos `--env-file`, uid/gid do `--user`, nomes existentes no
-   namespace, o id, o perfil seccomp lido, os defaults de memória/CPU, `rootless`). O
-   `cmd_run` passa a: resolver → `build_record` → efeitos. Testável sem host.
-2. **Portas de leitura** (`ImageStore`, `StorageProvider`, `ContainerRecords`) e a resolução
-   de `ResolvedRun` como função do Compute sobre elas.
-3. **`NetworkProvider` e `WorkloadRuntime`**, e o caso de uso `run` inteiro no Compute; o
-   `cmd_run` fica com o terminal (id, avisos, `--wait`) e com a composição dos adapters.
-4. **CRI em processo**: `start_container` constrói `RunOpts` e chama o caso de uso em vez de
-   `start_argv` + subprocesso. Critério da P6, que este passo antecipa só para `run`.
+1. **Pure record builder (phase 6)** — `compute::run::build_record(opts, ResolvedRun)`
+   where `ResolvedRun` carries what phases 4–5 and the ad-hoc reads already resolved
+   (image config, mounts, `--env-file` content, `--user`'s uid/gid, existing names in the
+   namespace, the id, the read seccomp profile, the memory/CPU defaults, `rootless`). `cmd_run`
+   becomes: resolve → `build_record` → effects. Testable without a host.
+2. **Read ports** (`ImageStore`, `StorageProvider`, `ContainerRecords`) and `ResolvedRun`
+   resolution as a Compute function over them.
+3. **`NetworkProvider` and `WorkloadRuntime`**, and the whole `run` use case in Compute;
+   `cmd_run` is left with the terminal (id, warnings, `--wait`) and the composition of
+   adapters.
+4. **CRI in-process**: `start_container` builds `RunOpts` and calls the use case instead
+   of `start_argv` + subprocess. P6's criterion, which this step anticipates only for
+   `run`.
 
-## Riscos
+## Risks
 
-- **O re-exec em rede custom/pod** (fase 3) corre o `cmd_run` duas vezes em processos
-  diferentes; o caso de uso tem de ser idempotente entre as passagens (já é: o id viaja em
-  `DELONIX_REEXEC_ID`). Nenhum passo acima muda onde o re-exec acontece.
-- **O supervisor faz `fork` cru** e assume um chamador single-threaded; o CRI é
-  multi-thread. O passo 4 herda a restrição que a Docker API já resolveu por re-exec
-  (`__apirun`) — não se remove sem medir.
-- **A mesma classe de defeito que o #344 corrigiu** ("aplicado só depois do retorno do
-  supervisor") pode existir noutros campos; o passo 3 junta as fases de efeito num só
-  sítio, e é aí que se revê.
+- **The re-exec on a custom network/pod** (phase 3) runs `cmd_run` twice in different
+  processes; the use case has to be idempotent between the two passes (it already is: the
+  id travels in `DELONIX_REEXEC_ID`). None of the steps above changes where the re-exec
+  happens.
+- **The supervisor does a raw `fork`** and assumes a single-threaded caller; the CRI is
+  multi-thread. Step 4 inherits the restriction the Docker API has already resolved by
+  re-exec (`__apirun`) — not removed without measuring.
+- **The same defect class #344 fixed** ("applied only after the supervisor's return") may
+  exist in other fields; step 3 gathers the effect phases into one place, and that is
+  where it gets reviewed.

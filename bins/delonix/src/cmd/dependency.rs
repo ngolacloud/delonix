@@ -195,20 +195,20 @@ mod tests {
     }
 
     #[test]
-    fn to_aceita_escalar_ou_lista() {
+    fn to_accepts_scalar_or_list() {
         assert_eq!(spec("from: app\nto: db\n").to, vec!["db"]);
         assert_eq!(spec("from: app\nto: [db, cache]\n").to, vec!["db", "cache"]);
     }
 
     #[test]
-    fn ports_e_proto_default() {
+    fn ports_and_proto_default() {
         let s = spec("from: app\nto: [db]\n");
         assert!(s.ports.is_empty());
         assert!(s.proto.is_none());
     }
 
     #[test]
-    fn from_obrigatorio() {
+    fn from_required() {
         assert!(serde_yaml::from_str::<DependencySpec>("to: [db]\n").is_err());
     }
 
@@ -218,23 +218,23 @@ mod tests {
             .collect()
     }
 
-    /// **A propriedade que uma fusão mal feita partiria em silêncio.** Várias
-    /// dependências para o mesmo `to` ACUMULAM os allows — é a semântica
-    /// documentada. Um documento de política por Dependency não a preservaria:
-    /// o `apply_fw_doc` SUBSTITUI as regras de uma direcção, por isso o último
-    /// aplicado deixaria de fora todos os peers anteriores. Daí a fusão por
-    /// alvo.
+    /// **The property a botched merge would silently break.** Several
+    /// dependencies pointing at the same `to` ACCUMULATE their allows — that is
+    /// the documented semantics. One policy document per Dependency would not
+    /// preserve it: `apply_fw_doc` REPLACES the rules of a direction, so the
+    /// last one applied would drop every earlier peer. Hence the merge by
+    /// target.
     #[test]
-    fn varias_dependencias_para_o_mesmo_alvo_acumulam_numa_so_politica() {
+    fn several_dependencies_to_the_same_target_accumulate_in_one_policy() {
         let d = docs(
             "apiVersion: delonix.io/v1\nkind: Dependency\nmetadata: { name: a }\nspec: { from: app, to: db, ports: ['5432'] }\n---\napiVersion: delonix.io/v1\nkind: Dependency\nmetadata: { name: b }\nspec: { from: worker, to: db, ports: ['5432'] }\n",
         );
         let out = super::lower_dependencies(&d).unwrap();
-        assert_eq!(out.len(), 1, "um alvo, uma politica: {out:#?}");
+        assert_eq!(out.len(), 1, "one target, one policy: {out:#?}");
         assert_eq!(out[0].kind, "NetworkPolicy");
         assert_eq!(out[0].metadata.name, "dependency-db");
         let rules = out[0].spec.get("rules").unwrap().as_sequence().unwrap();
-        assert_eq!(rules.len(), 2, "os dois peers têm de sobreviver");
+        assert_eq!(rules.len(), 2, "both peers must survive");
         let peers: Vec<&str> = rules
             .iter()
             .map(|r| r.get("fromWorkload").unwrap().as_str().unwrap())
@@ -243,8 +243,8 @@ mod tests {
             peers.contains(&"app") && peers.contains(&"worker"),
             "{peers:?}"
         );
-        // A fusão apaga os nomes originais, por isso a origem fica registada —
-        // senão ninguém sabe de onde veio uma regra.
+        // The merge erases the original names, so the origin is recorded —
+        // otherwise nobody knows where a rule came from.
         assert_eq!(
             out[0]
                 .metadata
@@ -255,10 +255,10 @@ mod tests {
         );
     }
 
-    /// O `to` aceita uma lista, e cada alvo tem de ficar com a SUA política —
-    /// não uma partilhada, que abriria um alvo ao peer do outro.
+    /// `to` accepts a list, and each target must get ITS OWN policy — not a
+    /// shared one, which would open a target to the other's peer.
     #[test]
-    fn uma_lista_de_alvos_da_uma_politica_por_alvo() {
+    fn a_list_of_targets_yields_one_policy_per_target() {
         let d = docs(
             "apiVersion: delonix.io/v1\nkind: Dependency\nmetadata: { name: a }\nspec: { from: app, to: [db, cache] }\n",
         );
@@ -268,10 +268,11 @@ mod tests {
         assert_eq!(names, vec!["dependency-cache", "dependency-db"]);
     }
 
-    /// O default-deny é o que PROTEGE o alvo. Sem ele o allow seria decoração
-    /// sobre um alvo aberto — o oposto de «só quem declara é que alcança».
+    /// The default-deny is what PROTECTS the target. Without it the allow would
+    /// be decoration on an open target — the opposite of "only who declares it
+    /// reaches it".
     #[test]
-    fn a_politica_gerada_e_default_deny_e_sem_portas_abre_todas() {
+    fn generated_policy_is_default_deny_and_no_ports_opens_all() {
         let d = docs(
             "apiVersion: delonix.io/v1\nkind: Dependency\nmetadata: { name: a }\nspec: { from: app, to: db }\n",
         );
@@ -289,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn from_ou_to_vazios_e_proto_invalido_sao_recusados() {
+    fn empty_from_or_to_and_invalid_proto_are_rejected() {
         for bad in [
             "spec: { from: '', to: db }",
             "spec: { from: app, to: [] }",
@@ -298,7 +299,7 @@ mod tests {
             let d = docs(&format!(
                 "apiVersion: delonix.io/v1\nkind: Dependency\nmetadata: {{ name: a }}\n{bad}\n"
             ));
-            assert!(super::lower_dependencies(&d).is_err(), "aceitou: {bad}");
+            assert!(super::lower_dependencies(&d).is_err(), "accepted: {bad}");
         }
     }
 }

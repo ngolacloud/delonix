@@ -1,55 +1,55 @@
-# Plano de sprints — campanha de conformidade de capacidades (baseline v5.1.1)
+# Sprint plan — capability conformance campaign (baseline v5.1.1)
 
-Deriva de `matrix-structured.json`. **158 entradas accionáveis** (partial + not-implemented); os restantes 357 estados são estruturais (230 unsupported-by-provider, 12 requires-external-component, 3 unavailable-on-host, 112 já supported).
+Derived from `matrix-structured.json`. **158 actionable entries** (partial + not-implemented); the remaining 357 states are structural (230 unsupported-by-provider, 12 requires-external-component, 3 unavailable-on-host, 112 already supported).
 
-## Distribuição das 158 accionáveis
+## Distribution of the 158 actionable entries
 
-Por domínio: vm-compute 45 · network 40 · metrics 13 · firewall 13 · inventory 12 · protection 7 · console 7 · access 6 · storage 5 · containers 4 · system-containers 4 · mobility 2.
+By domain: vm-compute 45 · network 40 · metrics 13 · firewall 13 · inventory 12 · protection 7 · console 7 · access 6 · storage 5 · containers 4 · system-containers 4 · mobility 2.
 
-Por provider: proxmox 48 · libvirt 39 · linux 32 · cloud-hypervisor 27 · opnsense 12.
+By provider: proxmox 48 · libvirt 39 · linux 32 · cloud-hypervisor 27 · opnsense 12.
 
-`not-implemented` (as lacunas mais limpas, 72): concentram-se em vm-compute (CH 8, libvirt 6, proxmox 6), network (proxmox 12, opnsense 11, linux 2), metrics (proxmox 4), inventory e console. Ver o detalhe em `matrix-structured.json`.
+`not-implemented` (the cleanest gaps, 72): concentrated in vm-compute (CH 8, libvirt 6, proxmox 6), network (proxmox 12, opnsense 11, linux 2), metrics (proxmox 4), inventory and console. See the detail in `matrix-structured.json`.
 
-## Regra de promoção (critério #16, não negociável)
+## Promotion rule (criterion #16, non-negotiable)
 
-Mudar uma capability para `supported` exige, cumulativamente: implementação funcional ligada aos caminhos públicos (CLI/API/Desktop coerentes) · validação de pré-condições · erros accionáveis · persistência/recuperação quando aplicável · **teste real** (a evidência `check:`/`e2e:`/`live:`/`test:`/`chaos:` tem de existir e ser verificável) · documentação · evidência ligada a commit+ambiente. Sem ambiente, conclui-se implementação+testes locais mas mantém-se **"implementado, não validado"** na dimensão de evidência (fica `partial` com limite escrito, nunca `supported` falso).
+Changing a capability to `supported` requires, cumulatively: functional implementation wired to the public paths (consistent CLI/API/Desktop) · precondition validation · actionable errors · persistence/recovery where applicable · **real test** (the evidence `check:`/`e2e:`/`live:`/`test:`/`chaos:` must exist and be verifiable) · documentation · evidence tied to commit+environment. Without an environment, implementation+local tests are concluded but it stays **"implemented, not validated"** on the evidence dimension (remains `partial` with a written limit, never falsely `supported`).
 
-## Sequência por dependências
+## Dependency sequence
 
-### Sprint 0 — reconciliar (ESTE checkpoint) ✅
-Baseline, binário, matriz 515 lossless, diff explicado, plano. Entregue em `develop` (docs-only).
+### Sprint 0 — reconcile (THIS checkpoint) ✅
+Baseline, binary, lossless 515 matrix, explained diff, plan. Delivered on `develop` (docs-only).
 
-### Sprint 1 — riscos de isolamento, dados e classificação (maior risco primeiro)
-Antes de somar features, corrigir o que engana ou arrisca dados:
-- **Classificação errada**: recusas no adapter marcadas como ausência upstream; capabilities de um domínio atribuídas a provider errado; ADRs tratados como impedimento permanente. Reclassificar com fundamentação (não conta como feature nova).
-- **Isolamento**: namespaces partilhados (IPC/UTS/PID) verificados por identidade de processo real, não por `setns` ter sido chamado; motivo de término OOM distinto de outros términos.
-- **Dados**: snapshots/backups que só provam criação de ficheiro — exigir teste de restauro+consistência antes de qualquer promoção.
-- Especialistas: Rust + segurança + testes. Baixo risco de ambiente (quase tudo testável no host rootless live).
+### Sprint 1 — isolation, data and classification risks (highest risk first)
+Before adding features, fix what misleads or risks data:
+- **Wrong classification**: adapter refusals marked as upstream absence; capabilities of one domain attributed to the wrong provider; ADRs treated as a permanent blocker. Reclassify with justification (does not count as a new feature).
+- **Isolation**: shared namespaces (IPC/UTS/PID) verified by real process identity, not by `setns` having been called; OOM termination reason distinct from other terminations.
+- **Data**: snapshots/backups that only prove file creation — require a restore+consistency test before any promotion.
+- Specialists: Rust + security + testing. Low environment risk (almost everything testable on the rootless live host).
 
-### Sprint 2 — completar o que existe mas não está validado
-Entradas `partial` cujo backend já existe e só falta prova live:
-- vm-compute libvirt/CH: operações testadas só por XML/args/mock → re-testar com guests reais (hotplug disco com R/W no guest, NIC com tráfego, snapshot restaurado com dados).
-- network linux: IPAM/reservas/DNS/estático com verificação de dataplane (tráfego permitido/negado), não só existência de regra.
-- Especialistas: virtualização + networking + testes. Ambiente: host live (libvirt/CH provados aqui); Proxmox via nó `pve` em virbr0.
+### Sprint 2 — complete what exists but is not validated
+`partial` entries whose backend already exists and only lack live proof:
+- vm-compute libvirt/CH: operations tested only by XML/args/mock → re-test with real guests (disk hotplug with R/W in the guest, NIC with traffic, snapshot restored with data).
+- network linux: IPAM/reservations/DNS/static with dataplane verification (traffic allowed/denied), not just rule existence.
+- Specialists: virtualization + networking + testing. Environment: live host (libvirt/CH proven here); Proxmox via node `pve` on virbr0.
 
-### Sprints de domínio (3+) — implementar lacunas por frente, em paralelo quando independentes
-- **Compute CH/libvirt** (mandato §7): eventos, async, clone/templates, resize, hotplug/unplug (4 níveis: aceite→aplicado→detectado no guest→utilizável), discos/NICs extra, CPU model/pinning, hugepages, TPM/PCI passthrough, cloud-init, guest agent, IP observado, snapshots, backup/restauro, migração, consola, métricas/capacidade.
-- **Proxmox** (§8): jobs/UPIDs, templates, resize de disco, IP estático, storage pools, snapshots persistentes, consola serial/VNC, métricas; system containers (import, rede, firewall, backup/restauro, exec/logs/exit via mecanismo suportado — sem inventar endpoints; LXC ≠ OCI).
-- **Rede linux** (§10): DHCP de VMs no ledger IPAM, reservas sem colisão sob concorrência, estático, DNS, IPv6 ponta-a-ponta, VXLAN, overlay encriptado (≥2 nodes), proxy L7, LB L4, healthchecks, drift/dataplane, firewall logging com limites.
-- **Rede Proxmox + OPNsense** (§11): SDN zones, VLAN/VXLAN, subnets/IPAM/DHCP/DNS/SNAT/IPv6, firewall VM/CT com tráfego provado; OPNsense regras com identidade, multi-WAN, VPN, NAT 1:1, NPT, rollback, dataplane — sem activar switches globais nem instalar plugins sem autorização específica.
-- **Storage** (§12): NFS/CIFS/WebDAV/LVM-thin/ZFS/Btrfs/TrueNAS/Ceph, pools, replicação, HA — distinguir falta de privilégio de falta de implementação; helpers restritos em vez de root global; HA e replicação têm contratos próprios (restart local ≠ HA).
-- **Containers/pods** (§9): eventos streaming, async, GPU/CDI (só com hardware), OOM, namespaces partilhados, métricas, capacidade, resolução de secrets.
+### Domain sprints (3+) — implement gaps per front, in parallel when independent
+- **Compute CH/libvirt** (mandate §7): events, async, clone/templates, resize, hotplug/unplug (4 levels: accepted→applied→detected in the guest→usable), extra disks/NICs, CPU model/pinning, hugepages, TPM/PCI passthrough, cloud-init, guest agent, observed IP, snapshots, backup/restore, migration, console, metrics/capacity.
+- **Proxmox** (§8): jobs/UPIDs, templates, disk resize, static IP, storage pools, persistent snapshots, serial/VNC console, metrics; system containers (import, network, firewall, backup/restore, exec/logs/exit via a supported mechanism — without inventing endpoints; LXC ≠ OCI).
+- **linux network** (§10): VM DHCP in the IPAM ledger, reservations without collision under concurrency, static, DNS, end-to-end IPv6, VXLAN, encrypted overlay (≥2 nodes), L7 proxy, L4 LB, healthchecks, drift/dataplane, firewall logging with limits.
+- **Proxmox + OPNsense network** (§11): SDN zones, VLAN/VXLAN, subnets/IPAM/DHCP/DNS/SNAT/IPv6, VM/CT firewall with proven traffic; OPNsense rules with identity, multi-WAN, VPN, NAT 1:1, NPT, rollback, dataplane — without enabling global switches nor installing plugins without specific authorization.
+- **Storage** (§12): NFS/CIFS/WebDAV/LVM-thin/ZFS/Btrfs/TrueNAS/Ceph, pools, replication, HA — distinguish lack of privilege from lack of implementation; restricted helpers instead of global root; HA and replication have their own contracts (local restart ≠ HA).
+- **Containers/pods** (§9): streaming events, async, GPU/CDI (only with hardware), OOM, shared namespaces, metrics, capacity, secret resolution.
 
-### Sprint final — regressão integrada + novo inventário
-Re-correr `delonix provider matrix`/`ls`, regenerar `matrix-structured.json`, produzir matriz antes/depois com todas as 515 entradas e as contagens separadas (novas implementadas / completadas / validações / reclassificações / dependências integradas / bloqueios de ambiente / limites upstream comprovados). Progresso **não** se mede só pela redução de estados negativos.
+### Final sprint — integrated regression + new inventory
+Re-run `delonix provider matrix`/`ls`, regenerate `matrix-structured.json`, produce a before/after matrix with all 515 entries and the separate counts (newly implemented / completed / validations / reclassifications / integrated dependencies / environment blocks / proven upstream limits). Progress is **not** measured only by the reduction of negative states.
 
-## Harness por frente
+## Harness per front
 
-Uma branch+worktree por frente, a partir de `develop` (features/manutenção) ou `main` (fixes/bugs), via `scripts/gitflow.py start`. Revisão separada antes de integrar. Integração em develop após gates verdes (`make gitflow gates`). Limpeza segura no fim. Frentes independentes em paralelo (worktrees distintas); alterações a contratos comuns (catálogo `capability.rs`, protos) coordenadas antes de distribuir. Nunca duas baterias a disputar o mesmo recurso de teste (um nó `pve`, um host GPU).
+One branch+worktree per front, from `develop` (features/maintenance) or `main` (fixes/bugs), via `scripts/gitflow.py start`. Separate review before integrating. Integration into develop after green gates (`make gitflow gates`). Safe cleanup at the end. Independent fronts in parallel (distinct worktrees); changes to common contracts (catalogue `capability.rs`, protos) coordinated before distributing. Never two batteries disputing the same test resource (one `pve` node, one GPU host).
 
-## Ambientes autorizados conhecidos
+## Known authorized environments
 
-- Host live rootless (este): containers OCI, pods, rede linux, VM libvirt+CH, cgroup2 cpu/memory/pids delegados. io/cpuset não delegados.
-- Nó Proxmox `pve` pré-instalado em virbr0 (root@pam / default público) — create/snapshot/destroy provados pelo provider.
-- Sem hardware GPU/TPM/PCI-passthrough confirmado → essas capabilities ficam "implementado, não validado".
-- OPNsense/multi-node overlay: a confirmar por frente antes de prometer validação live.
+- Rootless live host (this one): OCI containers, pods, linux network, libvirt+CH VMs, delegated cgroup2 cpu/memory/pids. io/cpuset not delegated.
+- Proxmox node `pve` pre-installed on virbr0 (root@pam / default public) — create/snapshot/destroy proven by the provider.
+- No confirmed GPU/TPM/PCI-passthrough hardware → those capabilities stay "implemented, not validated".
+- OPNsense/multi-node overlay: to be confirmed per front before promising live validation.

@@ -1,115 +1,115 @@
-# Lab 6 — A tua própria imagem de VM, com VMfile
+# Lab 6 — Your own VM image, with a VMfile
 
-> **Identificador:** `lab-6` · **Nível:** avançado · **Jornada:** primeiro contacto
+> **Identifier:** `lab-6` · **Level:** advanced · **Journey:** first contact
 
-## Objectivo concreto
+## Concrete objective
 
-Construir uma **imagem qcow2 à tua medida** a partir de um `VMfile` — como se
-constrói uma imagem de container — e arrancar uma VM **a partir dela**:
-`vm image init` (scaffold) → `vm image build` (assa a base com libguestfs) →
-`vm image ls` → `vm create --disk`. A prova é funcional — lida de
-`vm image ls -o json` e `vm ls -o json`, não de um exit-code solto.
+Build a **custom-tailored qcow2 image** from a `VMfile` — just as you build a
+container image — and boot a VM **from it**:
+`vm image init` (scaffold) → `vm image build` (bakes the base with libguestfs) →
+`vm image ls` → `vm create --disk`. The proof is functional — it reads from
+`vm image ls -o json` and `vm ls -o json`, not a loose exit code.
 
-## Conhecimentos prévios
+## Prerequisite knowledge
 
-O Lab 5 (microVM: ciclo de vida) e noção de imagem de container (um `Dockerfile`
-é o paralelo do `VMfile`).
+Lab 5 (microVM: lifecycle) and some notion of container images (a `Dockerfile`
+is the parallel of the `VMfile`).
 
-## Versão e ambiente testados
+## Tested version and environment
 
-> **Baseline histórica (linha 5.1.x):** os valores abaixo foram medidos na linha antiga e **ainda não foram re-medidos na linha 0.1.0 actual**.
+> **Historical baseline (5.1.x line):** the values below were measured on the old line and **have not yet been re-measured on the current 0.1.0 line**.
 
-`delonix 5.1.1`, Linux com libguestfs (`virt-customize`) e libvirt, execução
-rootless. Validado a 2026-10-24 (ciclo `init → build → create → Running+IP →
-destroy`, positivo `EXIT=0`; modos de falha «imagem não construiu», «VM não
-arrancou da imagem» e «órfão após destroy» comprovados a dar `EXIT=1`).
+`delonix 5.1.1`, Linux with libguestfs (`virt-customize`) and libvirt, rootless
+execution. Validated on 2026-10-24 (cycle `init → build → create → Running+IP →
+destroy`, positive `EXIT=0`; failure modes "image did not build", "VM did not
+boot from the image", and "orphan after destroy" confirmed to yield `EXIT=1`).
 
-## Recursos mínimos
+## Minimum resources
 
-**libguestfs-tools** no host (`virt-customize`). O build descarrega a base
-`FROM ubuntu:24.04` (algumas centenas de MiB) e produz uma qcow2 esparsa; o
-overlay por-VM é pequeno. Conta **minutos** na primeira vez.
+**libguestfs-tools** on the host (`virt-customize`). The build downloads the
+base `FROM ubuntu:24.04` (a few hundred MiB) and produces a sparse qcow2; the
+per-VM overlay is small. Expect **minutes** on the first run.
 
-## Privilégios e acessos necessários
+## Required privileges and access
 
-Nenhum `sudo` para o caminho rootless deste host. O build usa libguestfs em
-modo utilizador.
+No `sudo` for this host's rootless path. The build uses libguestfs in
+user mode.
 
-## Duração estimada
+## Estimated duration
 
-~3–10 minutos na primeira vez (dominado pelo download da base e pelo
-`virt-customize`); o arranque da VM leva segundos.
+~3–10 minutes on the first run (dominated by the base download and
+`virt-customize`); booting the VM takes seconds.
 
-## Correção de documentação / achado deste lab
+## Documentation correction / finding from this lab
 
-O scaffold do `vm image init` (e a sua dica «Next:») imprime
-`delonix vm create dev --disk-image minha-base:1.0`, mas o flag real de
-`vm create` é **`--disk`** (`--disk-image` não existe). O arnês usa `--disk`,
-que é o correcto; o scaffold está por corrigir no binário (fora do âmbito deste
-lab, que só mexe nos labs).
+The `vm image init` scaffold (and its "Next:" hint) prints
+`delonix vm create dev --disk-image my-base:1.0`, but the actual flag for
+`vm create` is **`--disk`** (`--disk-image` does not exist). The harness uses `--disk`,
+which is correct; the scaffold is yet to be fixed in the binary (out of scope for this
+lab, which only touches the labs).
 
-## Ficheiros de preparação
+## Preparation files
 
-Nenhum ficheiro externo. O arnês gera o contexto de build (scaffold `VMfile`) e
-uma chave SSH só do lab. Fica tudo nesta pasta:
+No external files. The harness generates the build context (scaffold `VMfile`) and
+a lab-only SSH key. Everything lives in this folder:
 
-| Ficheiro | Fase |
+| File | Phase |
 |---|---|
-| `prepare.sh` | garante binário + libguestfs + chave do lab; `vm image init`; aponta `SSHKEY` à chave do lab; destrói restos |
-| `run.sh`     | mostra o `VMfile` → `vm image build` → `vm image ls` → `vm create --disk` → espera Running+IP |
-| `verify.sh`  | asserção: imagem no store, VM arranca da imagem, teardown sem órfãos, imagem sobrevive ao destroy |
-| `cleanup.sh` | `vm destroy` + `vm image rm` + remove contexto e chave (idempotente) |
-| `lab.sh`     | orquestrador `prepare → run → verify → cleanup` |
+| `prepare.sh` | ensures binary + libguestfs + lab key; `vm image init`; points `SSHKEY` at the lab key; destroys leftovers |
+| `run.sh`     | shows the `VMfile` → `vm image build` → `vm image ls` → `vm create --disk` → waits for Running+IP |
+| `verify.sh`  | asserts: image in the store, VM boots from the image, teardown with no orphans, image survives destroy |
+| `cleanup.sh` | `vm destroy` + `vm image rm` + removes context and key (idempotent) |
+| `lab.sh`     | orchestrator `prepare → run → verify → cleanup` |
 
-## Como correr
+## How to run
 
 ```bash
-# com o delonix no PATH (instalação normal):
+# with delonix on the PATH (normal install):
 bash docs/labs/lab-6/lab.sh
 
-# apontando a um binário específico (ex.: build local):
-DELONIX=/caminho/para/delonix bash docs/labs/lab-6/lab.sh
+# pointing at a specific binary (e.g. a local build):
+DELONIX=/path/to/delonix bash docs/labs/lab-6/lab.sh
 ```
 
-> Nota: o `verify` destrói a VM no passo C (é a asserção de teardown), mas a
-> **imagem construída fica no store**. Corre `./lab.sh --no-clean` para a
-> manteres e arrancares outra VM dela.
+> Note: `verify` destroys the VM at step C (it is the teardown assertion), but
+> the **built image stays in the store**. Run `./lab.sh --no-clean` to keep
+> it and boot another VM from it.
 
-## Passos (o que `run.sh` faz) e porquê
+## Steps (what `run.sh` does) and why
 
-1. Mostra o `VMfile` de scaffold — `FROM ubuntu:24.04`, `SIZE 20G`, `RUN`s
-   offline, `USER`/`SSHKEY`, `VCPUS`/`MEMORY`. Constrói **como está**.
-2. `vm image build -t minha-base:1.0 .` — assa a base com libguestfs. Os `RUN`
-   do scaffold são **offline**; só a base `FROM` é descarregada. (Um `RUN` com
-   `apt-get install` precisa de `--network`.)
-3. `vm image ls` — a tua imagem entrou no store de imagens de VM.
-4. `vm create lab6vm --disk minha-base:1.0` — um overlay por-VM a partir da
-   **tua** imagem.
-5. Espera `Running` com IPv4 (cloud-init/DHCP demora) — lido de `vm ls -o json`.
+1. Shows the scaffold `VMfile` — `FROM ubuntu:24.04`, `SIZE 20G`, offline `RUN`s,
+   `USER`/`SSHKEY`, `VCPUS`/`MEMORY`. Builds **as is**.
+2. `vm image build -t my-base:1.0 .` — bakes the base with libguestfs. The scaffold's
+   `RUN`s are **offline**; only the `FROM` base is downloaded. (A `RUN` with
+   `apt-get install` needs `--network`.)
+3. `vm image ls` — your image has entered the VM image store.
+4. `vm create lab6vm --disk my-base:1.0` — a per-VM overlay from **your**
+   image.
+5. Waits for `Running` with IPv4 (cloud-init/DHCP takes time) — read from `vm ls -o json`.
 
-## Checkpoints / asserções de sucesso (o que `verify.sh` exige)
+## Checkpoints / success assertions (what `verify.sh` requires)
 
-- **A** — a imagem `minha-base:1.0` aparece em `vm image ls -o json` (o build
-  produziu o disco).
-- **B** — a VM arranca `Running` com IPv4 **a partir da tua imagem** (retry;
-  distingue «nunca Running» de «Running sem IP»).
-- **C** — `vm destroy` remove a VM e **não deixa órfãos** (`describe vm` deixa de
-  resolver), e a **imagem sobrevive** ao destroy (o overlay era por-VM).
+- **A** — the `my-base:1.0` image appears in `vm image ls -o json` (the build
+  produced the disk).
+- **B** — the VM boots `Running` with IPv4 **from your image** (retry;
+  distinguishes "never Running" from "Running without IP").
+- **C** — `vm destroy` removes the VM and **leaves no orphans** (`describe vm` no longer
+  resolves), and the **image survives** the destroy (the overlay was per-VM).
 
-## Limpeza
+## Cleanup
 
-`cleanup.sh` faz `vm destroy` da VM (se existir), `vm image rm` da imagem
-construída, e remove o contexto de build e a chave do lab. **Não** toca nas
-imagens de VM de outros labs.
+`cleanup.sh` runs `vm destroy` on the VM (if it exists), `vm image rm` on the
+built image, and removes the build context and the lab key. It does **not**
+touch the VM images of other labs.
 
-## Resultado aprendido
+## Lesson learned
 
-Construir uma imagem de VM é como construir uma de container: um `VMfile` com um
-`FROM`, um `SIZE`, `RUN`s e um `USER`, e um `build` que a assa. A imagem é um
-disco bootável completo que vive no store e serve de base a quantas VMs quiseres
-— cada `vm create --disk` dela tira o seu próprio overlay.
+Building a VM image is like building a container image: a `VMfile` with a
+`FROM`, a `SIZE`, `RUN`s and a `USER`, and a `build` that bakes it. The image is a
+complete bootable disk that lives in the store and serves as a base for as many VMs as you want
+— each `vm create --disk` from it takes its own overlay.
 
-## Próximo lab
+## Next lab
 
-**Lab 7 — Kubernetes sem Docker** (um cluster local cujo runtime dos nós é o
+**Lab 7 — Kubernetes without Docker** (a local cluster whose node runtime is
 Delonix).

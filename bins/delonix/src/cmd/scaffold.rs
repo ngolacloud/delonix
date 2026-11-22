@@ -27,8 +27,10 @@ use delonix_model::{Error, Result};
 include!(concat!(env!("OUT_DIR"), "/templates.rs"));
 
 /// Default images — this is what fills the project when `--image` is NOT
-/// passed. Pinned by digest where reproducibility matters.
-const DEFAULT_APP_BASE: &str = "alpine:3.20";
+/// passed. Pinned by digest where reproducibility matters. The generic app
+/// base is no longer a constant here: with no `--image` the scaffold emits a
+/// distroless multi-stage build (see `delonixfile`), with the registry resolved
+/// at generation time from `DELONIX_DISTROLESS_REGISTRY`.
 const DEFAULT_DB_IMAGE: &str = "postgres:16-alpine";
 const DEFAULT_VM_IMAGE: &str = "k8s-golden";
 
@@ -370,13 +372,20 @@ fn python_module(name: &str) -> String {
 }
 
 /// Substitutes the `__NAME__`/`__MODULE__`/`__PORT__`/`__TLS_PORT__`/
-/// `__TEMPLATE_VERSION__` tokens (in contents AND paths).
+/// `__TEMPLATE_VERSION__`/`__DISTROLESS_REGISTRY__` tokens (in contents AND
+/// paths). The distroless registry is resolved from the environment at
+/// generation time (default `gcr.io/distroless`) and baked in, so a project is
+/// pinned to the registry that was configured when it was scaffolded.
 fn subst(s: &str, o: &InitOpts, module: &str, plan: &Plan, version: &str) -> String {
     s.replace("__NAME__", &o.name)
         .replace("__MODULE__", module)
         .replace("__TLS_PORT__", plan.tls_port.as_deref().unwrap_or(""))
         .replace("__PORT__", &plan.port)
         .replace("__TEMPLATE_VERSION__", version)
+        .replace(
+            super::distroless::REGISTRY_TOKEN,
+            &super::distroless::registry(),
+        )
 }
 
 /// An optional key of a template's `template.meta` (`tls=`, `open=`, `login=`,
@@ -2095,34 +2104,71 @@ fn next_steps(target: Target, o: &InitOpts) -> String {
 // ---------------------------------------------------------------- templates
 
 fn delonixfile(o: &InitOpts) -> String {
-    let base = o
-        .image
-        .clone()
-        .unwrap_or_else(|| DEFAULT_APP_BASE.to_string());
+    // When the person pins a base with `--image`, respect it verbatim in a
+    // single stage (they chose the OS userland, shell included). With no
+    // `--image`, the scaffold is distroless-by-default: a multi-stage build
+    // whose RUNTIME stage is a distroless base (no shell, no package manager),
+    // with a static `busybox` copied in only so the untouched skeleton still
+    // serves out of the box. Delonix's third pillar beside rootless-first and
+    // daemonless. The registry is resolved at generation time from
+    // `DELONIX_DISTROLESS_REGISTRY` (default `gcr.io/distroless`).
+    if let Some(base) = o.image.clone() {
+        return format!(
+            "# Delonixfile — mesma gramática do Dockerfile, com extensões Delonix.\n\
+             # Constrói com:  delonix build -t {name}:dev .\n\
+             #\n\
+             # Base fixada com `--image`: build single-stage, com a userland que\n\
+             # escolheste. Para a base distroless por omissão, gera sem `--image`.\n\
+             FROM {base}\n\
+             \n\
+             WORKDIR /app\n\
+             \n\
+             # As dependências primeiro: esta camada só é reconstruída quando elas mudam.\n\
+             # RUN apk add --no-cache python3\n\
+             \n\
+             COPY . /app\n\
+             \n\
+             # Extensões Delonix (aceites pelo parser; ver AGENTS.md):\n\
+             #   CPUS 2\n\
+             #   MEMORY 512M\n\
+             #   HEALTHCHECK CMD wget -qO- http://localhost:8080/health || exit 1\n\
+             \n\
+             EXPOSE 8080\n\
+             CMD [\"sh\", \"-c\", \"echo 'a servir na 8080'; while true; do sleep 3600; done\"]\n",
+            name = o.name,
+            base = base
+        );
+    }
+    let registry = super::distroless::registry();
     format!(
         "# Delonixfile — mesma gramática do Dockerfile, com extensões Delonix.\n\
          # Constrói com:  delonix build -t {name}:dev .\n\
          #\n\
-         # NOTA: o build é single-stage. Um `FROM ... AS x` seguido doutro `FROM`\n\
-         # é recusado com erro claro (multi-stage ainda não está implementado).\n\
-         FROM {base}\n\
+         # Distroless por omissão: a imagem final não traz shell, gestor de\n\
+         # pacotes nem userland — só a tua aplicação. O `busybox` estático entra\n\
+         # apenas para este esqueleto servir sem edições; substitui o CMD (e o\n\
+         # stage `tools`) pelo teu binário/serviço. Registo distroless\n\
+         # configurável com DELONIX_DISTROLESS_REGISTRY (omissão: gcr.io/distroless).\n\
+         # Se a imagem distroless não existir no pull, o Delonix recorre à base\n\
+         # convencional equivalente automaticamente.\n\
+         FROM busybox:1.37-musl AS tools\n\
          \n\
+         FROM {registry}/base-debian12:nonroot\n\
          WORKDIR /app\n\
-         \n\
-         # As dependências primeiro: esta camada só é reconstruída quando elas mudam.\n\
-         # RUN apk add --no-cache python3\n\
-         \n\
+         COPY --from=tools /bin/busybox /bin/busybox\n\
          COPY . /app\n\
          \n\
          # Extensões Delonix (aceites pelo parser; ver AGENTS.md):\n\
          #   CPUS 2\n\
          #   MEMORY 512M\n\
-         #   HEALTHCHECK CMD wget -qO- http://localhost:8080/health || exit 1\n\
          \n\
          EXPOSE 8080\n\
-         CMD [\"sh\", \"-c\", \"echo 'a servir na 8080'; while true; do sleep 3600; done\"]\n",
+         # uid:gid numérico — válido na imagem distroless E na base de recurso.\n\
+         USER 65532:65532\n\
+         HEALTHCHECK CMD [\"/bin/busybox\", \"wget\", \"-qO-\", \"http://127.0.0.1:8080/\"]\n\
+         CMD [\"/bin/busybox\", \"httpd\", \"-f\", \"-v\", \"-p\", \"8080\", \"-h\", \"/app\"]\n",
         name = o.name,
-        base = base
+        registry = registry
     )
 }
 
@@ -2520,34 +2566,31 @@ mod tests {
     }
 
     #[test]
-    fn dir_has_content_e_falso_para_um_caminho_que_nao_existe() {
+    fn dir_has_content_is_false_for_a_path_that_does_not_exist() {
         let (_tmp, dir) = scratch();
-        assert!(
-            !dir_has_content(&dir),
-            "um caminho inexistente não tem conteúdo"
-        );
+        assert!(!dir_has_content(&dir), "a nonexistent path has no content");
     }
 
     #[test]
-    fn dir_has_content_e_falso_para_um_directorio_vazio() {
+    fn dir_has_content_is_false_for_an_empty_directory() {
         let (_tmp, dir) = scratch();
         std::fs::create_dir_all(&dir).unwrap();
         assert!(!dir_has_content(&dir));
     }
 
     #[test]
-    fn dir_has_content_e_verdadeiro_assim_que_ha_uma_entrada() {
+    fn dir_has_content_is_true_as_soon_as_there_is_one_entry() {
         let (_tmp, dir) = scratch();
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("ja-tem-algo"), "x").unwrap();
+        std::fs::write(dir.join("already-has-something"), "x").unwrap();
         assert!(dir_has_content(&dir));
     }
 
-    /// Um directório vazio continua a receber o scaffold INTEIRO — o caso
-    /// coberto desde sempre, e o que não pode regredir com a chegada do modo
-    /// de adopção.
+    /// An empty directory still gets the WHOLE scaffold — the case that has
+    /// always been covered, and the one that must not regress now that adoption
+    /// mode exists.
     #[test]
-    fn scaffold_num_directorio_vazio_escreve_o_projecto_completo() {
+    fn scaffold_in_an_empty_directory_writes_the_complete_project() {
         let (_tmp, dir) = scratch();
         let o = InitOpts {
             dir: dir.clone(),
@@ -2564,24 +2607,24 @@ mod tests {
         assert!(dir.join("delonix-manifest.yaml").exists());
         assert!(
             dir.join("src/index.ts").exists(),
-            "o scaffold completo tem de escrever o código de exemplo também"
+            "the complete scaffold must write the example code too"
         );
         assert!(dir.join("package.json").exists());
         assert!(
             dir.join(".github/workflows/ci.yml").exists(),
-            "um scaffold novo já nasce com CI/CD pronto"
+            "a fresh scaffold is born with CI/CD ready"
         );
     }
 
-    /// Um directório com um projecto REAL já lá dentro só recebe o Delonixfile,
-    /// o manifesto e o dockerignore — nunca o código de exemplo do template,
-    /// que colidiria com (ou ficaria sem uso ao lado de) o código verdadeiro.
+    /// A directory with a REAL project already inside only gets the Delonixfile,
+    /// the manifest and the dockerignore — never the template's example code,
+    /// which would collide with (or sit unused next to) the real code.
     #[test]
-    fn adopcao_num_projecto_existente_so_escreve_o_glue() {
+    fn adoption_in_an_existing_project_only_writes_the_glue() {
         let (_tmp, dir) = scratch();
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("package.json"), "{}").unwrap();
-        std::fs::write(dir.join("server.js"), "// o código real do utilizador").unwrap();
+        std::fs::write(dir.join("server.js"), "// the user's real code").unwrap();
         let o = InitOpts {
             dir: dir.clone(),
             name: "app".into(),
@@ -2598,24 +2641,24 @@ mod tests {
         assert!(dir.join(".dockerignore").exists());
         assert!(
             !dir.join("src").exists(),
-            "adopção nunca escreve o código de exemplo do template"
+            "adoption never writes the template's example code"
         );
         assert!(
             !dir.join("README.md").exists(),
-            "adopção nunca escreve o README do template"
+            "adoption never writes the template's README"
         );
-        // O código real do utilizador sobrevive intacto.
+        // The user's real code survives intact.
         assert_eq!(
             std::fs::read_to_string(dir.join("server.js")).unwrap(),
-            "// o código real do utilizador"
+            "// the user's real code"
         );
     }
 
-    /// Re-correr `init` sobre o SEU PRÓPRIO scaffold anterior (agora não-vazio)
-    /// tem de mudar para adopção — nunca voltar a despejar o código de exemplo
-    /// por cima de edições que o utilizador já tenha feito.
+    /// Re-running `init` over its OWN earlier scaffold (now non-empty) has to
+    /// switch to adoption — never dump the example code again over edits the
+    /// user may already have made.
     #[test]
-    fn re_correr_init_sobre_o_proprio_output_muda_para_adopcao() {
+    fn re_running_init_over_its_own_output_switches_to_adoption() {
         let (_tmp, dir) = scratch();
         let o = InitOpts {
             dir: dir.clone(),
@@ -2632,7 +2675,7 @@ mod tests {
         render_template("node", &o, false).unwrap();
         assert!(
             !dir.join("src").exists(),
-            "a segunda passagem não pode recriar o código de exemplo"
+            "the second pass must not recreate the example code"
         );
     }
 
@@ -2644,18 +2687,18 @@ mod tests {
     /// declares a version — this proves the guard survives even so, for
     /// whatever future template doesn't.
     #[test]
-    fn v_recusa_num_template_sem_versao() {
+    fn v_refused_on_a_template_without_a_version() {
         let err = resolve_version("future-template", Some("1.2.3"), "", "").unwrap_err();
         assert!(
             err.to_string().contains("has no version parameter"),
-            "erro inesperado: {err}"
+            "unexpected error: {err}"
         );
     }
 
     /// Without `-v`, a template with no default (`""`) just gets `""` back —
     /// no refusal, because nothing was explicitly asked for.
     #[test]
-    fn sem_v_e_sem_default_nao_e_erro() {
+    fn no_v_and_no_default_is_not_an_error() {
         assert_eq!(
             resolve_version("future-template", None, "", "").unwrap(),
             ""
@@ -2669,7 +2712,7 @@ mod tests {
     /// test process never opens the interactive menu, so `chosen` stays
     /// `None` deterministically here.
     #[test]
-    fn v_sem_t_nenhum_e_recusado_antes_de_gerar_seja_o_que_for() {
+    fn v_with_no_t_at_all_is_refused_before_generating_anything() {
         let (_tmp, dir) = scratch();
         let o = InitOpts {
             dir: dir.clone(),
@@ -2684,9 +2727,9 @@ mod tests {
         let err = init(Target::Container, &o).unwrap_err();
         assert!(
             err.to_string().contains("needs a template to apply it to"),
-            "erro inesperado: {err}"
+            "unexpected error: {err}"
         );
-        assert!(!dir.exists(), "não devia ter gerado nada");
+        assert!(!dir.exists(), "should not have generated anything");
     }
 
     /// The `odoo` template substitutes `__TEMPLATE_VERSION__` with the `-v`
@@ -2694,7 +2737,7 @@ mod tests {
     /// `.pylintrc`/`.pylintrc-mandatory` (`valid-odoo-versions=<version>`)
     /// and `config/odoo.conf`, not just the README.
     #[test]
-    fn odoo_com_v_substitui_a_versao_em_todos_os_ficheiros() {
+    fn odoo_with_v_substitutes_the_version_in_every_file() {
         let (_tmp, dir) = scratch();
         let o = InitOpts {
             dir: dir.clone(),
@@ -2710,20 +2753,20 @@ mod tests {
         let delonixfile = std::fs::read_to_string(dir.join("Delonixfile")).unwrap();
         assert!(
             delonixfile.contains("FROM odoo:18.0"),
-            "Delonixfile não referenciou a versão pedida:\n{delonixfile}"
+            "Delonixfile did not reference the requested version:\n{delonixfile}"
         );
         let pylintrc = std::fs::read_to_string(dir.join(".pylintrc")).unwrap();
         assert!(pylintrc.contains("valid-odoo-versions=18.0"));
         assert!(
             !delonixfile.contains("__TEMPLATE_VERSION__"),
-            "token não substituído"
+            "token not substituted"
         );
     }
 
     /// Without `-v`, the `odoo` template falls back to `template.meta`'s own
     /// default version — the token must never survive by anyone's omission.
     #[test]
-    fn odoo_sem_v_usa_a_versao_por_omissao() {
+    fn odoo_without_v_uses_the_default_version() {
         let (_tmp, dir) = scratch();
         let o = InitOpts {
             dir: dir.clone(),
@@ -2739,7 +2782,7 @@ mod tests {
         let delonixfile = std::fs::read_to_string(dir.join("Delonixfile")).unwrap();
         assert!(
             !delonixfile.contains("__TEMPLATE_VERSION__"),
-            "sem -v, a versão por omissão do template.meta tem de preencher o token:\n{delonixfile}"
+            "without -v, template.meta's default version must fill the token:\n{delonixfile}"
         );
         assert!(
             delonixfile.contains("FROM odoo:20.0"),
@@ -2998,7 +3041,7 @@ mod tests {
     }
 
     #[test]
-    fn nginx_httpd_haproxy_com_v_fixam_a_tag_da_imagem() {
+    fn nginx_httpd_haproxy_with_v_pin_the_image_tag() {
         for (tpl, from_prefix) in [
             ("nginx", "FROM nginx:"),
             ("httpd", "FROM httpd:"),
@@ -3019,11 +3062,11 @@ mod tests {
             let delonixfile = std::fs::read_to_string(dir.join("Delonixfile")).unwrap();
             assert!(
                 delonixfile.contains(&format!("{from_prefix}9.9-alpine")),
-                "{tpl}: Delonixfile não fixou a tag pedida:\n{delonixfile}"
+                "{tpl}: Delonixfile did not pin the requested tag:\n{delonixfile}"
             );
             assert!(
                 !delonixfile.contains("__TEMPLATE_VERSION__"),
-                "{tpl}: token não substituído"
+                "{tpl}: token not substituted"
             );
         }
     }
@@ -3245,7 +3288,13 @@ mod tests {
                     let Ok(text) = std::fs::read_to_string(f) else {
                         continue;
                     };
-                    for token in ["__NAME__", "__MODULE__", "__PORT__", "__TEMPLATE_VERSION__"] {
+                    for token in [
+                        "__NAME__",
+                        "__MODULE__",
+                        "__PORT__",
+                        "__TEMPLATE_VERSION__",
+                        "__DISTROLESS_REGISTRY__",
+                    ] {
                         assert!(!text.contains(token), "{tpl} -v {v}: {token} left in {f:?}");
                     }
                     version_seen |= text.contains(v);
@@ -3447,6 +3496,7 @@ mod tests {
                     "__TLS_PORT__",
                     "__NAME__",
                     "__TEMPLATE_VERSION__",
+                    "__DISTROLESS_REGISTRY__",
                 ] {
                     assert!(
                         !text.contains(token),

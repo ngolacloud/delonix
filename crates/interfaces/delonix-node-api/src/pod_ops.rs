@@ -366,6 +366,8 @@ pub fn create_in(root: &Path, req: &CreatePodRequest) -> Result<Operation, Statu
     if let Some(found) = operations::replay(root, "create", &target, &req.request_id, &fp)? {
         return Ok(operations::message(&found));
     }
+    // A cordoned node refuses a NEW create (ADR-0101 §3), after the idempotent replay.
+    crate::node_meta::ensure_schedulable(root).map_err(|e| crate::network_ops::status_of(&e))?;
     let rec = match operations::begin(root, "create", &target, &req.request_id, &fp)? {
         Begun::Replay(found) => return Ok(operations::message(&found)),
         Begun::New(rec) => rec,

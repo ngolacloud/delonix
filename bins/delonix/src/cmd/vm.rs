@@ -278,7 +278,7 @@ struct VmVolumeSpec {
 
 /// Field names accepted in the `spec` of `kind: VirtualMachine` (canonical + legacy aliases),
 /// for the unknown-field warning. Kept aligned with `VmSpec` by the
-/// test `manifest::tests::examples_nao_tem_campos_desconhecidos`.
+/// test `manifest::tests::examples_have_no_unknown_fields`.
 pub(crate) const VM_SPEC_FIELDS: &[&str] = &[
     "expose",
     "disk",
@@ -759,7 +759,7 @@ const VM_NETWORK_KEYS: &[&str] = &["name", "mode", "bridge", "staticIp", "allowM
 /// Pure, and reading the spec BEFORE `normalize_vm_spec` touches it: after the
 /// hoist the group is gone (`m.remove`), which is why the top-level
 /// unknown-field guard never saw these. Returns dotted paths
-/// (`resources.memoria`) so the message points at the exact line to fix.
+/// (`resources.<subkey>`) so the message points at the exact line to fix.
 ///
 /// `network` is only a group when it is a MAPPING — in the flat form it is a
 /// plain string (the network's name) and has no sub-keys to be wrong about.
@@ -930,6 +930,9 @@ pub enum VmCmd {
         /// local golden VM image (if there is exactly one; `vm image ls`).
         #[arg(long, add = ArgValueCandidates::new(super::complete::vm_images))]
         disk: Option<String>,
+        /// Base distro of the VM (semantic selector: `ubuntu`|`debian`|`rocky`|`fedora`). Without `--disk`/`--url-img` it picks the matching official `base` image and first checks the VM image repository is reachable; with `--disk` it cross-checks the resolved image's own distro and refuses a mismatch
+        #[arg(long, value_enum)]
+        distro: Option<super::vmimage::Distro>,
         /// vCPUs (default: 1, or the image's `VCPUS` — see `HYPERVISOR`/`VCPUS`
         /// in `delonix vm image init` — when `--disk` names a local image).
         #[arg(long)]
@@ -1048,6 +1051,9 @@ pub enum VmCmd {
         /// so a proof of concept can be inspected or restarted before it goes.
         #[arg(long = "rm-after", value_name = "DURATION")]
         rm_after: Option<String>,
+        /// Capture the serial console to a file for `delonix vm logs` (and log shippers) instead of keeping it interactive — `vm console` is then unavailable (one guest serial port).
+        #[arg(long = "capture-serial")]
+        capture_serial: bool,
     },
     /// VM image management — build/pull/push/ls/rm/describe/import/convert/init/ls-remote.
     ///
@@ -1093,9 +1099,13 @@ pub enum VmCmd {
         /// Also list the VMs that are not up (stopped or crashed).
         ///
         /// Without it `ls` shows what is UP — running or paused — the same cut
-        /// `docker ps` makes.
-        #[arg(short = 'A', long)]
+        /// `docker ps` makes. `-a` is accepted too, for `docker ps -a` parity.
+        #[arg(short = 'A', short_alias = 'a', long)]
         all: bool,
+        /// Print only the VM names, one per line (to compose with `rm`/`stop`) —
+        /// the VM analogue of `container ls -q`. Ignored with `-o json`.
+        #[arg(short = 'q', long)]
+        quiet: bool,
         /// Show only the VMs of this isolation namespace (see `vm create
         /// --namespace`). Omit to list every namespace.
         ///
@@ -1124,6 +1134,20 @@ pub enum VmCmd {
         /// Key that detaches the console, as `^X` (default `^D`). Also settable via `$DELONIX_CONSOLE_ESCAPE`.
         #[arg(short = 'e', long = "escape")]
         escape: Option<String>,
+    },
+    /// Read the VM's captured serial console — boot/kernel/systemd/app output.
+    ///
+    /// Needs the VM created with `--capture-serial` (the file a log shipper
+    /// tails). Mirrors `container logs`: non-interactive, follows on `-f`.
+    Logs {
+        #[arg(add = ArgValueCandidates::new(super::complete::vms))]
+        name: String,
+        /// Follow the serial log as new lines arrive (Ctrl-C to stop).
+        #[arg(short = 'f', long = "follow")]
+        follow: bool,
+        /// Print only the last N lines of the existing log first.
+        #[arg(long = "tail", value_name = "N")]
+        tail: Option<usize>,
     },
     /// SSH into a VM by NAME, or straight to an address.
     ///
@@ -3150,9 +3174,9 @@ fn resolve_vm_disk(
     }
 }
 
-/// `base` é a pasta do MANIFESTO (não o cwd), como em `secret::apply`: é
-/// relativamente a ela que o `spec.build.context` se resolve, para um manifesto
-/// querer dizer o mesmo seja de onde for aplicado.
+/// `base` is the MANIFEST's directory (not the cwd), as in `secret::apply`:
+/// `spec.build.context` resolves relative to it, so a manifest means the same
+/// thing no matter where it is applied from.
 /// A VM record's isolation namespace, normalized so an empty string (older
 /// records written before the field existed) reads as `default`.
 ///
@@ -3335,9 +3359,9 @@ pub fn apply(docs: &[ManifestDoc], base_dir: &std::path::Path) -> Result<()> {
         let resolved_keys = resolved_keys?;
 
         let cfg = VmConfig {
-            // O caminho DECLARATIVO ainda não tem tamanho no `VmSpec`: um
-            // `kind: VM` herda o tamanho da imagem. Acrescentá-lo é o passo
-            // seguinte, e é o que liga a quota do inquilino ao manifesto.
+            // The DECLARATIVE path has no size in `VmSpec` yet: a `kind: VM`
+            // inherits the image's size. Adding it is the next step, and it is
+            // what ties the tenant's quota to the manifest.
             disk_size_gib: None,
             // ADR-0068 D3: the hotplug ceilings, validated like the CLI's.
             vcpus_max,
@@ -3351,15 +3375,16 @@ pub fn apply(docs: &[ManifestDoc], base_dir: &std::path::Path) -> Result<()> {
             // Governed by a `scope: vm` policy of this manifest: born closed.
             policy_hold: super::firewall::guest_policy_targets(docs, "vm").contains(name.as_str()),
             name: name.clone(),
-            // `disk` e não `spec.disk`: é o resolvido por `resolve_vm_disk` —
-            // o caminho no disco de uma imagem nossa, ou a tag produzida quando
-            // o manifesto traz `build:`. Usar o campo cru aqui compila, não
-            // avisa de nada relevante, e faz a VM arrancar de uma string vazia
-            // com o `build:` a parecer honrado.
+            // `disk` and not `spec.disk`: this is the one `resolve_vm_disk`
+            // resolved — the on-disk path of one of our images, or the tag
+            // produced when the manifest carries `build:`. Using the raw field
+            // here compiles, warns about nothing relevant, and makes the VM
+            // boot from an empty string with `build:` looking honoured.
             disk,
-            // Idem: os resolvidos, não os do spec — o spec já não traz o
-            // default (é `Option`), porque «omitido» e «1» decidem coisas
-            // diferentes quando a imagem recomenda outra coisa.
+            // Likewise: the resolved values, not the spec's — the spec no
+            // longer carries the default (it is an `Option`), because
+            // «omitted» and «1» decide different things when the image
+            // recommends something else.
             vcpus,
             memory,
             // BEFORE `network` on purpose: this borrows `spec.network`, the
@@ -3515,6 +3540,7 @@ pub fn run(action: VmCmd) -> Result<()> {
             disk_size_gib,
             url_img,
             disk,
+            distro,
             vcpus,
             memory,
             vcpus_max,
@@ -3545,6 +3571,7 @@ pub fn run(action: VmCmd) -> Result<()> {
             boot_timeout,
             rm,
             rm_after,
+            capture_serial,
         } => {
             // The node's runtime policy, BEFORE the image is resolved, fetched
             // or written — the same placement, and the same reason, as
@@ -3586,6 +3613,18 @@ pub fn run(action: VmCmd) -> Result<()> {
                 // say, so nothing else gets consulted — not the local store,
                 // not the official image.
                 (Some(url), _) => {
+                    // `--distro` is a selector for the OFFICIAL base image; a raw
+                    // URL IS the image, so the flag has nothing to select and is
+                    // not silently honoured — the harness forbids a flag that
+                    // looks applied but is not.
+                    if distro.is_some() {
+                        eprintln!(
+                            "{}",
+                            super::po::t(
+                                "--distro is ignored with --url-img (the URL is the image)"
+                            )
+                        );
+                    }
                     let store = super::vmimage::VmImageStore::open(super::util::state_root())?;
                     super::vmimage::download_url_base(&store, &url)?
                         .to_string_lossy()
@@ -3598,16 +3637,46 @@ pub fn run(action: VmCmd) -> Result<()> {
                     let store = super::vmimage::VmImageStore::open(super::util::state_root())?;
                     let (path, meta) = resolve_image_ref(&store, &d);
                     image_meta = meta;
+                    // `--distro` beside an explicit `--disk` is a GUARD, not a
+                    // selector: the disk already chose the image, so the flag
+                    // can only agree with what it actually is. A mismatch is a
+                    // mistake worth stopping (someone asked for Debian and
+                    // pointed at an Ubuntu disk); an image whose metadata does
+                    // not record a distro (pre-v0.17.0, or `vm pull`ed) cannot
+                    // be checked, so it warns instead of refusing.
+                    if let Some(want) = distro {
+                        match image_meta.as_ref().and_then(|m| m.distro.as_deref()) {
+                            Some(have) if have != want.as_str() => {
+                                return Err(Error::Invalid(super::po::tf(
+                                    "--distro {want} does not match image '{disk}', which is {have}",
+                                    &[("want", want.as_str()), ("disk", &d), ("have", have)],
+                                )));
+                            }
+                            Some(_) => {}
+                            None => eprintln!(
+                                "{}",
+                                super::po::tf(
+                                    "--distro {want}: image '{disk}' records no distro, cannot verify",
+                                    &[("want", want.as_str()), ("disk", &d)],
+                                )
+                            ),
+                        }
+                    }
                     path
                 }
                 (None, None) => {
                     let store = super::vmimage::VmImageStore::open(super::util::state_root())?;
-                    // Downloads the official golden when nothing is local — the
-                    // same helper `cluster kubeadm` uses. This path used to
-                    // fail with "run `vm image build` (or `pull`) first",
+                    // With `--distro` the flag selects the official `base` image
+                    // for that distro, after checking the VM image repository is
+                    // reachable. Without it, the single golden VM image is used
+                    // (the same helper `cluster kubeadm` uses) — this path used
+                    // to fail with "run `vm image build` (or `pull`) first",
                     // which is a research task for an image the project
                     // publishes so it never has to be built by hand.
-                    let tag = super::cluster::resolve_or_pull_vm_image(&store, None, None)?;
+                    let tag = match distro {
+                        Some(d) => super::vmimage::resolve_or_pull_base_for_distro(&store, d)?,
+                        None => super::cluster::resolve_or_pull_vm_image(&store, None, None)?,
+                    };
                     image_meta = store.get(&tag).ok();
                     store.qcow2_path(&tag).to_string_lossy().into_owned()
                 }
@@ -3777,6 +3846,10 @@ pub fn run(action: VmCmd) -> Result<()> {
                 vnc,
                 static_ip: ip,
                 allow_mac_spoofing,
+                // Off by default so `vm console` stays interactive; `--capture-serial`
+                // redirects ttyS0 to a file instead, which `vm logs` and a log
+                // shipper read. One guest serial port, so it is one or the other.
+                serial_capture: capture_serial,
                 // Advanced libvirt knobs are declarative-only (`kind: VirtualMachine`), not CLI flags.
                 ..Default::default()
             };
@@ -3965,6 +4038,7 @@ pub fn run(action: VmCmd) -> Result<()> {
             ports,
             output,
             all,
+            quiet,
             namespace,
             credentials,
             reveal,
@@ -4006,6 +4080,15 @@ pub fn run(action: VmCmd) -> Result<()> {
                     })
                     .collect()
             };
+            // `-q` prints one name per line (VMs are addressed by name), after
+            // the same `--all`/`--namespace` filter the table sees. JSON wins
+            // over `--quiet`, the precedence `container ps` also applies.
+            if quiet && output != super::output::OutputFormat::Json {
+                for vm in filter(delonix_vm::list(&base)?) {
+                    println!("{}", vm.name);
+                }
+                return Ok(());
+            }
             let svc_index = super::svc::SvcIndex::load();
             if output == super::output::OutputFormat::Json {
                 let rows: Vec<VmLsRow> = filter(delonix_vm::list(&base)?)
@@ -4096,6 +4179,7 @@ pub fn run(action: VmCmd) -> Result<()> {
             Ok(())
         }
         VmCmd::Console { name, escape } => cmd_console(&base, &name, escape.as_deref()),
+        VmCmd::Logs { name, follow, tail } => cmd_vm_logs(&base, &name, follow, tail),
         VmCmd::Ssh {
             target,
             user,
@@ -5729,6 +5813,90 @@ fn print_vm_next_steps(
 }
 
 /// local tty (raw mode); libvirt: delegates to `virsh console` (which does it).
+/// `vm logs` — the non-interactive sibling of `vm console`: read the VM's
+/// captured serial console from its file. Requires the VM created with
+/// `--capture-serial` (console and capture are mutually exclusive — one guest
+/// serial port). Raw bytes, because the serial stream is not line-tagged like
+/// the CRI container log; a log shipper tails the same `<vmdir>/<name>.serial`.
+pub(crate) fn cmd_vm_logs(
+    base: &std::path::Path,
+    name: &str,
+    follow: bool,
+    tail: Option<usize>,
+) -> Result<()> {
+    use std::io::{Read, Seek, Write};
+    let (ns, bare) = name.split_once('/').unwrap_or(("default", name));
+    let vmdir = delonix_compute::vm::vms_root(base, ns);
+    let vm = delonix_vm::status(base, name)?;
+    let path = delonix_vm::serial_log_path(&vmdir, bare);
+    // A VM without capture has no file to read — and never will, so say how to
+    // get one instead of failing on a missing path. Mirrors the hint `vm
+    // console` prints in the opposite (capture-on) case.
+    if !vm.boot.serial_capture {
+        return Err(Error::Invalid(super::po::tf(
+            "VM '{name}' was not created with --capture-serial, so it keeps an interactive console and writes no serial log — recreate it with `delonix vm create {name} … --capture-serial`, or attach live with `delonix vm console {name}`",
+            &[("name", name)],
+        )));
+    }
+    let mut f = std::fs::File::open(&path).map_err(|e| {
+        // A system hypervisor (libvirt `qemu:///system`) writes the serial file
+        // as root 0600, so a rootless caller gets EACCES, not ENOENT — say which
+        // one, since the fix differs (wait vs. use a rootless backend / sudo).
+        if e.kind() == std::io::ErrorKind::PermissionDenied {
+            Error::Invalid(super::po::tf(
+                "serial log of VM '{name}' at {path} is not readable by this user — the system hypervisor wrote it as root; recreate the VM on a rootless backend (`--backend cloud-hypervisor`) or read it with elevated privileges",
+                &[("name", name), ("path", &path.display().to_string())],
+            ))
+        } else {
+            Error::Invalid(super::po::tf(
+                "no serial log yet for VM '{name}' at {path} — it appears once the VM boots with capture on",
+                &[("name", name), ("path", &path.display().to_string())],
+            ))
+        }
+    })?;
+    let mut out = std::io::stdout();
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf)?;
+    if let Some(n) = tail {
+        // Serial is raw text (no CRI record), so `--tail` is a plain last-N-lines.
+        let text = String::from_utf8_lossy(&buf);
+        let lines: Vec<&str> = text.lines().collect();
+        let start = lines.len().saturating_sub(n);
+        for line in &lines[start..] {
+            println!("{line}");
+        }
+    } else {
+        out.write_all(&buf)?;
+    }
+    if !follow {
+        return Ok(());
+    }
+    // `-f`: the same poll-append loop `container logs -f` uses — reopen if the
+    // file shrinks (serial reset on reboot), end once the VM stops running.
+    let mut pos = f.stream_position()?;
+    loop {
+        out.flush().ok();
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        if len < pos {
+            f = std::fs::File::open(&path)?;
+            pos = 0;
+        }
+        if len > pos {
+            f.seek(std::io::SeekFrom::Start(pos))?;
+            buf.clear();
+            f.read_to_end(&mut buf)?;
+            pos += buf.len() as u64;
+            out.write_all(&buf)?;
+            continue;
+        }
+        let vm = delonix_vm::status(base, name)?;
+        if !matches!(vm.status, delonix_model::records::Status::Running) {
+            return Ok(());
+        }
+    }
+}
+
 pub(crate) fn cmd_console(base: &std::path::Path, name: &str, escape: Option<&str>) -> Result<()> {
     // The console/serial sockets live beside the record, in the VM's own
     // namespace directory (ADR-0086 D7). `name` may be qualified `ns/name`; the
@@ -6606,16 +6774,16 @@ mod tests {
         assert!(delonix_vm::valid_backend_name("$(id)").is_err());
     }
 
-    /// Exactamente um de `disk`/`build`, e as duas recusas dizem coisas
-    /// diferentes porque os enganos são diferentes: nenhum é um manifesto sem
-    /// nada para arrancar, os dois é um manifesto com duas respostas que não se
-    /// conciliam. Deixar o `disk` ganhar em silêncio faria o bloco `build:`
-    /// parecer honrado enquanto era ignorado.
+    /// Exactly one of `disk`/`build`, and the two refusals say different
+    /// things because the mistakes are different: neither is a manifest with
+    /// nothing to boot, both is a manifest with two answers that do not
+    /// reconcile. Letting `disk` win in silence would make the `build:` block
+    /// look honoured while it was ignored.
     #[test]
-    fn um_kind_vm_precisa_de_exactamente_um_de_disk_ou_build() {
+    fn a_kind_vm_needs_exactly_one_of_disk_or_build() {
         let dir = std::path::Path::new(".");
         let spec = |y: &str| -> super::VmSpec { serde_yaml::from_str(y).unwrap() };
-        let (_tmp, store) = store_de_teste();
+        let (_tmp, store) = test_store();
 
         let e = super::resolve_vm_disk(&store, "v", &spec("disk: img\nbuild: {tag: x}"), dir)
             .unwrap_err();
@@ -6624,8 +6792,8 @@ mod tests {
         let e = super::resolve_vm_disk(&store, "v", &spec("vcpus: 1"), dir).unwrap_err();
         assert!(e.to_string().contains("needs"), "{e}");
 
-        // Um nome que o store não conhece passa tal e qual — é um caminho, e
-        // quem o valida é o motor ao canonicalizá-lo.
+        // A name the store does not know passes through as-is — it is a path,
+        // and the engine is what validates it when it canonicalizes it.
         assert_eq!(
             super::resolve_vm_disk(&store, "v", &spec("disk: /imagens/minha.qcow2"), dir)
                 .unwrap()
@@ -6634,19 +6802,19 @@ mod tests {
         );
     }
 
-    /// Um store vazio numa pasta temporária, para a resolução se poder provar
-    /// sem depender das imagens que este host por acaso tenha. The folder is
+    /// An empty store in a temp directory, so resolution can be proven without
+    /// depending on whatever images this host happens to have. The folder is
     /// removed when the returned guard drops, also when an assert fails.
-    fn store_de_teste() -> (tempfile::TempDir, super::super::vmimage::VmImageStore) {
+    fn test_store() -> (tempfile::TempDir, super::super::vmimage::VmImageStore) {
         let dir = tempfile::tempdir().unwrap();
         let store = super::super::vmimage::VmImageStore::open(dir.path()).unwrap();
         (dir, store)
     }
 
-    fn imagem_de_teste(nome: &str) -> super::super::vmimage::VmImage {
+    fn test_image(name: &str) -> super::super::vmimage::VmImage {
         super::super::vmimage::VmImage {
-            name: nome.to_string(),
-            tag: nome.to_string(),
+            name: name.to_string(),
+            tag: name.to_string(),
             digest: "sha256:0".into(),
             size: 1,
             ubuntu_release: None,
@@ -6662,15 +6830,15 @@ mod tests {
         }
     }
 
-    /// **O bug**: `--disk <nome-local>` funcionava e `spec.disk: <nome-local>`
-    /// respondia `image not found`, porque só a CLI consultava o store. A
-    /// consequência grave não era o erro — era o silêncio ao lado dele: sem os
-    /// metadados, o manifesto não sabia que a imagem é um APPLIANCE e gerava-lhe
-    /// um seed de cloud-init que a CLI recusa em voz alta.
+    /// **The bug**: `--disk <local-name>` worked and `spec.disk: <local-name>`
+    /// answered `image not found`, because only the CLI consulted the store.
+    /// The serious consequence was not the error — it was the silence beside
+    /// it: without the metadata, the manifest did not know the image is an
+    /// APPLIANCE and generated it a cloud-init seed the CLI refuses out loud.
     #[test]
-    fn o_manifesto_resolve_um_nome_de_imagem_local_como_a_cli() {
-        let (_tmp, store) = store_de_teste();
-        let mut img = imagem_de_teste("opnsense:26.1");
+    fn the_manifest_resolves_a_local_image_name_like_the_cli() {
+        let (_tmp, store) = test_store();
+        let mut img = test_image("opnsense:26.1");
         img.cloud_init = Some(false);
         img.default_vcpus = Some(2);
         img.default_memory = Some("2G".into());
@@ -6683,77 +6851,76 @@ mod tests {
         assert_eq!(
             disk,
             store.qcow2_path("opnsense:26.1").to_string_lossy(),
-            "o motor canonicaliza o disco no sistema de ficheiros: tem de vir o CAMINHO, não o nome"
+            "the engine canonicalizes the disk on the filesystem: the PATH must come back, not the name"
         );
-        let meta = meta.expect("os metadados da imagem têm de vir com o disco");
+        let meta = meta.expect("the image's metadata must come with the disk");
         assert!(
             !meta.uses_cloud_init(),
-            "sem isto o apply não distingue um appliance de uma cloud image"
+            "without this, apply does not tell an appliance from a cloud image"
         );
     }
 
-    /// **O resíduo do bug acima**: o MESMO appliance, referido pelo caminho do
-    /// seu próprio qcow2 em vez do nome, não trazia metadados nenhuns — logo a
-    /// recusa de cloud-init não disparava e os defaults da imagem não se
-    /// aplicavam. E o caminho absoluto é exactamente o contorno natural de quem
-    /// levou `image not found` com o nome, ou seja: a verificação era
-    /// contornável pela jogada que o próprio bug anterior ensinava.
+    /// **The residue of the bug above**: the SAME appliance, referred to by
+    /// the path of its own qcow2 instead of the name, carried no metadata at
+    /// all — so the cloud-init refusal did not fire and the image's defaults
+    /// did not apply. And the absolute path is exactly the natural workaround
+    /// for someone who hit `image not found` with the name, that is: the check
+    /// was bypassable by the very move the previous bug taught.
     ///
-    /// As duas grafias têm de devolver a MESMA string, senão trocar de uma para
-    /// a outra lê-se como deriva — e uma deriva de `Vm` é um `Replace`, que
-    /// deita fora o disco overlay.
+    /// The two spellings must return the SAME string, otherwise switching from
+    /// one to the other reads as drift — and a drift of a `Vm` is a `Replace`,
+    /// which throws away the overlay disk.
     #[test]
-    fn o_caminho_do_qcow2_de_uma_imagem_do_store_resolve_como_o_nome() {
-        let (tmp, store) = store_de_teste();
-        let mut img = imagem_de_teste("opnsense:26.1");
+    fn the_qcow2_path_of_a_store_image_resolves_like_the_name() {
+        let (tmp, store) = test_store();
+        let mut img = test_image("opnsense:26.1");
         img.cloud_init = Some(false);
         img.default_vcpus = Some(2);
         img.default_memory = Some("2G".into());
         store.save(&img).unwrap();
-        // O ficheiro tem de EXISTIR: a correspondência é por caminho
-        // canonicalizado, e canonicalizar exige o ficheiro no disco.
+        // The file must EXIST: the match is by canonicalized path, and
+        // canonicalizing requires the file on disk.
         let qcow2 = store.qcow2_path("opnsense:26.1");
         std::fs::write(&qcow2, b"").unwrap();
 
-        let por_nome = super::resolve_image_ref(&store, "opnsense:26.1");
-        let por_caminho = super::resolve_image_ref(&store, &qcow2.to_string_lossy());
+        let by_name = super::resolve_image_ref(&store, "opnsense:26.1");
+        let by_path = super::resolve_image_ref(&store, &qcow2.to_string_lossy());
 
         assert_eq!(
-            por_caminho.0, por_nome.0,
-            "duas grafias da mesma imagem, duas strings: deriva eterna no plano"
+            by_path.0, by_name.0,
+            "two spellings of the same image, two strings: eternal drift in the plan"
         );
-        let meta = por_caminho
+        let meta = by_path
             .1
-            .expect("um caminho para dentro do store é a imagem do store");
+            .expect("a path into the store is the store's image");
         assert!(
             !meta.uses_cloud_init(),
-            "sem isto o appliance volta a aceitar hostname/sshKeys e ganha um seed que nunca lê"
+            "without this the appliance accepts hostname/sshKeys again and gains a seed it never reads"
         );
-        assert_eq!(
-            meta.default_vcpus,
-            Some(2),
-            "e os defaults da imagem também"
-        );
+        assert_eq!(meta.default_vcpus, Some(2), "and the image's defaults too");
 
-        // Um qcow2 que NÃO é do store continua a resolver-se a si próprio, sem
-        // metadados — é o que se sabe dele, e é honesto dizê-lo.
-        let fora = tmp.path().join("alheio.qcow2");
-        std::fs::write(&fora, b"").unwrap();
-        let (disk, meta) = super::resolve_image_ref(&store, &fora.to_string_lossy());
-        assert_eq!(disk, fora.to_string_lossy());
-        assert!(meta.is_none(), "nada neste host diz o que este disco é");
+        // A qcow2 that is NOT the store's still resolves to itself, with no
+        // metadata — it is what is known about it, and it is honest to say so.
+        let outside = tmp.path().join("alheio.qcow2");
+        std::fs::write(&outside, b"").unwrap();
+        let (disk, meta) = super::resolve_image_ref(&store, &outside.to_string_lossy());
+        assert_eq!(disk, outside.to_string_lossy());
+        assert!(
+            meta.is_none(),
+            "nothing on this host says what this disk is"
+        );
     }
 
-    /// A recusa que a CLI já fazia, agora também pelo manifesto — e a nomear os
-    /// campos que o manifesto escreve, não as flags que ele não tem.
+    /// The refusal the CLI already did, now from the manifest too — and naming
+    /// the fields the manifest writes, not the flags it does not have.
     #[test]
-    fn os_campos_de_cloud_init_de_um_appliance_sao_recusados_a_nomea_los() {
+    fn an_appliances_cloud_init_fields_are_refused_by_naming_them() {
         super::refuse_cloud_init_on_appliance(&[
             (false, "hostname"),
             (false, "sshKeys"),
             (false, "userData"),
         ])
-        .expect("nada pedido, nada a recusar");
+        .expect("nothing requested, nothing to refuse");
 
         let e = super::refuse_cloud_init_on_appliance(&[
             (true, "hostname"),
@@ -6763,18 +6930,18 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(e.contains("hostname, userData"), "{e}");
-        assert!(!e.contains("sshKeys"), "só o que foi pedido: {e}");
+        assert!(!e.contains("sshKeys"), "only what was requested: {e}");
     }
 
-    /// **Deriva eterna, evitada.** O `apply` grava o CAMINHO e os defaults da
-    /// imagem; um plano que comparasse o nome cru e o `1`/`1G` do manifesto
-    /// proporia um `Replace` a cada corrida — e um `Replace` de VM é recusado
-    /// sem `--replace` porque deita fora o disco overlay. Os dois lados passam
-    /// pelas MESMAS duas funções.
+    /// **Eternal drift, avoided.** `apply` records the PATH and the image's
+    /// defaults; a plan that compared the raw name and the manifest's `1`/`1G`
+    /// would propose a `Replace` on every run — and a VM `Replace` is refused
+    /// without `--replace` because it throws away the overlay disk. Both sides
+    /// go through the SAME two functions.
     #[test]
-    fn o_plano_compara_o_mesmo_que_o_apply_grava() {
-        let (_tmp, store) = store_de_teste();
-        let mut img = imagem_de_teste("golden:1");
+    fn the_plan_compares_the_same_thing_apply_records() {
+        let (_tmp, store) = test_store();
+        let mut img = test_image("golden:1");
         img.default_vcpus = Some(4);
         img.default_memory = Some("8G".into());
         img.default_backend = Some("libvirt".into());
@@ -6788,7 +6955,7 @@ mod tests {
         assert_eq!(f["memory"], "8G");
         assert_eq!(f["backend"], "libvirt");
 
-        // E o que o manifesto DIZ continua a ganhar à imagem.
+        // And what the manifest SAYS still wins over the image.
         let spec: super::VmSpec =
             serde_yaml::from_str("disk: golden:1\nvcpus: 1\nmemory: 512M").unwrap();
         let f = super::desired_vm_fields(&store, "vm1", &spec);
@@ -6801,8 +6968,8 @@ mod tests {
     /// the store gives nothing. The declared block is compared and hot.
     #[test]
     fn a_vm_login_is_declared_or_comes_from_its_appliance_image() {
-        let (_tmp, store) = store_de_teste();
-        let img = imagem_de_teste("proxmox-ve:9.2");
+        let (_tmp, store) = test_store();
+        let img = test_image("proxmox-ve:9.2");
         store.save(&img).unwrap();
         let disk = store.qcow2_path("proxmox-ve:9.2");
         std::fs::write(&disk, b"qcow2").unwrap();
@@ -6841,12 +7008,13 @@ mod tests {
         assert!(delonix_stack::reconcile::hot_fields_for(super::k::VM).contains(&"credentials"));
     }
 
-    /// O `context` resolve-se contra a pasta do MANIFESTO e não contra o cwd —
-    /// um manifesto tem de querer dizer o mesmo seja de onde for aplicado. Aqui
-    /// prova-se pelo caminho que a recusa NOMEIA quando o VMfile falta.
+    /// `context` resolves against the MANIFEST's directory and not the cwd — a
+    /// manifest has to mean the same thing no matter where it is applied from.
+    /// Here it is proven by the path the refusal NAMES when the VMfile is
+    /// missing.
     #[test]
-    fn o_contexto_do_build_e_relativo_ao_manifesto_e_nao_ao_cwd() {
-        let (_tmp, store) = store_de_teste();
+    fn the_build_context_is_relative_to_the_manifest_not_the_cwd() {
+        let (_tmp, store) = test_store();
         let spec: super::VmSpec = serde_yaml::from_str("build: {context: sub}").unwrap();
         let e = super::resolve_vm_disk(&store, "v", &spec, std::path::Path::new("/tmp/proj"))
             .unwrap_err()
@@ -6889,7 +7057,7 @@ mod tests {
     /// `valid_vm_name` allows dots, so a VM could be called `a.b` and the store
     /// has to win. This guards the tie-breaker, not the lookup order.
     #[test]
-    fn looks_like_address_so_decide_o_desempate() {
+    fn looks_like_address_only_decides_the_tiebreak() {
         for a in [
             "192.168.122.50",
             "10.0.0.1",
@@ -6897,16 +7065,16 @@ mod tests {
             "fe80::1",
             "host:2222",
         ] {
-            assert!(looks_like_address(a), "'{a}' parece um endereço");
+            assert!(looks_like_address(a), "'{a}' looks like an address");
         }
         for n in ["dev", "demovm", "vm1", "kaeso-odoo18"] {
-            assert!(!looks_like_address(n), "'{n}' é um nome de VM");
+            assert!(!looks_like_address(n), "'{n}' is a VM name");
         }
     }
     #[test]
-    fn resolve_vm_defaults_cli_explicito_ganha_a_imagem() {
+    fn resolve_vm_defaults_explicit_cli_wins_over_the_image() {
         let img = image_with_defaults(Some(4), Some("4G".into()), Some("cloud-hypervisor".into()));
-        // O CLI diz tudo — a imagem é ignorada por inteiro.
+        // The CLI says everything — the image is ignored entirely.
         assert_eq!(
             resolve_vm_defaults(
                 Some(2),
@@ -6919,7 +7087,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_vm_defaults_cai_para_a_imagem_quando_o_cli_nao_diz_nada() {
+    fn resolve_vm_defaults_falls_back_to_the_image_when_the_cli_says_nothing() {
         let img = image_with_defaults(Some(4), Some("4G".into()), Some("libvirt".into()));
         assert_eq!(
             resolve_vm_defaults(None, None, None, Some(&img)),
@@ -6928,7 +7096,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_vm_defaults_sem_cli_nem_imagem_usa_1_vcpu_1g_e_backend_none() {
+    fn resolve_vm_defaults_with_no_cli_or_image_uses_1_vcpu_1g_and_backend_none() {
         assert_eq!(
             resolve_vm_defaults(None, None, None, None),
             (1, "1G".to_string(), None)
@@ -6936,8 +7104,8 @@ mod tests {
     }
 
     #[test]
-    fn resolve_vm_defaults_campo_a_campo_da_imagem_so_preenche_o_que_falta_no_cli() {
-        // A imagem só tem VCPUS — MEMORY/HYPERVISOR ficam nos defaults finais.
+    fn resolve_vm_defaults_field_by_field_the_image_only_fills_what_the_cli_omits() {
+        // The image only has VCPUS — MEMORY/HYPERVISOR stay at the final defaults.
         let img = image_with_defaults(Some(8), None, None);
         assert_eq!(
             resolve_vm_defaults(None, None, None, Some(&img)),
@@ -6946,16 +7114,16 @@ mod tests {
     }
 
     #[test]
-    fn vm_role_le_o_sufixo_determinístico_do_cluster_kubeadm() {
+    fn vm_role_reads_the_deterministic_suffix_of_the_kubeadm_cluster() {
         assert_eq!(vm_role("lab-cp1"), "control-plane");
         assert_eq!(vm_role("lab-cp12"), "control-plane");
         assert_eq!(vm_role("lab-w1"), "worker");
         assert_eq!(vm_role("prod-w3"), "worker");
-        // Nada disto é um nó de cluster kubeadm — sem papel a reportar.
+        // None of these is a kubeadm cluster node — no role to report.
         assert_eq!(vm_role("dev"), "-");
         assert_eq!(vm_role("my-custom-vm"), "-");
-        assert_eq!(vm_role("lab-cp"), "-"); // sem número, não bate no padrão
-        assert_eq!(vm_role("lab-cpx"), "-"); // sufixo não-numérico
+        assert_eq!(vm_role("lab-cp"), "-"); // no number, does not match the pattern
+        assert_eq!(vm_role("lab-cpx"), "-"); // non-numeric suffix
     }
 
     /// `vm ls`'s ROLE column and `cluster ls`'s membership must decode the
@@ -6978,7 +7146,7 @@ mod tests {
     }
 
     #[test]
-    fn fmt_vm_gpu_conta_dispositivos_passthrough() {
+    fn fmt_vm_gpu_counts_passthrough_devices() {
         assert_eq!(fmt_vm_gpu(&[]), "-");
         assert_eq!(fmt_vm_gpu(&["0000:65:00.1".to_string()]), "1 dev");
         assert_eq!(
@@ -6988,31 +7156,31 @@ mod tests {
     }
 
     #[test]
-    fn fmt_vm_uptime_distingue_parado_de_a_correr() {
+    fn fmt_vm_uptime_distinguishes_stopped_from_running() {
         assert_eq!(fmt_vm_uptime(None), "-");
         let five_min_ago = super::output::now_unix().saturating_sub(300);
         assert_eq!(fmt_vm_uptime(Some(five_min_ago)), "Up 5 minutes");
     }
 
     #[test]
-    fn parse_ip_gateways_pega_so_as_virbr() {
+    fn parse_ip_gateways_takes_only_the_virbr() {
         let out = "\
 lo               UNKNOWN        127.0.0.1/8
 virbr0           UP             192.168.122.1/24
 br0              DOWN           10.0.0.1/24
 virbr1           UP             10.10.100.1/24
 delonix0         UNKNOWN        10.200.0.1/16";
-        // Só as bridges libvirt (virbr*) são gateways de VM — nem o delonix0
-        // (SDN, no netns do holder) nem br0 (bridge de host qualquer) entram.
+        // Only the libvirt bridges (virbr*) are VM gateways — neither delonix0
+        // (SDN, in the holder's netns) nor br0 (some arbitrary host bridge) count.
         assert_eq!(parse_ip_gateways(out), vec!["192.168.122.1", "10.10.100.1"]);
     }
 
     #[test]
-    fn parse_proc_net_classifica_loopback_vs_gateway() {
-        // Capturado de /proc/net/tcp e /proc/net/tcp6: endereço e porta em hex,
-        // little-endian por palavra de 32 bits; estado 0A = LISTEN, 01 = ESTAB.
-        // 0100007F=127.0.0.1, 017AA8C0=192.168.122.1, 00000000=0.0.0.0 (e [::]);
-        // portas 1F85=8069, 469D=18077, 0016=22, 01BB=443, 1F86=8070.
+    fn parse_proc_net_classifies_loopback_vs_gateway() {
+        // Captured from /proc/net/tcp and /proc/net/tcp6: address and port in
+        // hex, little-endian per 32-bit word; state 0A = LISTEN, 01 = ESTAB.
+        // 0100007F=127.0.0.1, 017AA8C0=192.168.122.1, 00000000=0.0.0.0 (and [::]);
+        // ports 1F85=8069, 469D=18077, 0016=22, 01BB=443, 1F86=8070.
         let tcp = "\
   sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
    0: 0100007F:1F85 00000000:0000 0A 00000000:00000000 00:00000000  1000  0 1 1
@@ -7031,18 +7199,19 @@ delonix0         UNKNOWN        10.200.0.1/16";
             Some("192.168.122.1")
         ); // gateway → VM-reachable
         assert_eq!(m.get("tcp/22").map(String::as_str), Some("0.0.0.0")); // all ifaces
-        assert_eq!(m.get("tcp/443").map(String::as_str), Some("[::]")); // IPv6, igual ao que o ss imprimia
-                                                                        // Estado 01 (ESTABLISHED), não LISTEN → não é porta publicada, fica de fora.
+        assert_eq!(m.get("tcp/443").map(String::as_str), Some("[::]")); // IPv6, same as what ss printed
+                                                                        // State 01 (ESTABLISHED), not LISTEN → not a published port, left out.
         assert!(!m.contains_key("tcp/8070"));
     }
 
-    /// UDP é sem ligação: um publish em escuta é um socket sem par (porta remota
-    /// 0000). Um socket UDP com par é um fluxo de saída, não um serviço ligado, e
-    /// tem de ser ignorado — como o `ss -ul` faz. E `udp/5070` não pode colidir com
-    /// `tcp/5070`: a chave leva o transporte à frente.
+    /// UDP is connectionless: a publish that is listening is a socket with no
+    /// peer (remote port 0000). A UDP socket with a peer is an outbound flow,
+    /// not a bound service, and must be ignored — as `ss -ul` does. And
+    /// `udp/5070` must not collide with `tcp/5070`: the key carries the
+    /// transport up front.
     #[test]
-    fn parse_proc_net_udp_so_desconectados_e_chave_por_transporte() {
-        // 13CE=5070, 1F40=8000; 3039 é uma porta remota != 0 (socket ligado).
+    fn parse_proc_net_udp_only_disconnected_and_key_by_transport() {
+        // 13CE=5070, 1F40=8000; 3039 is a remote port != 0 (connected socket).
         let udp = "\
   sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
    0: 00000000:13CE 00000000:0000 07 00000000:00000000 00:00000000  1000  0 1 1
@@ -7055,14 +7224,14 @@ delonix0         UNKNOWN        10.200.0.1/16";
         parse_proc_net_binds(tcp, "tcp", true, &mut m);
         assert_eq!(m.get("udp/5070").map(String::as_str), Some("0.0.0.0"));
         assert_eq!(m.get("tcp/5070").map(String::as_str), Some("127.0.0.1"));
-        // UDP ligado (porta remota != 0) não conta como "listening".
+        // Connected UDP (remote port != 0) does not count as "listening".
         assert!(!m.contains_key("udp/8000"));
     }
 
     #[test]
-    fn parse_proc_net_prefere_nao_loopback_quando_a_porta_tem_dois() {
-        // 2328=9000. Uma porta com listener em loopback E no gateway conta como
-        // alcançável (o gateway vence, mesmo entrando o loopback primeiro).
+    fn parse_proc_net_prefers_non_loopback_when_the_port_has_two() {
+        // 2328=9000. A port with a listener on loopback AND on the gateway
+        // counts as reachable (the gateway wins, even if loopback comes first).
         let tcp = "\
   sl  local_address rem_address   st rest...
    0: 0100007F:2328 00000000:0000 0A 00000000:00000000 00:00000000  1000  0 1 1
@@ -7073,15 +7242,15 @@ delonix0         UNKNOWN        10.200.0.1/16";
     }
 
     #[test]
-    fn vmspec_aceita_snake_case_legado_e_camel_case_canonico() {
+    fn vmspec_accepts_legacy_snake_case_and_canonical_camel_case() {
         // Legacy (snake_case) — must not break.
-        let legado: VmSpec = serde_yaml::from_str(
+        let legacy: VmSpec = serde_yaml::from_str(
             "disk: d\nrestart_policy: always\ncpu_affinity: 0-3\nnet_mode: nat\n",
         )
         .unwrap();
-        assert_eq!(legado.restart_policy.as_deref(), Some("always"));
-        assert_eq!(legado.cpu_affinity.as_deref(), Some("0-3"));
-        assert_eq!(legado.net_mode.as_deref(), Some("nat"));
+        assert_eq!(legacy.restart_policy.as_deref(), Some("always"));
+        assert_eq!(legacy.cpu_affinity.as_deref(), Some("0-3"));
+        assert_eq!(legacy.net_mode.as_deref(), Some("nat"));
         // Canonical (camelCase) — the new form in the examples.
         let canon: VmSpec = serde_yaml::from_str(
             "disk: d\nrestartPolicy: always\ncpuAffinity: 0-3\nnetMode: nat\n",
@@ -7208,34 +7377,34 @@ delonix0         UNKNOWN        10.200.0.1/16";
     /// `Summary: 1 to adopt` and not one word about them. Reverting the
     /// condition makes this fail.
     #[test]
-    fn os_campos_nao_convergidos_de_uma_vm_existente_sao_nomeados() {
+    fn an_existing_vms_unconverged_fields_are_named() {
         let doc = vm_doc(
             "disk: d\nvcpus: 2\nmemory: 2G\nnetwork: ingress\nbackend: libvirt\n\
              tpm: true\nvnc: true\nmachine: q35\n",
         );
-        let c = unconverged_fields_condition(&doc, None).expect("tinha de assinalar");
+        let c = unconverged_fields_condition(&doc, None).expect("had to flag");
         assert_eq!(c.reason, "FieldsNotCompared");
-        for esperado in ["tpm", "vnc", "machine"] {
+        for expected in ["tpm", "vnc", "machine"] {
             assert!(
-                c.message.contains(esperado),
-                "faltou '{esperado}': {}",
+                c.message.contains(expected),
+                "missing '{expected}': {}",
                 c.message
             );
         }
-        // …e NUNCA nomeia um campo que o reconciliador compara de facto: isso
-        // mandaria o leitor procurar um problema que não existe. A asserção tem
-        // de olhar SÓ para a lista — a frase inteira nomeia os comparados de
-        // propósito, na parte que explica o que É comparado.
-        let listados = c
+        // …and it NEVER names a field the reconciler actually compares: that
+        // would send the reader looking for a problem that does not exist. The
+        // assertion has to look ONLY at the list — the whole sentence names the
+        // compared ones on purpose, in the part that explains what IS compared.
+        let listed = c
             .message
             .split(": ")
             .nth(1)
             .and_then(|s| s.split(" — ").next())
-            .expect("a mensagem tem de trazer a lista antes do travessão");
-        for comparado in RECONCILED_VM_FIELDS {
+            .expect("the message must carry the list before the dash");
+        for compared in RECONCILED_VM_FIELDS {
             assert!(
-                !listados.split(", ").any(|f| f == *comparado),
-                "'{comparado}' é comparado e não devia estar na lista: {listados}"
+                !listed.split(", ").any(|f| f == *compared),
+                "'{compared}' is compared and should not be in the list: {listed}"
             );
         }
     }
@@ -7268,7 +7437,7 @@ delonix0         UNKNOWN        10.200.0.1/16";
     /// to warn about — and a warning that fires on a correct manifest is how
     /// people learn to stop reading warnings.
     #[test]
-    fn uma_vm_so_com_campos_convergidos_nao_avisa() {
+    fn a_vm_with_only_converged_fields_does_not_warn() {
         let doc = vm_doc("disk: d\nvcpus: 2\nmemory: 2G\nnetwork: ingress\nbackend: libvirt\n");
         assert!(unconverged_fields_condition(&doc, None).is_none());
     }
@@ -7300,7 +7469,7 @@ delonix0         UNKNOWN        10.200.0.1/16";
     }
 
     #[test]
-    fn normalize_vm_spec_deixa_a_forma_plana_intacta() {
+    fn normalize_vm_spec_leaves_the_flat_shape_intact() {
         // The historic flat shape must pass through byte-for-byte-equivalent
         // (no group keys present — the whole function is a no-op on it).
         let flat: serde_yaml::Value = serde_yaml::from_str(
@@ -7362,7 +7531,7 @@ delonix0         UNKNOWN        10.200.0.1/16";
     }
 
     #[test]
-    fn normalize_vm_spec_hoisteia_todos_os_grupos_para_a_forma_plana() {
+    fn normalize_vm_spec_hoists_every_group_to_the_flat_shape() {
         let grouped: serde_yaml::Value = serde_yaml::from_str(
             "disk: k8s-golden\n\
              resources:\n\
@@ -7409,12 +7578,12 @@ delonix0         UNKNOWN        10.200.0.1/16";
         assert_eq!(spec.libvirt_xml_overlay, vec!["<serial/>".to_string()]);
     }
 
-    /// O buraco que isto fecha: o hoist copia as sub-chaves que conhece e
-    /// depois APAGA o grupo, por isso uma mal escrita desaparecia sem aviso —
-    /// medido num container, onde `resources: {memoria: 128M}` deu um container
-    /// sem limite de memória nenhum e exit 0.
+    /// The gap this closes: the hoist copies the sub-keys it knows and then
+    /// DELETES the group, so a misspelled one vanished with no warning —
+    /// measured in a container, where a `resources:` group with a mistyped
+    /// sub-key gave a container with no memory ceiling at all and exit 0.
     #[test]
-    fn sub_chave_desconhecida_no_grupo_e_reportada() {
+    fn an_unknown_sub_key_in_a_group_is_reported() {
         use super::unknown_group_keys;
         let v: serde_yaml::Value = serde_yaml::from_str(
             "disk: d\nresources:\n  vcpus: 2\n  memoria: 1G\nnetwork:\n  name: n\n  modo: nat\n",
@@ -7425,10 +7594,10 @@ delonix0         UNKNOWN        10.200.0.1/16";
         assert_eq!(got, vec!["network.modo", "resources.memoria"]);
     }
 
-    /// A forma plana não tem grupos — e `network` plano é uma STRING, não um
-    /// mapa: nada para reportar, ou o aviso disparava em cada manifesto antigo.
+    /// The flat shape has no groups — and a flat `network` is a STRING, not a
+    /// map: nothing to report, or the warning would fire on every old manifest.
     #[test]
-    fn forma_plana_nao_gera_avisos_de_grupo() {
+    fn flat_shape_generates_no_group_warnings() {
         use super::unknown_group_keys;
         let v: serde_yaml::Value =
             serde_yaml::from_str("disk: d\nvcpus: 2\nnetwork: minha-rede\n").unwrap();
@@ -7436,7 +7605,7 @@ delonix0         UNKNOWN        10.200.0.1/16";
     }
 
     #[test]
-    fn normalize_vm_spec_forma_plana_explicita_ganha_ao_grupo() {
+    fn normalize_vm_spec_explicit_flat_shape_wins_over_the_group() {
         // A field set BOTH at the flat top level and inside a group — the
         // explicit flat value wins (unambiguous precedence, not "whichever
         // the map happens to iterate last").
@@ -7447,17 +7616,17 @@ delonix0         UNKNOWN        10.200.0.1/16";
         assert_eq!(
             spec.vcpus,
             Some(8),
-            "o vcpus plano explícito devia ganhar ao do grupo"
+            "the explicit flat vcpus should win over the group's"
         );
         assert_eq!(
             spec.memory.as_deref(),
             Some("1G"),
-            "sem colisão, o do grupo aplica-se na mesma"
+            "with no collision, the group's still applies"
         );
     }
 
     #[test]
-    fn status_de_vm_usa_o_vocabulario_da_cli() {
+    fn vm_status_uses_the_cli_vocabulary() {
         assert_eq!(fmt_vm_status(&Status::Running), "Running");
         assert_eq!(fmt_vm_status(&Status::Stopped), "Stopped");
         // `{:?}` would give "Failed(137)"; the rest of the CLI says "Exited (137)".
@@ -7466,7 +7635,7 @@ delonix0         UNKNOWN        10.200.0.1/16";
     }
 
     #[test]
-    fn vol_tag_saneia_e_trunca() {
+    fn vol_tag_sanitizes_and_truncates() {
         assert_eq!(super::vol_tag("nas-creds.db"), "nas_creds_db");
         assert_eq!(super::vol_tag(&"x".repeat(40)).len(), 31);
         // `.` and `-` both collapse to `_` → same base (uniqueness is in resolve).
@@ -7474,12 +7643,12 @@ delonix0         UNKNOWN        10.200.0.1/16";
     }
 
     #[test]
-    fn valid_mount_path_rejeita_relativos_e_chars_que_partem_o_yaml() {
+    fn valid_mount_path_rejects_relative_and_chars_that_break_the_yaml() {
         assert!(super::valid_mount_path("/mnt/dados"));
         assert!(super::valid_mount_path("/mnt/com espaco")); // space is ok (goes between quotes)
         assert!(!super::valid_mount_path("relativo/x")); // not absolute
         for bad in ["/mnt/a,b", "/mnt/a]b", "/mnt/a\"b", "/mnt/a#b", "/mnt/a\nb"] {
-            assert!(!super::valid_mount_path(bad), "{bad:?} devia ser rejeitado");
+            assert!(!super::valid_mount_path(bad), "{bad:?} must be rejected");
         }
     }
 

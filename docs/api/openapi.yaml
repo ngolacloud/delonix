@@ -1616,6 +1616,115 @@ paths:
                         application/problem+json:
                             schema:
                                 $ref: '#/components/schemas/Problem'
+    /v1/node/workloads/{pid}:attest:
+        get:
+            tags:
+                - NodeService
+            description: |-
+                Workload attestation (ADR-0102): given a host PID, the workload that owns it,
+                 the image digest it runs and its labels — the facts a node-local SPIFFE
+                 attestor needs, exposed as a plain read-only operation. An unmatched PID is a
+                 normal answer (`found: false`), never an error.
+            operationId: NodeService_AttestWorkload
+            parameters:
+                - name: pid
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/delonix.node.v1.WorkloadAttestation'
+                default:
+                    description: An error, as an RFC 9457 problem document (ADR-0042 D2).
+                    content:
+                        application/problem+json:
+                            schema:
+                                $ref: '#/components/schemas/Problem'
+    /v1/node:setLabels:
+        post:
+            tags:
+                - NodeService
+            description: |-
+                The node's scheduling write surface (ADR-0101, A6). Each replaces ONE dimension
+                 of the node record and returns the resulting NodeInfo. No FieldMask (A4 proved it
+                 does not transcode over REST): the body carries the whole dimension. Mutating, so
+                 A3 (ADR-0098) authorizes by cert identity and audits every call.
+            operationId: NodeService_SetNodeLabels
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/delonix.node.v1.SetNodeLabelsRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/delonix.node.v1.NodeInfo'
+                default:
+                    description: An error, as an RFC 9457 problem document (ADR-0042 D2).
+                    content:
+                        application/problem+json:
+                            schema:
+                                $ref: '#/components/schemas/Problem'
+    /v1/node:setSchedulability:
+        post:
+            tags:
+                - NodeService
+            description: |-
+                Cordon (unschedulable=true) or uncordon (false). A cordoned node REFUSES a new
+                 workload create with DX-5003 (ADR-0101 §3) — enforced at the node, not advisory.
+            operationId: NodeService_SetSchedulability
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/delonix.node.v1.SetSchedulabilityRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/delonix.node.v1.NodeInfo'
+                default:
+                    description: An error, as an RFC 9457 problem document (ADR-0042 D2).
+                    content:
+                        application/problem+json:
+                            schema:
+                                $ref: '#/components/schemas/Problem'
+    /v1/node:setTaints:
+        post:
+            tags:
+                - NodeService
+            operationId: NodeService_SetNodeTaints
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/delonix.node.v1.SetNodeTaintsRequest'
+                required: true
+            responses:
+                "200":
+                    description: OK
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/delonix.node.v1.NodeInfo'
+                default:
+                    description: An error, as an RFC 9457 problem document (ADR-0042 D2).
+                    content:
+                        application/problem+json:
+                            schema:
+                                $ref: '#/components/schemas/Problem'
     /v1/operations:
         get:
             tags:
@@ -2180,6 +2289,29 @@ components:
                     type: array
                     items:
                         $ref: '#/components/schemas/delonix.node.v1.Link'
+                devices:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/delonix.node.v1.DeviceCapacity'
+                    description: |-
+                        Extended resources (ADR-0101, A6). Each follows the same doctrine: measured when it
+                         can be, named in `unmeasured` when it cannot (never a misleading zero).
+                         Discrete devices, e.g. "nvidia.com/gpu". Empty with "devices.gpu" in `unmeasured`
+                         means the node did not establish GPU presence (no NVIDIA driver, or none probed).
+                ip_pools:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/delonix.node.v1.IpPoolCapacity'
+                    description: |-
+                        The node's declarative IP inventory, one entry per `kind: IPPool`. Absent when no
+                         pool is declared (absent, not unmeasured — the same rule filesystems use).
+                overcommit:
+                    allOf:
+                        - $ref: '#/components/schemas/delonix.node.v1.OvercommitRatios'
+                    description: |-
+                        Operator-declared CPU/memory overcommit ratios (set via `kind: Node`). Unset leaves
+                         "overcommit.cpu"/"overcommit.memory" in `unmeasured`: the engine has no node-level
+                         overcommit ratio of its own, so an un-declared one is unmeasured, not 1.0.
         delonix.node.v1.CephStatus:
             type: object
             properties:
@@ -2516,6 +2648,15 @@ components:
                     format: bytes
                 request_id:
                     type: string
+        delonix.node.v1.DeviceCapacity:
+            type: object
+            properties:
+                kind:
+                    type: string
+                total:
+                    type: string
+                allocatable:
+                    type: string
         delonix.node.v1.DisconnectContainerRequest:
             type: object
             properties:
@@ -2567,6 +2708,18 @@ components:
                     additionalProperties:
                         type: string
                 trace_id:
+                    type: string
+                generation:
+                    type: string
+                    description: |-
+                        ADR-0099/0100 record metadata, read off the referenced resource when this event
+                         is streamed, so a control plane tells a desired change from a state change on the
+                         stream. Absent (0) means "unversioned" — a defined state, not an error.
+                         generation > observed_generation ⇒ a desired change not yet realized; equal and
+                         non-zero ⇒ converged; both 0 ⇒ a resource with no version (or a kind this watch
+                         does not resolve). The "applied"/"converged" actions mark where a transition
+                         happened (ADR-0100).
+                observed_generation:
                     type: string
         delonix.node.v1.FilesystemCapacity:
             type: object
@@ -2640,6 +2793,15 @@ components:
                     type: object
                     additionalProperties:
                         type: string
+        delonix.node.v1.IpPoolCapacity:
+            type: object
+            properties:
+                name:
+                    type: string
+                addresses_total:
+                    type: string
+                addresses_allocated:
+                    type: string
         delonix.node.v1.KillContainerRequest:
             type: object
             properties:
@@ -2889,6 +3051,30 @@ components:
                     type: array
                     items:
                         $ref: '#/components/schemas/delonix.node.v1.Link'
+                labels:
+                    type: object
+                    additionalProperties:
+                        type: string
+                    description: |-
+                        The scheduling surface (ADR-0101, A6). Operator-declared placement labels, taints
+                         a control-plane scheduler honours, and the cordon flag the node ENFORCES.
+                taints:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/delonix.node.v1.Taint'
+                unschedulable:
+                    type: boolean
+                    description: 'true = cordoned: the node refuses a new workload create (DX-5003). Default false.'
+                unschedulable_reason:
+                    type: string
+                generation:
+                    type: string
+                    description: |-
+                        ADR-0090/0099 version of the node record. Node metadata is single-phase (the write
+                         both sets and realizes the desired spec), so observed_generation == generation.
+                         0 means the record has never been written — a defined state, not an error.
+                observed_generation:
+                    type: string
         delonix.node.v1.ObjectStoreBucket:
             type: object
             properties:
@@ -2956,6 +3142,15 @@ components:
                     items:
                         $ref: '#/components/schemas/delonix.node.v1.Link'
                     description: '"self", "collection", and "target" — the resource — once a create succeeded.'
+        delonix.node.v1.OvercommitRatios:
+            type: object
+            properties:
+                cpu:
+                    type: number
+                    format: double
+                memory:
+                    type: number
+                    format: double
         delonix.node.v1.OverlayPeer:
             type: object
             properties:
@@ -3165,6 +3360,23 @@ components:
                     description: |-
                         Opaque version for optimistic concurrency. Send it back on update/delete; a stale
                          etag is FAILED_PRECONDITION, never a silent overwrite.
+                generation:
+                    type: string
+                    description: |-
+                        ADR-0090/0099 record metadata — record metadata, never a user knob (a value set
+                         on an input spec is ignored, so a get→apply round-trip is clean). Absent (0 / "")
+                         means "unversioned": a record whose write path has not stamped it yet, a defined
+                         state and not an error.
+
+                         generation counts the distinct desired specs this record has been applied with,
+                         bumped on a mutating apply whose spec changed. observed_generation is the
+                         generation the node last reconciled to: equal to generation means realized,
+                         behind it means converging (or, if the reconcile failed, stuck at the last
+                         success). stored_version is the apiVersion the record was written under.
+                observed_generation:
+                    type: string
+                stored_version:
+                    type: string
         delonix.node.v1.Resources:
             type: object
             properties:
@@ -3254,6 +3466,29 @@ components:
                     type: array
                     items:
                         type: string
+        delonix.node.v1.SetNodeLabelsRequest:
+            type: object
+            properties:
+                labels:
+                    type: object
+                    additionalProperties:
+                        type: string
+                    description: The complete desired label set — a full replace, not a merge.
+        delonix.node.v1.SetNodeTaintsRequest:
+            type: object
+            properties:
+                taints:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/delonix.node.v1.Taint'
+                    description: The complete desired taint set — a full replace, not a merge.
+        delonix.node.v1.SetSchedulabilityRequest:
+            type: object
+            properties:
+                unschedulable:
+                    type: boolean
+                reason:
+                    type: string
         delonix.node.v1.ShareOf:
             type: object
             properties:
@@ -3312,6 +3547,18 @@ components:
                     type: string
                 request_id:
                     type: string
+        delonix.node.v1.Taint:
+            type: object
+            properties:
+                key:
+                    type: string
+                value:
+                    type: string
+                effect:
+                    type: string
+            description: |-
+                A taint repels workloads that do not tolerate it. Advertised by the node and honoured
+                 by the control-plane scheduler (the node does not enforce tolerations — ADR-0101 §3).
         delonix.node.v1.VirtualMachine:
             type: object
             properties:
@@ -3433,6 +3680,44 @@ components:
                     format: int32
                 reason:
                     type: string
+        delonix.node.v1.WorkloadAttestation:
+            type: object
+            properties:
+                pid:
+                    type: string
+                found:
+                    type: boolean
+                container_id:
+                    type: string
+                name:
+                    type: string
+                namespace:
+                    type: string
+                pod:
+                    type: string
+                image:
+                    type: string
+                image_digest:
+                    type: string
+                labels:
+                    type: object
+                    additionalProperties:
+                        type: string
+                annotations:
+                    type: object
+                    additionalProperties:
+                        type: string
+                links:
+                    type: array
+                    items:
+                        $ref: '#/components/schemas/delonix.node.v1.Link'
+            description: |-
+                The identity of the workload a host PID belongs to, plus the image and the
+                 labels an attestor selects on. Only what the node already records: the image
+                 digest is resolved best-effort from the image store (empty if the reference is
+                 not a stored tag), and the labels are the container's (OCI image-level labels
+                 are not persisted — ADR-0102). A PID that owns no live workload comes back with
+                 `found: false` and the pid echoed, the rest empty.
         google.protobuf.Any:
             type: object
             properties:

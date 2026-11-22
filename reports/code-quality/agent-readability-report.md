@@ -1,46 +1,46 @@
-# Legibilidade por agentes — Delonix Runtime (`cebf895`)
+# Agent readability — Delonix Runtime (`cebf895`)
 
-**Nota: 88/100** (§84)
+**Score: 88/100** (§84)
 
-## O que um agente consegue responder sem engenharia inversa
+## What an agent can answer without reverse engineering
 
-| Pergunta (§85) | Resposta disponível? | Onde |
+| Question (§85) | Answer available? | Where |
 |---|---|---|
-| O que faz este crate? | **sim** | `//!` em 13/13 `lib.rs` |
-| Que crates existem e o que fazem? | **sim, e é testado** | `ARCHITECTURE.md` + `AGENTS.md`, verificados por `tests/architecture.rs` |
-| Que abstracção de provider uso para VMs? | **sim** | `VmBackend`, com 3 adaptadores e 5 fakes |
-| …para rede / armazenamento / imagem? | **não** | não existe abstracção (ARCH-0001) |
-| Que decisão fixou este desenho? | **sim** | `docs/adr/`, citado de dentro do código (`0008-proxmox-vm-backend.md`) |
-| Que invariante de segurança se aplica aqui? | **parcialmente** | onde há SAFETY é bom; 58 `unsafe` sem ele (DOC-0003) |
-| Que teste prova este caminho? | **sim** | nomes de teste descrevem comportamento (§59), ainda que em PT |
+| What does this crate do? | **yes** | `//!` in 13/13 `lib.rs` |
+| Which crates exist and what do they do? | **yes, and it is tested** | `ARCHITECTURE.md` + `AGENTS.md`, verified by `tests/architecture.rs` |
+| Which provider abstraction do I use for VMs? | **yes** | `VmBackend`, with 3 adapters and 5 fakes |
+| …for network / storage / image? | **no** | no abstraction exists (ARCH-0001) |
+| Which decision locked in this design? | **yes** | `docs/adr/`, cited from within the code (`0008-proxmox-vm-backend.md`) |
+| Which security invariant applies here? | **partially** | where there is SAFETY it is good; 58 `unsafe` without it (DOC-0003) |
+| Which test proves this path? | **yes** | test names describe behaviour (§59), even if in PT |
 
-## O que puxa a nota para cima
+## What pulls the score up
 
-**Os testes de arquitectura.** `crates/delonix-runtime-bin/tests/architecture.rs`
-falha o build se `ARCHITECTURE.md` ou `AGENTS.md` deixarem de nomear um crate que
-existe, ou se a contagem declarada divergir da real. É a diferença entre
-documentação de arquitectura que se acredita e documentação que se verifica, e
-é raro. Sem isto a nota seria ~78.
+**The architecture tests.** `crates/delonix-runtime-bin/tests/architecture.rs`
+fails the build if `ARCHITECTURE.md` or `AGENTS.md` stop naming a crate that
+exists, or if the declared count diverges from the real one. It is the difference
+between architecture documentation you believe and documentation you verify, and
+it is rare. Without it the score would be ~78.
 
-**Comentários que explicam porquê com o custo medido ao lado.** Um agente que
-leia `delonix-vm/src/lib.rs:267` fica a saber não só o que a função faz, mas que
-uma cópia privada dela já causou um desvio silencioso de 2 GiB vs 1 GiB entre
-backends. Isso previne a repetição do erro; um comentário de sintaxe não.
+**Comments that explain why, with the measured cost alongside.** An agent that
+reads `delonix-vm/src/lib.rs:267` learns not only what the function does, but that
+a private copy of it already caused a silent 2 GiB vs 1 GiB drift between
+backends. That prevents the error recurring; a syntax comment does not.
 
-**Mensagens de erro que ensinam.** `unknown_backend("proxmox")` não diz
-«unknown backend» — diz que o backend existe, o que falta configurar, e em que
-ADR está decidido.
+**Error messages that teach.** `unknown_backend("proxmox")` does not say
+"unknown backend" — it says that the backend exists, what is missing to configure
+it, and in which ADR it is decided.
 
-## O que puxa a nota para baixo
+## What pulls the score down
 
-1. **3 453 comentários em português** sem que o `AGENTS.md` o diga. Um agente que
-   trabalhe em inglês encontra a maioria das explicações de invariantes numa
-   língua que não é a do resto do contrato. Custo de correcção: uma linha.
-2. **28 enums públicos sem doc** (DOC-0001) — o agente tem de reconstruir a
-   semântica de cada variante a partir dos `match`.
-3. **Ausência de porto de rede/armazenamento** (ARCH-0001): à pergunta «onde
-   implemento isto?» a resposta é «dentro de um ficheiro de 8 859 linhas», que
-   não é resposta.
-4. **`container_init` com 37 parâmetros** (ARCH-0002): a assinatura mais
-   importante do motor é a menos legível, e os `bool` são intermutáveis à vista
-   do compilador.
+1. **3,453 comments in Portuguese** without `AGENTS.md` saying so. An agent that
+   works in English finds most of the invariant explanations in a language that is
+   not the language of the rest of the contract. Cost to fix: one line.
+2. **28 public enums without docs** (DOC-0001) — the agent has to reconstruct the
+   semantics of each variant from the `match` arms.
+3. **Absence of a network/storage port** (ARCH-0001): to the question "where do I
+   implement this?" the answer is "inside an 8,859-line file", which is not an
+   answer.
+4. **`container_init` with 37 parameters** (ARCH-0002): the most important
+   signature in the engine is the least legible, and the `bool` args are
+   interchangeable as far as the compiler can see.

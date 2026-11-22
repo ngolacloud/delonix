@@ -980,7 +980,7 @@ mod tests {
     }
 
     #[test]
-    fn admissao_rejeita_por_severidade() {
+    fn admission_rejects_by_severity() {
         // Gate `high`: rejects critical/high, accepts medium/low/nothing.
         assert!(admission_rejects(Some(Severity::Critical), "high"));
         assert!(admission_rejects(Some(Severity::High), "high"));
@@ -992,7 +992,7 @@ mod tests {
     }
 
     #[test]
-    fn valid_admission_policy_recusa_valores_desconhecidos() {
+    fn valid_admission_policy_rejects_unknown_values() {
         // BUG regression guard: a typo like "criticl" (for "critical") used
         // to fall through Severity::parse → admission_rejects returns
         // false → the pull was silently ADMITTED, only warned about after

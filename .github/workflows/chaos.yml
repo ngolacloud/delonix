@@ -1,22 +1,23 @@
 name: Chaos
 
-# Corre o arnês de caos (`scripts/chaos.sh`) num runner LIMPO.
+# Runs the chaos harness (`scripts/chaos.sh`) on a CLEAN runner.
 #
-# Porque existe um workflow separado do `ci.yml`: os testes unitários e o clippy
-# provam propriedades do código; isto prova propriedades do SISTEMA A CORRER, e
-# só as encontra quem o parte de propósito. Todos os bugs mais graves desta série
-# vieram daqui e nenhum de leitura de código:
+# Why a workflow separate from `ci.yml`: the unit tests and clippy prove
+# properties of the code; this proves properties of the RUNNING SYSTEM, and only
+# whoever breaks it on purpose finds them. Every one of the worst bugs in this
+# series came from here and none from reading the code:
 #
-#   * o holder volta e cada container fica sem rede PARA SEMPRE;
-#   * `container rm` deixava o rootfs inteiro em disco (a fuga de disk-pressure);
-#   * o isolamento por namespace estava desligado — e nada falhava, porque uma
-#     firewall que nunca é instalada não devolve erro;
-#   * uma recuperação falhada derrubava a infra que tinha acabado de arrancar.
+#   * the holder comes back and every container loses its network FOREVER;
+#   * `container rm` left the whole rootfs on disk (the disk-pressure leak);
+#   * namespace isolation was turned off — and nothing failed, because a
+#     firewall that is never installed returns no error;
+#   * a failed recovery tore down the infra it had just brought up.
 #
-# E — a razão de ser deste ficheiro — vários deles SÓ aparecem num host limpo. O
-# instalador morria em qualquer máquina sem GPU; os limites de recurso são inertes
-# numa sessão sem cgroup delegado. Nenhum dos dois é visível na máquina de quem
-# escreve o código. Um runner do GitHub é uma VM limpa: é o ambiente certo.
+# And — the whole reason for this file — several of them ONLY show up on a clean
+# host. The installer died on any machine without a GPU; resource limits are
+# inert in a session with no delegated cgroup. Neither is visible on the machine
+# of whoever writes the code. A GitHub runner is a clean VM: it is the right
+# environment.
 
 on:
   push:
@@ -24,20 +25,20 @@ on:
   pull_request:
     branches: [main, develop]
   schedule:
-    # Semanal, à segunda de manhã. O caos não é só um gate de PR: apanha
-    # regressões que vêm de mudanças no HOST (kernel, systemd, iproute2), não do
-    # nosso código — e essas ninguém dispara com um commit.
+    # Weekly, Monday morning. Chaos is not just a PR gate: it catches
+    # regressions that come from HOST changes (kernel, systemd, iproute2), not
+    # from our code — and nobody triggers those with a commit.
     - cron: '17 6 * * 1'
   workflow_dispatch:
     inputs:
       scale:
-        description: 'Nº de containers no cenário `scale`'
+        description: 'Number of containers in the `scale` scenario'
         default: '30'
       scenarios:
-        description: 'Cenários a correr (vazio = todos)'
+        description: 'Scenarios to run (empty = all)'
         default: ''
       max_load:
-        description: 'Limiar de load acima do qual o arnês se RECUSA a correr (vazio = nproc/4)'
+        description: 'Load threshold above which the harness REFUSES to run (empty = nproc/4)'
         default: '2'
 
 concurrency:
@@ -70,53 +71,54 @@ jobs:
     outputs:
       userns: ${{ steps.preflight.outputs.userns }}
     steps:
-      # A pergunta de AMBIENTE — este host CONSEGUE correr o motor? A pergunta
-      # de CÓDIGO — o motor arranca? — é o passo `Preflight` do job de baixo, e
-      # as duas nunca se podem confundir. A lição que obrigou a separá-las: o
-      # arnês silencia a saída de cada comando (é o que o torna legível), por
-      # isso um motor que nem arranca produzia uma parede de SKIPs sem UMA linha
-      # a dizer porquê.
+      # The ENVIRONMENT question — CAN this host run the engine? The CODE
+      # question — does the engine start? — is the `Preflight` step of the job
+      # below, and the two must never be confused. The lesson that forced them
+      # apart: the harness silences the output of each command (that is what
+      # makes it readable), so an engine that does not even start produced a
+      # wall of SKIPs with not ONE line saying why.
       #
-      # MEDIDO no runner alojado `ubuntu-24.04`: user namespaces não
-      # privilegiados estão bloqueados —
+      # MEASURED on the hosted runner `ubuntu-24.04`: unprivileged user
+      # namespaces are blocked —
       #
       #     unshare: write failed /proc/self/uid_map: Operation not permitted
       #
-      # …e sem eles um motor rootless não corre de todo. Isso NÃO é uma falha do
-      # Delonix, e marcar o job vermelho por causa disso todas as semanas só
-      # ensina a ignorar o CI. Quando o ambiente não dá, o arnês fica `skipped`
-      # SEM afirmar que passou; quando o ambiente dá e o motor falha, é vermelho.
-      - name: Preflight — o ambiente suporta rootless?
+      # …and without them a rootless engine does not run at all. That is NOT a
+      # Delonix failure, and marking the job red over it every week only teaches
+      # people to ignore CI. When the environment cannot, the harness stays
+      # `skipped` WITHOUT claiming it passed; when the environment can and the
+      # engine fails, it is red.
+      - name: Preflight — does the environment support rootless?
         id: preflight
         run: |
           if unshare -r -n true 2>/tmp/userns.err; then
             echo "userns=ok" >> "$GITHUB_OUTPUT"
-            echo "user namespaces: disponíveis"
+            echo "user namespaces: available"
           else
             echo "userns=blocked" >> "$GITHUB_OUTPUT"
-            echo "::warning title=Arnês de caos NÃO CORREU::user namespaces não privilegiados bloqueados neste runner — $(cat /tmp/userns.err)"
+            echo "::warning title=Chaos harness DID NOT RUN::unprivileged user namespaces blocked on this runner — $(cat /tmp/userns.err)"
             {
-              echo '## Arnês de caos — NÃO CORREU'
+              echo '## Chaos harness — DID NOT RUN'
               echo
-              echo 'O runner alojado não permite user namespaces não privilegiados:'
+              echo 'The hosted runner does not allow unprivileged user namespaces:'
               echo
               echo '```'
               cat /tmp/userns.err
               echo '```'
               echo
-              echo 'Um motor rootless não corre sem eles. **Isto não é um resultado do arnês** —'
-              echo 'nada foi provado nesta corrida. O job `chaos harness (runner limpo)` fica'
-              echo '`skipped` e não `success`, precisamente para não se ler como um verde.'
+              echo 'A rootless engine does not run without them. **This is not a harness result** —'
+              echo 'nothing was proven in this run. The `chaos harness (clean runner)` job stays'
+              echo '`skipped` and not `success`, precisely so it does not read as a green.'
               echo
-              echo 'Para o exercitar a sério é preciso um runner **self-hosted**, ou uma VM'
-              echo '(`delonix vm create` + `scripts/chaos.sh`), que é como os achados desta'
-              echo 'série foram encontrados.'
-              [ -e /dev/kvm ] && echo && echo '`/dev/kvm` está presente: uma VM aninhada neste runner é viável como passo seguinte.'
+              echo 'To exercise it for real you need a **self-hosted** runner, or a VM'
+              echo '(`delonix vm create` + `scripts/chaos.sh`), which is how the findings in this'
+              echo 'series were found.'
+              [ -e /dev/kvm ] && echo && echo '`/dev/kvm` is present: a nested VM on this runner is viable as a next step.'
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
   chaos:
-    name: chaos harness (runner limpo)
+    name: chaos harness (clean runner)
     needs: userns
     if: needs.userns.outputs.userns == 'ok'
     runs-on: ubuntu-24.04
@@ -124,56 +126,57 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Instala protoc
+      - name: Install protoc
         run: sudo apt-get update -qq && sudo apt-get install -y -qq protobuf-compiler
 
-      - name: Instala toolchain fixada
+      - name: Install pinned toolchain
         run: rustup show
 
-      # As mesmas dependências que o `install.sh` exige. Deliberadamente NÃO se
-      # corre o `install.sh` aqui: este job tem de exercitar o motor, e um
-      # instalador partido deve falhar no seu próprio teste, não neste.
-      - name: Dependências rootless
+      # The same dependencies `install.sh` requires. We deliberately do NOT run
+      # `install.sh` here: this job must exercise the engine, and a broken
+      # installer should fail in its own test, not in this one.
+      - name: Rootless dependencies
         run: sudo apt-get install -y -qq slirp4netns uidmap nftables iproute2 conntrack
 
-      - name: Constrói o binário
+      - name: Build the binary
         run: cargo build --release -p delonix-bin
 
-      # O passo que este projecto aprendeu à força: sem um cgroup DELEGADO os
-      # limites de recurso são silenciosamente inertes, e o arnês reportá-lo-ia
-      # como ambiente em vez de os testar. Medido: numa sessão sem delegação,
-      # `-m 128M` deixa `memory.max=max`.
-      - name: Prepara a delegação de cgroup
+      # The step this project learned the hard way: without a DELEGATED cgroup
+      # the resource limits are silently inert, and the harness would report it
+      # as environment instead of testing them. Measured: in a session with no
+      # delegation, `-m 128M` leaves `memory.max=max`.
+      - name: Set up cgroup delegation
         run: |
           sudo loginctl enable-linger "$USER" || true
           systemctl --user show-environment >/dev/null 2>&1 \
-            && echo "gestor de utilizador: presente" \
-            || echo "gestor de utilizador: AUSENTE (os cenários de limites farão skip)"
+            && echo "user manager: present" \
+            || echo "user manager: ABSENT (the limits scenarios will skip)"
 
-      # O Ubuntu 23.10+ traz `kernel.apparmor_restrict_unprivileged_userns=1`: um
-      # binário SEM perfil não pode criar user namespaces, e o motor morre logo no
-      # `unshare()`. É o mesmo perfil que o `install.sh` escreve. A primeira versão
-      # deste workflow omitiu-o de propósito («o arnês não deve depender do
-      # instalador») e o resultado foi uma bateria inteira de SKIPs a tapar a causa.
-      - name: Perfil AppArmor para userns
+      # Ubuntu 23.10+ ships `kernel.apparmor_restrict_unprivileged_userns=1`: a
+      # binary WITHOUT a profile cannot create user namespaces, and the engine
+      # dies right at `unshare()`. It is the same profile `install.sh` writes.
+      # The first version of this workflow omitted it on purpose ("the harness
+      # must not depend on the installer") and the result was a whole battery of
+      # SKIPs hiding the cause.
+      - name: AppArmor profile for userns
         run: |
           if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = 1 ]; then
             printf 'abi <abi/4.0>,\ninclude <tunables/global>\nprofile delonix %s/target/release/delonix flags=(unconfined) {\n  userns,\n}\n' "$PWD" \
               | sudo tee /etc/apparmor.d/delonix >/dev/null
             sudo apparmor_parser -r /etc/apparmor.d/delonix
-            echo "perfil AppArmor instalado"
+            echo "AppArmor profile installed"
           else
-            echo "o host não restringe userns — perfil desnecessário"
+            echo "the host does not restrict userns — profile not needed"
           fi
 
-      - name: Puxa a imagem de teste
+      - name: Pull the test image
         run: |
           ./target/release/delonix image pull docker.io/library/redis:7-alpine
 
       # The CODE question, and only it: the environment one was already answered
       # by the `userns` job, without which this one does not even start. A
       # failure here is the ENGINE's, and it is red.
-      - name: Preflight — o motor arranca?
+      - name: Preflight — does the engine start?
         run: |
           set -x
           export DELONIX_ROOT=/tmp/dlx-preflight DELONIX_NET_RUNTIME_DIR=/tmp/dlx-pf
@@ -187,10 +190,10 @@ jobs:
           ./target/release/delonix net netns down || true
           rm -rf "$DELONIX_ROOT" "$DELONIX_NET_RUNTIME_DIR"
 
-      # `systemd-run --scope -p Delegate=yes` é o que dá ao arnês um cgroup onde
-      # os limites aplicam mesmo. Se o runner não tiver gestor de utilizador, o
-      # arnês faz SKIP dos cenários afectados e continua — o exit code só reflecte
-      # FALHAS, nunca skips.
+      # `systemd-run --scope -p Delegate=yes` is what gives the harness a cgroup
+      # where the limits actually apply. If the runner has no user manager, the
+      # harness SKIPs the affected scenarios and carries on — the exit code
+      # reflects FAILURES only, never skips.
       #
       # `--max-load`: the harness refuses to run on a loaded bench (rc=3), and
       # its default is `nproc / 4` — 1.00 on a 4-vCPU hosted runner, which the
@@ -206,7 +209,7 @@ jobs:
       # build, the preflight and the cleanup). It can only be confirmed on a
       # self-hosted runner, or in a VM — which is where the harness is actually
       # exercised.
-      - name: Corre o arnês de caos
+      - name: Run the chaos harness
         env:
           DELONIX_CHAOS_BIN: ./target/release/delonix
           DELONIX_CHAOS_SCALE: ${{ github.event.inputs.scale || '30' }}
@@ -226,23 +229,23 @@ jobs:
           # is the whole point of the gate; it still fails the step, because a
           # run that measured nothing must not read as green.
           if [ "$rc" -eq 3 ]; then
-            echo "::error title=Bancada recusada::O arnês não correu: load acima de $CHAOS_MAX_LOAD. NADA foi medido — re-corre o workflow."
+            echo "::error title=Bench refused::The harness did not run: load above $CHAOS_MAX_LOAD. NOTHING was measured — re-run the workflow."
           fi
           exit "$rc"
 
-      # A bateria E2E ao lado do caos, e não no `ci.yml`, pela mesma razão: toca
-      # no estado REAL (containers, redes, volumes) e precisa do mesmo ambiente
-      # rootless que os passos acima já montaram. Duplicá-lo noutro workflow era
-      # manter duas cópias do preflight.
+      # The E2E battery next to chaos, and not in `ci.yml`, for the same
+      # reason: it touches REAL state (containers, networks, volumes) and needs
+      # the same rootless environment the steps above already set up. Duplicating
+      # it in another workflow meant keeping two copies of the preflight.
       #
-      # Porque isto passou a ser um gate: a bateria não corria desde a v0.3.0 —
-      # quarenta e quatro versões — e quando correu tinha nove falhas, oito delas
-      # porque o TESTE codificava um bug que entretanto foi corrigido. Uma bateria
-      # que ninguém corre não prova nada e ainda mente sobre o que cobre.
+      # Why this became a gate: the battery had not run since v0.3.0 —
+      # forty-four versions — and when it ran it had nine failures, eight of them
+      # because the TEST encoded a bug that had since been fixed. A battery
+      # nobody runs proves nothing and lies about what it covers on top of that.
       #
-      # `DELONIX_ROOT`/`DELONIX_NET_RUNTIME_DIR` próprios: mesmo isolamento do
-      # arnês, para o E2E nunca tocar no que outro passo deixou de pé.
-      - name: Bateria E2E da CLI
+      # Own `DELONIX_ROOT`/`DELONIX_NET_RUNTIME_DIR`: same isolation as the
+      # harness, so the E2E never touches what another step left standing.
+      - name: CLI E2E battery
         run: |
           set -o pipefail
           E2E=/tmp/dlx-e2e
@@ -256,20 +259,21 @@ jobs:
           bash scripts/e2e.sh ./target/release/delonix 2>&1 | tee e2e.log
           ./target/release/delonix net netns down >/dev/null 2>&1 || true
 
-      # O resumo no sumário do job para não ser preciso abrir os logs — e para
-      # que um SKIP fique visível em vez de se perder no ruído. Um skip não falha
-      # o job, mas é informação: significa que aquela propriedade não foi provada.
-      - name: Resumo
+      # The summary in the job summary so there is no need to open the logs —
+      # and so a SKIP stays visible instead of getting lost in the noise. A skip
+      # does not fail the job, but it is information: it means that property was
+      # not proven.
+      - name: Summary
         if: always()
         run: |
           {
-            echo '## Arnês de caos'
+            echo '## Chaos harness'
             echo
             echo '```'
-            sed -n '/── resumo ──/,$p' chaos.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' || echo '(sem resumo — ver o log do passo anterior)'
+            sed -n '/── resumo ──/,$p' chaos.log 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' || echo '(no summary — see the previous step log)'
             echo '```'
             echo
-            echo '## Bateria E2E'
+            echo '## E2E battery'
             echo
             echo '```'
             # SKIP (`~`) and XFAIL/XPASS (`x`/`!`) belong in the summary: a
@@ -279,7 +283,7 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Guarda o log
+      - name: Save the log
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -289,11 +293,11 @@ jobs:
             e2e.log
           retention-days: 30
 
-      # O motor deixa infra por-nó (holder netns, slirp) e directórios de
-      # container. Num runner descartável não faria diferença — mas se este job
-      # alguma vez correr num runner self-hosted, deixar isso para trás é
-      # exactamente a fuga que o próprio arnês existe para apanhar.
-      - name: Limpeza
+      # The engine leaves per-node infra (holder netns, slirp) and container
+      # directories. On a throwaway runner it would make no difference — but if
+      # this job ever runs on a self-hosted runner, leaving that behind is
+      # exactly the leak the harness itself exists to catch.
+      - name: Cleanup
         if: always()
         run: bash scripts/chaos.sh --clean || true
 

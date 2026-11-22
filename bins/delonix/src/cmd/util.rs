@@ -71,6 +71,49 @@ pub(crate) fn pull_with_layer_progress(
     creds: Option<(String, String)>,
     platform: Option<&str>,
 ) -> Result<Image> {
+    match pull_once(images, reference, creds.clone(), platform) {
+        Ok(img) => Ok(img),
+        // Distroless-by-default never becomes distroless-or-nothing. A
+        // RECOGNISED distroless image that is genuinely absent — not a
+        // network or auth failure, which must still surface — falls back to
+        // the conventional base carrying the same runtime, loudly (the harness
+        // forbids a silent base swap). Only not-found (the OCI
+        // `NoSuchImage`/`NotVisible` → `Dx::NotFound` mapping) qualifies; the
+        // fallback target is not distroless, so there is no second retry.
+        //
+        // The check is on `code()`, not `matches!(e, Error::NotFound(_))`: the
+        // registry path wraps the error in `Error::Coded { .. }` to keep the OCI
+        // error number (DX-4401), so a direct variant match misses it. `code()`
+        // unwraps `Coded` and returns the shared `DX_NOT_FOUND` for both
+        // `NotFound` and `VmNotFound`.
+        Err(e) => {
+            if e.code() == "DX_NOT_FOUND" {
+                if let Some(fallback) = super::distroless::fallback_for(reference) {
+                    eprintln!(
+                        "{}",
+                        super::po::tf(
+                            "distroless image {reference} not found; falling back to {fallback}",
+                            &[("reference", reference), ("fallback", fallback)],
+                        )
+                    );
+                    return pull_once(images, fallback, creds, platform);
+                }
+            }
+            Err(e)
+        }
+    }
+}
+
+/// One pull attempt, drawing the per-layer progress block. Split out of
+/// [`pull_with_layer_progress`] so the distroless fallback can make a second,
+/// clean attempt against the conventional base without re-entering the fallback
+/// logic (the fallback target is never itself distroless).
+fn pull_once(
+    images: &ImageStore,
+    reference: &str,
+    creds: Option<(String, String)>,
+    platform: Option<&str>,
+) -> Result<Image> {
     let renderer = super::output::PullRenderer::new();
     let on_event = |ev: delonix_oci::registry::PullEvent<'_>| renderer.handle(ev);
     let img = delonix_oci::registry::pull_from_registry_with_events(
@@ -459,7 +502,7 @@ mod tests {
     }
 
     #[test]
-    fn find_prefixo_ambiguo_e_erro_nao_o_mais_recente() {
+    fn find_ambiguous_prefix_is_an_error_not_the_newest() {
         // BUG regression guard: `find` used to silently return the FIRST
         // (newest-created) match on an ambiguous id prefix instead of
         // erroring — the exact opposite of Docker/Podman semantics.
@@ -475,7 +518,7 @@ mod tests {
     }
 
     #[test]
-    fn find_prefixo_unico_resolve_normalmente() {
+    fn find_unique_prefix_resolves_normally() {
         let (store, _dir) = tmp_store();
         store.save(&mk("a1f3000000000000", "old")).unwrap();
         store.save(&mk("b2000000000000000", "other")).unwrap();
@@ -484,7 +527,7 @@ mod tests {
     }
 
     #[test]
-    fn find_nome_exacto_ganha_mesmo_com_prefixo_de_id_ambiguo() {
+    fn find_exact_name_wins_even_with_ambiguous_id_prefix() {
         // An exact id/name match is unambiguous by definition and must win
         // outright, even if OTHER containers' ids happen to share a prefix
         // with the query string.

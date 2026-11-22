@@ -661,14 +661,14 @@ fn create_ha(images: &ImageStore, store: &Store, cfg: &KindCluster) -> Result<()
         )?;
     }
 
-    let curta = cfg
+    let short_ref = cfg
         .image
         .split('@')
         .next()
         .unwrap_or(&cfg.image)
         .to_string();
     p.step(
-        &format!("{} ({curta})", super::po::t("Ensuring node image")),
+        &format!("{} ({short_ref})", super::po::t("Ensuring node image")),
         "🖼",
     );
     super::util::resolve_or_pull(images, &cfg.image)?;
@@ -1241,14 +1241,14 @@ pub(crate) fn create(images: &ImageStore, store: &Store, cfg: &KindCluster) -> R
     // the digest-pinned reference). **This is not cosmetic**: the workers
     // boot in parallel and, without this step, N threads would call
     // `resolve_or_pull` at the same time and pull the SAME image N times.
-    let curta = cfg
+    let short_ref = cfg
         .image
         .split('@')
         .next()
         .unwrap_or(&cfg.image)
         .to_string();
     p.step(
-        &format!("{} ({curta})", super::po::t("Ensuring node image")),
+        &format!("{} ({short_ref})", super::po::t("Ensuring node image")),
         "🖼",
     );
     super::util::resolve_or_pull(images, &cfg.image)?;
@@ -1304,22 +1304,22 @@ pub(crate) fn create(images: &ImageStore, store: &Store, cfg: &KindCluster) -> R
          kind: ClusterConfiguration\n{version}\
          networking:\n  podSubnet: {pods}\n  serviceSubnet: {svcs}\n\
          apiServer:\n  certSANs:\n\
-         \x20 # O kubeconfig exportado aponta para 127.0.0.1:<porta publicada> — o\n\
-         \x20 # apiserver so escuta no IP do slirp (10.0.2.100), que nao existe cá\n\
-         \x20 # fora. Sem estes SANs o `kubectl` do HOST rebenta com\n\
+         \x20 # The exported kubeconfig points at 127.0.0.1:<published port> — the\n\
+         \x20 # apiserver only listens on the slirp IP (10.0.2.100), which does not\n\
+         \x20 # exist out here. Without these SANs the HOST's `kubectl` blows up with\n\
          \x20 # `x509: certificate is valid for 10.0.2.100, not 127.0.0.1`.\n\
          \x20 - \"127.0.0.1\"\n  - \"localhost\"\n\
          ---\n\
          apiVersion: kubelet.config.k8s.io/v1beta1\n\
          kind: KubeletConfiguration\n\
          cgroupDriver: systemd\n\
-         # Um container herda o /proc/swaps do HOST — sem isto o kubelet recusa arrancar.\n\
+         # A container inherits the HOST's /proc/swaps — without this the kubelet refuses to start.\n\
          failSwapOn: false\n\
-         featureGates:\n  # O passo decisivo em rootless: sem ele o kubelet morre em `open /dev/kmsg`.\n  KubeletInUserNamespace: true\n\
+         featureGates:\n  # The decisive step in rootless: without it the kubelet dies on `open /dev/kmsg`.\n  KubeletInUserNamespace: true\n\
          ---\n\
          apiVersion: kubeproxy.config.k8s.io/v1alpha1\n\
          kind: KubeProxyConfiguration\n\
-         conntrack:\n  # nf_conntrack_max e um sysctl GLOBAL: nao escrevivel de um userns.\n  maxPerCore: 0\n  min: 0\n",
+         conntrack:\n  # nf_conntrack_max is a GLOBAL sysctl: not writable from a userns.\n  maxPerCore: 0\n  min: 0\n",
         ip = cp_ip,
         pods = cfg.pod_subnet,
         svcs = cfg.service_subnet,
@@ -1412,7 +1412,7 @@ pub(crate) fn create(images: &ImageStore, store: &Store, cfg: &KindCluster) -> R
         // In PARALLEL: each worker is independent (boots, joins, done) and
         // in series the time added up. Each thread writes ITS OWN
         // `join-<node>.conf` — a shared file would be a race.
-        let erros: Vec<String> = std::thread::scope(|scope| {
+        let errors: Vec<String> = std::thread::scope(|scope| {
             let handles: Vec<_> = (1..=cfg.workers)
                 .map(|i| {
                     let wnode = worker_name(&cfg.name, i);
@@ -1442,12 +1442,12 @@ pub(crate) fn create(images: &ImageStore, store: &Store, cfg: &KindCluster) -> R
                 })
                 .collect()
         });
-        if !erros.is_empty() {
+        if !errors.is_empty() {
             return Err(Error::Invalid(super::po::tf(
                 "{n} worker(s) failed:\n  {list}",
                 &[
-                    ("n", &erros.len().to_string()),
-                    ("list", &erros.join("\n  ")),
+                    ("n", &errors.len().to_string()),
+                    ("list", &errors.join("\n  ")),
                 ],
             )));
         }
@@ -1455,7 +1455,7 @@ pub(crate) fn create(images: &ImageStore, store: &Store, cfg: &KindCluster) -> R
         // Only now do we wait: the joins already returned OK, this is each one's
         // kubelet registering. The timeout scales with the number of workers — 3 nodes
         // pulling images at the same time take longer than 1.
-        let espera = Duration::from_secs(180 + 60 * u64::from(cfg.workers));
+        let wait = Duration::from_secs(180 + 60 * u64::from(cfg.workers));
         wait_in_node(
             &c,
             &super::po::tf(
@@ -1466,7 +1466,7 @@ pub(crate) fn create(images: &ImageStore, store: &Store, cfg: &KindCluster) -> R
                 "[ \"$(KUBECONFIG=/etc/kubernetes/admin.conf kubectl get nodes --no-headers 2>/dev/null | grep -cw Ready)\" = \"{}\" ]",
                 cfg.workers + 1
             ),
-            espera,
+            wait,
         )?;
         // Pod traffic between nodes leaves each node with the POD's address as its
         // source (kindnet routes the cluster CIDR without masquerade), and the
@@ -1518,24 +1518,18 @@ pub(crate) fn create(images: &ImageStore, store: &Store, cfg: &KindCluster) -> R
         // Not a reason to fail the cluster: it IS up and its own kubeconfig
         // works. Say what went wrong and how to use it anyway.
         Err(e) => {
-            super::output::warn(&if super::output::is_pt() {
-                format!("não consegui instalar o contexto no ~/.kube/config: {e}")
-            } else {
-                format!("could not install the context into ~/.kube/config: {e}")
-            });
+            let e = e.to_string();
+            super::output::warn(&super::po::tf(
+                "could not install the context into ~/.kube/config: {e}",
+                &[("e", &e)],
+            ));
+            let path = kubeconfig_path(&cfg.name).display().to_string();
             eprintln!(
                 "   {}",
-                super::output::dim(&if super::output::is_pt() {
-                    format!(
-                        "usa: kubectl --kubeconfig {} get nodes",
-                        kubeconfig_path(&cfg.name).display()
-                    )
-                } else {
-                    format!(
-                        "use: kubectl --kubeconfig {} get nodes",
-                        kubeconfig_path(&cfg.name).display()
-                    )
-                })
+                super::output::dim(&super::po::tf(
+                    "use: kubectl --kubeconfig {path} get nodes",
+                    &[("path", &path)],
+                ))
             );
         }
     }
@@ -1600,7 +1594,7 @@ fn install_kubecontext(cluster: &str) -> Result<std::path::PathBuf> {
             super::po::tf("reading {path}", &[("path", &src.display().to_string())])
         ))
     })?;
-    let novo: Value = serde_yaml::from_str(&raw).map_err(|e| {
+    let new_cfg: Value = serde_yaml::from_str(&raw).map_err(|e| {
         Error::Invalid(format!(
             "{}: {e}",
             super::po::t("invalid cluster kubeconfig")
@@ -1627,11 +1621,11 @@ fn install_kubecontext(cluster: &str) -> Result<std::path::PathBuf> {
     };
 
     // Take from the cluster's kubeconfig the 1st of each list and rename it.
-    let pega =
-        |v: &Value, chave: &str| -> Option<Value> { v.get(chave)?.as_sequence()?.first().cloned() };
-    let mut cl = pega(&novo, "clusters")
+    let pick =
+        |v: &Value, key: &str| -> Option<Value> { v.get(key)?.as_sequence()?.first().cloned() };
+    let mut cl = pick(&new_cfg, "clusters")
         .ok_or_else(|| Error::Invalid(super::po::t("kubeconfig has no clusters").into()))?;
-    let mut us = pega(&novo, "users")
+    let mut us = pick(&new_cfg, "users")
         .ok_or_else(|| Error::Invalid(super::po::t("kubeconfig has no users").into()))?;
     if let Some(m) = cl.as_mapping_mut() {
         m.insert("name".into(), name.clone().into());
@@ -1645,18 +1639,18 @@ fn install_kubecontext(cluster: &str) -> Result<std::path::PathBuf> {
     .map_err(|e| Error::Invalid(e.to_string()))?;
 
     // Replace the entry with our name, if it is already there; otherwise append it.
-    let upsert = |cfg: &mut Value, chave: &str, item: Value| {
+    let upsert = |cfg: &mut Value, key: &str, item: Value| {
         let seq = cfg
             .as_mapping_mut()
             .unwrap()
-            .entry(chave.into())
+            .entry(key.into())
             .or_insert_with(|| Value::Sequence(vec![]));
         if !seq.is_sequence() {
             *seq = Value::Sequence(vec![]);
         }
         let s = seq.as_sequence_mut().unwrap();
-        let nome = item.get("name").cloned();
-        if let Some(pos) = s.iter().position(|e| e.get("name") == nome.as_ref()) {
+        let item_name = item.get("name").cloned();
+        if let Some(pos) = s.iter().position(|e| e.get("name") == item_name.as_ref()) {
             s[pos] = item;
         } else {
             s.push(item);
@@ -2374,28 +2368,23 @@ pub(crate) fn delete(images: &ImageStore, store: &Store, name: &str) -> Result<(
     // would point to a port that may in the meantime belong to SOMETHING ELSE.
     if let Err(e) = remove_kubecontext(name) {
         p.step("", ""); // closes the cleanup step with ✗ before the warning
-        super::output::warn(&if super::output::is_pt() {
-            format!(
-                "não consegui tirar o contexto '{}' do kubeconfig: {e}",
-                context_name(name)
-            )
-        } else {
-            format!(
-                "could not remove context '{}' from kubeconfig: {e}",
-                context_name(name)
-            )
-        });
+        let ctx = context_name(name);
+        let err = e.to_string();
+        super::output::warn(&super::po::tf(
+            "could not remove context '{ctx}' from kubeconfig: {err}",
+            &[("ctx", &ctx), ("err", &err)],
+        ));
     } else {
         p.ok();
     }
     drop(p);
+    let n = nodes.len().to_string();
     println!(
         "{}",
-        if super::output::is_pt() {
-            format!("cluster '{name}' removido ({} nó(s))", nodes.len())
-        } else {
-            format!("cluster '{name}' removed ({} node(s))", nodes.len())
-        }
+        super::po::tf(
+            "cluster '{name}' removed ({n} node(s))",
+            &[("name", name), ("n", &n)]
+        )
     );
     Ok(())
 }
@@ -3124,12 +3113,12 @@ fn remove_kubecontext_at(dest: &std::path::Path, name: &str) -> Result<()> {
             super::po::t("is not valid YAML")
         ))
     })?;
-    let mut mexeu = false;
-    for chave in ["clusters", "users", "contexts"] {
-        if let Some(seq) = cfg.get_mut(chave).and_then(|v| v.as_sequence_mut()) {
-            let antes = seq.len();
+    let mut changed = false;
+    for key in ["clusters", "users", "contexts"] {
+        if let Some(seq) = cfg.get_mut(key).and_then(|v| v.as_sequence_mut()) {
+            let before = seq.len();
             seq.retain(|e| e.get("name").and_then(|n| n.as_str()) != Some(name));
-            mexeu |= seq.len() != antes;
+            changed |= seq.len() != before;
         }
     }
     // If the current context was ours, leaving it pointing to a context that no
@@ -3138,9 +3127,9 @@ fn remove_kubecontext_at(dest: &std::path::Path, name: &str) -> Result<()> {
         if let Some(m) = cfg.as_mapping_mut() {
             m.remove(Value::from("current-context"));
         }
-        mexeu = true;
+        changed = true;
     }
-    if !mexeu {
+    if !changed {
         return Ok(());
     }
     let out = serde_yaml::to_string(&cfg).map_err(|e| Error::Invalid(e.to_string()))?;
@@ -3400,7 +3389,7 @@ mod tests {
     }
 
     #[test]
-    fn containerd_ref_normaliza_como_o_docker_faz() {
+    fn containerd_ref_normalizes_like_docker_does() {
         // The bug this exists for: the short name imports fine and the kubelet
         // still says ErrImageNeverPull, because the CRI looks up the normalized
         // form. A Deployment saying `image: nginx:alpine` must MATCH.
@@ -3429,7 +3418,7 @@ mod tests {
     }
 
     #[test]
-    fn nomes_de_worker_seguem_a_convencao_do_kind() {
+    fn worker_names_follow_the_kind_convention() {
         // The first does NOT carry a number — it is `-worker`, not `-worker1`.
         assert_eq!(worker_name("c", 1), "c-worker");
         assert_eq!(worker_name("c", 2), "c-worker2");
@@ -3437,26 +3426,26 @@ mod tests {
     }
 
     #[test]
-    fn parse_do_join_extrai_endpoint_token_e_hash() {
-        let linha = "kubeadm join 10.217.227.44:6443 --token d9rxyc.0nlg8oq9xc53v4r1 \
+    fn parse_join_extracts_endpoint_token_and_hash() {
+        let line = "kubeadm join 10.217.227.44:6443 --token d9rxyc.0nlg8oq9xc53v4r1 \
                      --discovery-token-ca-cert-hash sha256:4ff6978e882b82bba8ec70ca603c13db";
-        let j = parse_join_command(linha).unwrap();
+        let j = parse_join_command(line).unwrap();
         assert_eq!(j.endpoint, "10.217.227.44:6443");
         assert_eq!(j.token, "d9rxyc.0nlg8oq9xc53v4r1");
         assert_eq!(j.ca_hash, "sha256:4ff6978e882b82bba8ec70ca603c13db");
     }
 
     #[test]
-    fn parse_do_join_tolera_espacos_e_quebras() {
+    fn parse_join_tolerates_spaces_and_line_breaks() {
         // The real `--print-join-command` comes with `\` and a newline in the middle.
-        let linha = "kubeadm join 10.0.0.2:6443 --token ab.cd \\\n\t--discovery-token-ca-cert-hash sha256:ef \n";
-        let j = parse_join_command(linha).unwrap();
+        let line = "kubeadm join 10.0.0.2:6443 --token ab.cd \\\n\t--discovery-token-ca-cert-hash sha256:ef \n";
+        let j = parse_join_command(line).unwrap();
         assert_eq!(j.endpoint, "10.0.0.2:6443");
         assert_eq!(j.ca_hash, "sha256:ef");
     }
 
     #[test]
-    fn parse_do_join_recusa_linha_incompleta() {
+    fn parse_join_rejects_incomplete_line() {
         assert!(parse_join_command("kubeadm join 1.2.3.4:6443 --token ab.cd").is_err());
         assert!(
             parse_join_command("kubeadm join --token ab.cd --discovery-token-ca-cert-hash x")
@@ -3466,7 +3455,7 @@ mod tests {
     }
 
     #[test]
-    fn join_config_nao_leva_kubelet_config() {
+    fn join_config_does_not_carry_kubelet_config() {
         // The kubelet config comes from the cluster's ConfigMap (written by `init`);
         // repeating it here created two sources of truth that diverge.
         let j = JoinInfo {
@@ -3480,12 +3469,12 @@ mod tests {
         assert!(y.contains("- \"sha256:ef\""));
         assert!(
             !y.contains("KubeletConfiguration"),
-            "o join não deve trazer KubeletConfiguration"
+            "the join must not carry KubeletConfiguration"
         );
     }
 
     #[test]
-    fn contexto_tem_prefixo_do_produto() {
+    fn context_has_the_product_prefix() {
         assert_eq!(context_name("njinga-huila-65"), "delonix-njinga-huila-65");
     }
 
@@ -3504,10 +3493,10 @@ mod tests {
     }
 
     #[test]
-    fn k8s_version_from_image_recusa_o_que_nao_e_uma_tag_v() {
-        // A imagem base referida por id/digest, sem tag legível, ou uma
-        // referência que alguém trocou por um `--image` custom sem `v` na
-        // frente — nunca fingir uma versão que não foi lida.
+    fn k8s_version_from_image_rejects_what_is_not_a_v_tag() {
+        // The base image referred to by id/digest, with no readable tag, or a
+        // reference someone swapped for a custom `--image` with no `v` in
+        // front — never fake a version that was not read.
         assert_eq!(k8s_version_from_image("sha256:abcdef"), None);
         assert_eq!(k8s_version_from_image("myregistry.local/node:custom"), None);
     }

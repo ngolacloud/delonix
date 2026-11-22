@@ -232,7 +232,7 @@ O `scripts/install.sh` faz dois trabalhos separados. Só o primeiro diz respeito
 
 | Parte | O que faz | Flag que a salta ou activa |
 |---|---|---|
-| Binário | descarrega uma release, verifica a assinatura minisign e o sha256, instala o `delonix` (mais `delonix-mcp`, `delonix-mgmt`, e `delonix-cri` com `--with-cri`), depois completion, man pages, sintaxe para editores e a extensão de editor | saltada com `--no-binary`; `--user` escolhe `~/.local/bin` |
+| Binário | descarrega uma release, verifica a assinatura minisign e o sha256, instala o `delonix` (mais `delonix-mcp`, `delonix-mgmt`, e `delonix-cri` com `--with-cri`), depois completion, man pages e sintaxe para editores | saltada com `--no-binary`; `--user` escolhe `~/.local/bin` |
 | Pacotes do host | `slirp4netns`, `uidmap`, `nftables`, `iproute2`, `conntrack` | sempre |
 | Identidade rootless | intervalos em `/etc/subuid` e `/etc/subgid` para o teu utilizador | sempre |
 | AppArmor | perfil para `<dir>/delonix` quando a restrição de userns está activa | sempre (quando a restrição está ligada) |

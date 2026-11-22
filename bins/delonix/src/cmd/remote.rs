@@ -1,7 +1,7 @@
-//! Execução remota via SSH/SCP — shell-out ao `ssh`/`scp` do sistema (mesmo
-//! padrão já usado neste repo para `ip`/`nft`/`qemu-img`/`virt-customize`:
-//! nunca reimplementar protocolos em Rust, reaproveitar o cliente do host).
-//! Usado por `cmd::cluster` para o bootstrap `kubeadm` idempotente.
+//! Remote execution via SSH/SCP — shell-out to the system's `ssh`/`scp` (the
+//! same pattern already used in this repo for `ip`/`nft`/`qemu-img`/`virt-customize`:
+//! never reimplement protocols in Rust, reuse the host's client).
+//! Used by `cmd::cluster` for the idempotent `kubeadm` bootstrap.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -100,18 +100,18 @@ pub(crate) fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
-/// Corre `cmd` no host, como root (`sudo -n` — o utilizador SSH tem de já
-/// estar em sudoers sem password; `BatchMode=yes` recusa qualquer prompt
-/// interactivo, incluindo de password) OR, when `as_root` is false, as the
+/// Runs `cmd` on the host, as root (`sudo -n` — the SSH user must already be
+/// in sudoers without a password; `BatchMode=yes` refuses any interactive
+/// prompt, including a password one) OR, when `as_root` is false, as the
 /// SSH-connecting user with no `sudo` at all — see [`ssh_run_as_user`] for
-/// why that variant exists. Devolve `(sucesso, stdout+stderr)`.
+/// why that variant exists. Returns `(success, stdout+stderr)`.
 fn ssh_run_raw(t: &SshTarget, cmd: &str, as_root: bool) -> Result<(bool, String)> {
     let mut args = t.conn_args("-p");
-    // `--` separa opções de argumentos posicionais — defesa em profundidade
-    // contra um `host` que comece por `-` ser interpretado como flag do
-    // `ssh` (ex.: `-oProxyCommand=...`). `valid_endpoint` (cmd::cluster) já
-    // recusa esses valores na origem; isto é a segunda camada. Achado de
-    // auditoria de segurança, ver AGENTS.md.
+    // `--` separates options from positional arguments — defense in depth
+    // against a `host` starting with `-` being interpreted as an `ssh` flag
+    // (e.g. `-oProxyCommand=...`). `valid_endpoint` (cmd::cluster) already
+    // refuses such values at the source; this is the second layer. Security
+    // audit finding, see AGENTS.md.
     args.push("--".to_string());
     args.push(t.user_host());
     let remote_cmd = if as_root {
@@ -123,27 +123,27 @@ fn ssh_run_raw(t: &SshTarget, cmd: &str, as_root: bool) -> Result<(bool, String)
     let out = Command::new("ssh")
         .args(&args)
         .output()
-        .map_err(|e| Error::Invalid(format!("a correr ssh para {}: {e}", t.host)))?;
+        .map_err(|e| Error::Invalid(format!("running ssh to {}: {e}", t.host)))?;
     let mut combined = String::from_utf8_lossy(&out.stdout).into_owned();
     combined.push_str(&String::from_utf8_lossy(&out.stderr));
     Ok((out.status.success(), combined))
 }
 
-/// `true` se `check_cmd` terminar com sucesso no host (condição já satisfeita).
+/// `true` if `check_cmd` exits successfully on the host (condition already met).
 pub fn ssh_check(t: &SshTarget, check_cmd: &str) -> bool {
     ssh_run_raw(t, check_cmd, true)
         .map(|(ok, _)| ok)
         .unwrap_or(false)
 }
 
-/// Corre `cmd`; erro claro (com o host e o output capturado) se falhar.
+/// Runs `cmd`; a clear error (with the host and captured output) if it fails.
 pub fn ssh_run(t: &SshTarget, cmd: &str) -> Result<String> {
     let (ok, out) = ssh_run_raw(t, cmd, true)?;
     if ok {
         Ok(out)
     } else {
         Err(Error::Invalid(format!(
-            "[{}] comando falhou: {cmd}\n{out}",
+            "[{}] command failed: {cmd}\n{out}",
             t.host
         )))
     }
@@ -170,10 +170,10 @@ pub fn ssh_run_as_user(t: &SshTarget, cmd: &str) -> Result<String> {
     }
 }
 
-/// Copia um ficheiro local para o host — SEM privilégio elevado (o `scp` em
-/// si corre como o utilizador SSH normal; para destinos que exigem root,
-/// copia para `/tmp` e move com um `ssh_run` a seguir, como faz
-/// `cmd::cluster::prepare_host` para o `delonix-cri`).
+/// Copies a local file to the host — WITHOUT elevated privilege (`scp` itself
+/// runs as the normal SSH user; for destinations that require root, it copies
+/// to `/tmp` and moves it with a following `ssh_run`, as
+/// `cmd::cluster::prepare_host` does for `delonix-cri`).
 pub fn scp_to(t: &SshTarget, local: &Path, remote_path: &str) -> Result<()> {
     let mut args = t.conn_args("-P");
     args.push("--".to_string());
@@ -182,10 +182,10 @@ pub fn scp_to(t: &SshTarget, local: &Path, remote_path: &str) -> Result<()> {
     let status = Command::new("scp")
         .args(&args)
         .status()
-        .map_err(|e| Error::Invalid(format!("a correr scp para {}: {e}", t.host)))?;
+        .map_err(|e| Error::Invalid(format!("running scp to {}: {e}", t.host)))?;
     if !status.success() {
         return Err(Error::Invalid(format!(
-            "scp para {}:{remote_path} falhou",
+            "scp to {}:{remote_path} failed",
             t.host
         )));
     }
@@ -197,7 +197,7 @@ mod tests {
     use super::{host_key_opts, shell_quote, SshTarget};
 
     #[test]
-    fn shell_quote_escapa_plicas() {
+    fn shell_quote_escapes_single_quotes() {
         assert_eq!(shell_quote("echo hi"), "'echo hi'");
         assert_eq!(shell_quote("echo 'hi'"), "'echo '\\''hi'\\'''");
     }
@@ -230,7 +230,7 @@ mod tests {
         );
     }
 
-    fn alvo(port: Option<u16>) -> SshTarget {
+    fn target(port: Option<u16>) -> SshTarget {
         SshTarget {
             host: "10.0.0.5".into(),
             user: "delonix".into(),
@@ -243,8 +243,8 @@ mod tests {
     /// has to stay byte-for-byte what it always was — every cluster already out
     /// there omits it, and a change there would be a change for everybody.
     #[test]
-    fn sem_porta_o_argv_fica_exactamente_como_estava() {
-        let a = alvo(None);
+    fn without_port_the_argv_stays_exactly_as_it_was() {
+        let a = target(None);
         assert_eq!(
             a.conn_args("-p"),
             vec![
@@ -265,8 +265,8 @@ mod tests {
     /// the default. This test is what stops the two call sites from being
     /// "simplified" back into one.
     #[test]
-    fn a_flag_da_porta_do_scp_nao_e_a_do_ssh() {
-        let a = alvo(Some(2222));
+    fn the_scp_port_flag_is_not_the_ssh_one() {
+        let a = target(Some(2222));
         assert!(a.conn_args("-p").windows(2).any(|w| w == ["-p", "2222"]));
         assert!(a.conn_args("-P").windows(2).any(|w| w == ["-P", "2222"]));
         assert!(!a.conn_args("-P").iter().any(|x| x == "-p"));

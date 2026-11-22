@@ -21,6 +21,10 @@ delonix-compute = { workspace = true }
 delonix-networking = { workspace = true }
 delonix-storage = { workspace = true }
 delonix-pool-helper = { workspace = true }
+# The warm-plane pool (ADR-0095): the bin is the runner process (`__poolrunner`)
+# and the measurement bench (`__poolbench`), and it is the binary the pool
+# launches — so the manager and this bin share the one crate.
+delonix-warm = { workspace = true }
 # The storage pool drivers the composition root registers (ADR-0067 P2-P4).
 delonix-provider-btrfs = { workspace = true }
 delonix-provider-lvm = { workspace = true }
@@ -74,7 +78,10 @@ base64 = { workspace = true }
 # cert/chave BYO (PEM do kind: Secret) usa `rustls-pki-types` re-exportado pelo
 # próprio rustls (ver ingress_proxy.rs); `rcgen` gera o self-signed.
 tokio-rustls = { workspace = true, features = ["ring", "logging", "tls12"] }
-rcgen = { workspace = true, features = ["ring", "pem"] }
+# `x509-parser` is needed to ingest a member's CSR (`CertificateSigningRequestParams::from_pem`,
+# ADR-0097); the CA reload itself parses no certificate.
+rcgen = { workspace = true, features = ["ring", "pem", "x509-parser"] }
+time = { workspace = true }
 # `__volsnap` (tar.gz do _data de um volume, no userns mapeado) — ja no workspace,
 # nao acrescenta nada a arvore de dependencias do repo publico.
 tar = { workspace = true }

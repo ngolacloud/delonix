@@ -1,87 +1,85 @@
-# Relatório de nomes — Delonix Runtime (`cebf895`)
+# Naming report — Delonix Runtime (`cebf895`)
 
-## O número que engana
+## The misleading number
 
-O gate `scripts/lang_ratchet.py` conta **1 039 identificadores** ainda em
-português e está alinhado com a linha de base. Isso lê-se como «resolvido» e
-não é. Mas a distribuição, quando se separa produção de teste, muda a
-prioridade por completo:
+The `scripts/lang_ratchet.py` gate counts **1,039 identifiers** still in
+Portuguese and is aligned with the baseline. That reads as "resolved" and
+it is not. But the distribution, once production is separated from test, flips
+the priority entirely:
 
-| Classe | Nº | Severidade |
+| Class | Count | Severity |
 |---|---|---|
-| Nomes de teste (`#[cfg(test)]`, `tests/`) | **985** | LOW |
-| Identificadores em código de produção | **54** | ver abaixo |
+| Test names (`#[cfg(test)]`, `tests/`) | **985** | LOW |
+| Identifiers in production code | **54** | see below |
 
-Método: para cada ocorrência, contaram-se as chavetas a partir de cada
-`#[cfg(test)]` para delimitar o módulo de teste, e verificou-se se as 4 linhas
-anteriores trazem `#[test]`/`#[tokio::test]`. Script em
-`scratchpad/classify.py`.
+Method: for each occurrence, braces were counted from each `#[cfg(test)]` to
+delimit the test module, and we checked whether the 4 preceding lines carry
+`#[test]`/`#[tokio::test]`. Script in `scratchpad/classify.py`.
 
-## NAMING-0001 — Zero identificadores PÚBLICOS em português — **PASSA**
+## NAMING-0001 — Zero PUBLIC identifiers in Portuguese — **PASSES**
 
-Dos 54 de produção, **um único** é `pub`: `pub fn cap_num` — e é falso
-positivo (`num` é abreviatura inglesa de *number*, não português).
+Of the 54 in production, **a single one** is `pub`: `pub fn cap_num` — and it is
+a false positive (`num` is the English abbreviation of *number*, not Portuguese).
 
-Consequência prática: **a Regra de Ouro §1 não está violada em nenhum contrato
-público.** Nenhum consumidor externo — CLI, API, SDK, manifesto — vê um nome em
-português. Isto é a diferença entre dívida cosmética e dívida de compatibilidade,
-e aqui é cosmética.
+Practical consequence: **Golden Rule §1 is not violated in any public contract.**
+No external consumer — CLI, API, SDK, manifest — sees a Portuguese name. This is
+the difference between cosmetic debt and compatibility debt, and here it is
+cosmetic.
 
-## NAMING-0002 — Três itens NOMEADOS privados em português — LOW
+## NAMING-0002 — Three privately NAMED items in Portuguese — LOW
 
-| Ficheiro | Item | Proposta |
+| File | Item | Proposal |
 |---|---|---|
 | `crates/delonix-net/src/infra.rs:4457` | `fn netdef_path_legado` | `fn legacy_netdef_path` |
 | `crates/delonix-runtime/src/lib.rs:4086` | `static AVISO` | `static WARNED_ONCE` |
 | `crates/delonix-runtime-bin/src/cmd/dockerapi.rs:1188` | `const CONSUMIDOS_TOPO` | `const CONSUMED_TOP_LEVEL` |
 
-Todos privados. Mudança segura (§97): não há impacto em serialização, config,
-CLI nem API. Falsos positivos do léxico a NÃO tocar: `fn todo<T>` (inglês
-*to-do*), `fn topo_sort` (topológico), `enum StringOrNum`, `pub fn cap_num`.
+All private. Safe change (§97): no impact on serialization, config, CLI or API.
+Lexicon false positives NOT to touch: `fn todo<T>` (English *to-do*),
+`fn topo_sort` (topological), `enum StringOrNum`, `pub fn cap_num`.
 
-## NAMING-0003 — ~44 ligações locais em português — LOW
+## NAMING-0003 — ~44 local bindings in Portuguese — LOW
 
 `let alvos`, `let regra`, `let trinco`, `let legado`, `let erros`, `let espera`,
 `let estado`, `let pedido`, `let nomes`, `let vivos`, `let orfaos`, …
-Concentradas em `delonix-net/src/infra.rs` (12) e
-`delonix-runtime-bin/src/cmd/kindmode.rs` (8). Auto-corrigíveis por §97;
-lista completa em `scratchpad/ids_prod.txt`.
+Concentrated in `delonix-net/src/infra.rs` (12) and
+`delonix-runtime-bin/src/cmd/kindmode.rs` (8). Auto-fixable under §97;
+full list in `scratchpad/ids_prod.txt`.
 
-## NAMING-0004 — 985 nomes de teste em português — LOW, mas é a dívida real
+## NAMING-0004 — 985 test names in Portuguese — LOW, but it is the real debt
 
-Exemplos:
+Examples:
 
 ```
 crates/delonix-cri/src/cap_ceiling.rs:288: valor_invalido_e_erro_nunca_tecto_vazio
 crates/delonix-cri/src/runtime_svc/lifecycle.rs:1958: ceiling_reduces_so_avisa_quando_um_pedido_explicito_foi_cortado
 ```
 
-Contra §59: os nomes **descrevem comportamento** e são bons nomes de teste —
-falham só na língua. É por isso que valem LOW e não MEDIUM: o dano é de
-consistência, não de compreensão. É também 95 % de toda a dívida de
-identificadores, e é o que faz o número 1 039 parecer alarmante.
+Against §59: the names **describe behaviour** and are good test names —
+they fail only on language. That is why they rate LOW and not MEDIUM: the damage
+is to consistency, not to comprehension. It is also 95 % of all identifier debt,
+and it is what makes the number 1,039 look alarming.
 
-## NAMING-0005 — Convenções Rust (§6) — **PASSA**
+## NAMING-0005 — Rust conventions (§6) — **PASSES**
 
-`cargo clippy --workspace --all-targets` corrido agora: **zero avisos**.
-As lints `non_snake_case`, `non_camel_case_types` e `non_upper_case_globals`
-estão activas por omissão, portanto §6 está provado por execução, não por
-inspecção.
+`cargo clippy --workspace --all-targets` run now: **zero warnings**.
+The `non_snake_case`, `non_camel_case_types` and `non_upper_case_globals` lints
+are on by default, so §6 is proven by execution, not by inspection.
 
 ## NAMING-0006 — `cmd/util.rs` — LOW (§46, §47)
 
-Um único módulo de nome vago em 147 ficheiros. Não está a crescer descontrolado.
-Recomendação: classificar o conteúdo e realojá-lo quando alguém lhe tocar; não
-justifica uma mudança dedicada.
+A single vaguely named module across 147 files. It is not growing out of control.
+Recommendation: classify its contents and rehome it when someone touches it; it
+does not justify a dedicated change.
 
-## NAMING-0007 — Nome de provider dentro da lógica — MEDIUM (§43)
+## NAMING-0007 — Provider name inside the logic — MEDIUM (§43)
 
 ```
 crates/delonix-runtime-bin/src/cmd/conditions.rs:319: if backend == "libvirt" {
 crates/delonix-vm/src/lib.rs:3981: net_mode: (vm.backend == "libvirt").then(|| vm.tap.clone())
 ```
 
-O porto `VmBackend` existe (ver `architecture-report.md`), mas estes dois sítios
-ramificam por **string do nome do provider** em vez de por capacidade do porto.
-São exactamente a fuga que a `ngolacloud-arch` regista como ARCH-002, vista do
-lado do motor.
+The `VmBackend` port exists (see `architecture-report.md`), but these two places
+branch on the **provider name string** instead of on a port capability.
+They are exactly the leak that `ngolacloud-arch` records as ARCH-002, seen from
+the engine side.

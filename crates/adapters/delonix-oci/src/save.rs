@@ -327,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn blob_path_usa_o_hex_sem_o_prefixo_do_algoritmo() {
+    fn blob_path_uses_the_hex_without_the_algorithm_prefix() {
         assert_eq!(
             blob_path("sha256:abc123"),
             "blobs/sha256/abc123",
@@ -339,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn annotations_incluem_a_chave_que_o_containerd_le() {
+    fn annotations_include_the_key_that_containerd_reads() {
         let a = annotations("delonix-web:v1.2.3");
         // The containerd-specific key is the one that NAMES the image on import;
         // dropping it makes the import succeed and the pod still fail to pull.

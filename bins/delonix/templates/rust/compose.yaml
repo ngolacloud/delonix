@@ -37,13 +37,17 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+    # The distroless/cc runtime has no shell and no curl: the app answers its own
+    # probe via the `healthcheck` subcommand, which GETs /api/v1/health/live.
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:__PORT__/api/v1/health/live"]
+      test: ["CMD", "/usr/local/bin/__NAME__", "healthcheck"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 20s
-    user: "app"
+    # Numeric uid:gid — distroless ships the `nonroot` user as uid 65532, not a
+    # named `app` user.
+    user: "65532:65532"
     tmpfs:
       - /tmp
 

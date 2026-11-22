@@ -1,213 +1,216 @@
-# 61 — P4b: o plano medido do corte de `delonix-vm` (ADR-0044, aceite a 2026-09-24)
+# 61 — P4b: the measured plan for carving up `delonix-vm` (ADR-0044, accepted 2026-09-24)
 
-**Data:** 2026-09-24 · **Base:** `origin/main` (`355aea8a`, v4.4.0 +3 commits) ·
-**O que é:** não é um spike — é a medição que decide em que ordem o P4b se corta, feita
-ANTES de mover uma linha, para que cada fatia tenha um portão próprio (ADR-0044 D9) e
-nenhuma deixe o `arch_fitness.py` vermelho pelo caminho.
+**Date:** 2026-09-24 · **Base:** `origin/main` (`355aea8a`, v4.4.0 +3 commits) ·
+**What this is:** not a spike — it is the measurement that decides the order in which P4b
+is cut, done BEFORE moving a single line, so each slice has its own gate (ADR-0044 D9) and
+none leaves `arch_fitness.py` red along the way.
 
-## A pergunta
+## The question
 
-O ADR-0044 D9 descreve o P4b numa linha: «`VmSpec`/`Extensions`/`VmProvider` land in
+ADR-0044 D9 describes P4b in one line: «`VmSpec`/`Extensions`/`VmProvider` land in
 `delonix-compute`; `delonix-provider-cloud-hypervisor`/`-libvirt` split out of
-`delonix-vm`, `delonix-vm` retired». O crate tem 8 561 linhas num só `lib.rs` e seis
-consumidores. A pergunta é o que tem de sair PRIMEIRO para os dois crates de provider
-poderem existir sem violar a direcção das camadas, e a resposta vem de uma regra que o
-ADR cita mas não confronta com o código: **um crate `PROVIDER` só pode depender de
-`FOUNDATION` e `CONTEXT`** (`scripts/arch_fitness.py`, `ALLOWED`). Um
-`delonix-provider-libvirt` que dependesse de `delonix-vm` (um `ADAPTER`) chumba o portão
-no primeiro commit. Logo tudo o que um backend implementa ou chama tem de estar num
-contexto antes de o backend mudar de crate — e isso é mais do que o porto D1–D3.
+`delonix-vm`, `delonix-vm` retired». The crate has 8,561 lines in a single `lib.rs` and six
+consumers. The question is what has to come out FIRST for the two provider crates to be
+able to exist without violating layer direction, and the answer comes from a rule the ADR
+cites but does not confront against the code: **a `PROVIDER` crate may only depend on
+`FOUNDATION` and `CONTEXT`** (`scripts/arch_fitness.py`, `ALLOWED`). A
+`delonix-provider-libvirt` that depended on `delonix-vm` (an `ADAPTER`) fails the gate on
+the first commit. So everything a backend implements or calls has to be in a context before
+the backend changes crate — and that is more than the D1–D3 port.
 
-## O que se mediu
+## What was measured
 
-**O crate por zonas** (`crates/adapters/delonix-vm/src/lib.rs`, números de linha de hoje):
+**The crate by zones** (`crates/adapters/delonix-vm/src/lib.rs`, today's line numbers):
 
-| Zona | Linhas | O que é |
+| Zone | Lines | What it is |
 |---|---|---|
-| helpers partilhados | 1–1602 | `VmConfig` (67), o porto `VmBackend` (849), o registo (`BackendRegistration`/`register_backend`/`select_backend*`/`require_capabilities`/`auto_detect`, 1066–1478), backend por omissão (1495–1560), `mem_mib`, `mac_for`, `vm_namespace_supported`, admissão de RAM, `terminate_vmm`, parsers de `qemu-img`/leases |
-| Cloud Hypervisor | 1603–2378 | `CloudHypervisorBackend`: `boot_ch`, console/serial, snapshots offline |
-| libvirt | 2379–4224 | `LibvirtBackend`: `libvirt_domain_xml`, `with_stopped_domain`, snapshots, reserva DHCP |
-| orquestração | 4225–5417 | `create`/`create_with`, `remove`/`destroy_with`, `stop`/`pause`/`unpause`, snapshots, `backup_disk_live`, `start`/`restart`/`status`/`list` |
-| testes | 5418–8561 | quatro módulos `#[cfg(test)]` |
+| shared helpers | 1–1602 | `VmConfig` (67), the `VmBackend` port (849), the registry (`BackendRegistration`/`register_backend`/`select_backend*`/`require_capabilities`/`auto_detect`, 1066–1478), default backend (1495–1560), `mem_mib`, `mac_for`, `vm_namespace_supported`, RAM admission, `terminate_vmm`, `qemu-img`/lease parsers |
+| Cloud Hypervisor | 1603–2378 | `CloudHypervisorBackend`: `boot_ch`, console/serial, offline snapshots |
+| libvirt | 2379–4224 | `LibvirtBackend`: `libvirt_domain_xml`, `with_stopped_domain`, snapshots, DHCP reservation |
+| orchestration | 4225–5417 | `create`/`create_with`, `remove`/`destroy_with`, `stop`/`pause`/`unpause`, snapshots, `backup_disk_live`, `start`/`restart`/`status`/`list` |
+| tests | 5418–8561 | four `#[cfg(test)]` modules |
 
-Mais `capabilities.rs` (399, as duas declarações ADR-0050 com sonda do host),
-`cloudinit.rs` (320), `error.rs` (465) e o `provider_spike.rs` (412), que esta fatia promove.
+Plus `capabilities.rs` (399, the two ADR-0050 declarations with host probing),
+`cloudinit.rs` (320), `error.rs` (465) and `provider_spike.rs` (412), which this slice promotes.
 
-**Os consumidores**, por `grep -rho 'delonix_vm::…'`:
+**The consumers**, by `grep -rho 'delonix_vm::…'`:
 
-| Consumidor | Símbolos distintos | Os que pesam |
+| Consumer | Distinct symbols | The ones that weigh |
 |---|---|---|
-| `delonix-runtime-bin` | 46 | `list` (24 sítios), `status` (19), `create` (12), `valid_backend_name` (9), `stop`, `remove_force`, `VmConfig`, `create_with`, `backup_disk_live`, snapshots, `set_network` |
-| `delonix-proxmox` | 5 | `BackendRegistration`, `register_backend`, `Error::Engine`, `cloudinit::DEFAULT_CI_USER`, `VmVolume` (já é do compute) |
+| `delonix-runtime-bin` | 46 | `list` (24 sites), `status` (19), `create` (12), `valid_backend_name` (9), `stop`, `remove_force`, `VmConfig`, `create_with`, `backup_disk_live`, snapshots, `set_network` |
+| `delonix-proxmox` | 5 | `BackendRegistration`, `register_backend`, `Error::Engine`, `cloudinit::DEFAULT_CI_USER`, `VmVolume` (already belongs to compute) |
 | `delonix-linux`, `delonix-mgmt`, `delonix-mcp` | 4 | `create`, `list`, `start`, `status` |
 
-**Os nós de dependência de cada zona** — o que a impede de viver num contexto tal como
-está (`grep` sobre cada intervalo, não leitura):
+**The dependency nodes of each zone** — what stops it from living in a context as it
+stands (`grep` over each range, not reading):
 
-| Zona | Nós externos | Onde cada um pertence |
+| Zone | External nodes | Where each belongs |
 |---|---|---|
-| orquestração | `JsonStore::update` + `store(base)` (delonix-state); `std::fs::{remove_file, canonicalize, copy, create_dir_all, read_dir, remove_dir_all, symlink_metadata}` sobre o root de estado; `qemu-img create` (overlay) e `cloud-localds` (seed) por `Command` | o registo é o `StateRepository<Vm>` do D6 (o trait já está em `delonix_model::ports`, o `impl` para `JsonStore<T>` já existe); o `fs` sobre o próprio root é o que o `delonix-node` já faz hoje num contexto; o overlay e o seed são trabalho de PROVIDER LOCAL, não de use case |
-| Cloud Hypervisor | `stable_cmd("qemu-img")`, `network()` (o porto `VmNetwork`, já no compute) | fica no provider; o `VmNetwork` já é porto |
-| libvirt | `virsh` (15 sítios), `delonix_state::write_atomic` (3: o XML do domínio e os snapshots preservados), `libc::getuid/getgid` (seclabel rootless) | `virsh` fica no provider; o `write_atomic` é o `ConfigWriter` que o addendum D6 de 2026-09-19 já mapeou para este crate; `libc` é dependência de workspace, legítima num provider |
-| helpers | `terminate_vmm`/`proc_state`/`vmm_left` (sinais e `/proc`, via `delonix_node::safe_to_signal`), admissão de RAM (`/proc/meminfo`) | os dois locais partilham-nos: ou `delonix-node` (perguntas ao host, onde `safe_to_signal` já vive) ou o contexto |
+| orchestration | `JsonStore::update` + `store(base)` (delonix-state); `std::fs::{remove_file, canonicalize, copy, create_dir_all, read_dir, remove_dir_all, symlink_metadata}` over the state root; `qemu-img create` (overlay) and `cloud-localds` (seed) via `Command` | the registry is the D6 `StateRepository<Vm>` (the trait already lives in `delonix_model::ports`, the `impl` for `JsonStore<T>` already exists); the `fs` work over the state root itself is what `delonix-node` already does today in a context; the overlay and the seed are LOCAL PROVIDER work, not use-case work |
+| Cloud Hypervisor | `stable_cmd("qemu-img")`, `network()` (the `VmNetwork` port, already in compute) | stays in the provider; `VmNetwork` is already a port |
+| libvirt | `virsh` (15 sites), `delonix_state::write_atomic` (3: the domain XML and preserved snapshots), `libc::getuid/getgid` (rootless seclabel) | `virsh` stays in the provider; `write_atomic` is the `ConfigWriter` the 2026-09-19 D6 addendum already mapped to this crate; `libc` is a legitimate workspace dependency in a provider |
+| helpers | `terminate_vmm`/`proc_state`/`vmm_left` (signals and `/proc`, via `delonix_node::safe_to_signal`), RAM admission (`/proc/meminfo`) | the two belong to shared locals: either `delonix-node` (questions to the host, where `safe_to_signal` already lives) or the context |
 
-Dois factos que só a medição deu e o ADR não tem: (1) **a orquestração não é dos
-providers** — `create_with` faz `canonicalize` do disco, cria o overlay, gera o seed, pede
-o `tap` ao holder e só depois chama `backend.boot`; nada disso é do backend, e é por isso
-que o `manages_own_storage` existe (ADR-0008): a orquestração local está entrançada com
-os dois backends locais **dentro do mesmo ficheiro**, e o corte tem de a separar antes
-de os separar; (2) **`delonix-proxmox` pode ficar dep-limpo ANTES do P4c** — dos cinco
-símbolos que usa, só `BackendRegistration`/`register_backend` e `Error::Engine` são do
-`delonix-vm`; quando o registo e o erro estiverem no contexto, a excepção
-`("dep", "delonix-proxmox", "delonix-vm")` cai sem que o Proxmox mude para o porto novo.
+Two facts only the measurement produced, which the ADR does not have: (1) **orchestration
+does not belong to the providers** — `create_with` canonicalizes the disk, creates the
+overlay, generates the seed, asks the holder for the `tap` and only then calls
+`backend.boot`; none of that is the backend's job, which is exactly why
+`manages_own_storage` exists (ADR-0008): local orchestration is intertwined with the two
+local backends **inside the same file**, and the cut has to separate them before separating
+the backends themselves; (2) **`delonix-proxmox` can become dep-clean BEFORE P4c** — of the
+five symbols it uses, only `BackendRegistration`/`register_backend` and `Error::Engine`
+belong to `delonix-vm`; once the registry and the error are in the context, the exception
+`("dep", "delonix-proxmox", "delonix-vm")` falls away without Proxmox changing to the new port.
 
-## As fatias, pela ordem que a direcção das camadas obriga
+## The slices, in the order layer direction forces
 
-**P4b.1 — o porto no contexto (este PR).** `delonix_compute::vm_provider`: `VmSpec`,
+**P4b.1 — the port in the context (this PR).** `delonix_compute::vm_provider`: `VmSpec`,
 `Extensions` (+ `CloudHypervisorExt`/`LibvirtExt`), `ProviderId`, `Provider` (id +
-`capabilities()` = o `ProviderReport` da ADR-0050, `health()` derivado dele),
-`IpConfidence`, `VmHandle`, `VmObservation`, `VmProvider`. O `provider_spike.rs` do
-`delonix-vm` passa a `provider.rs`: `spec_to_config` (a única coisa que conhece
-`VmConfig`), `LocalVmProvider` e `registry(id)`, a implementar o porto do contexto. Uma
-correcção ao spike, do D1 do próprio ADR: `bridge` é universal (o Proxmox lê-o) e o spike
-tinha-o em `LibvirtExt`; passa para `VmSpec`. Nada muda para nenhum chamador. **Portão:**
-testes de `delonix-compute` e `delonix-vm`, `provider_live` a compilar, fitness
-inalterado (o contexto não ganha dependências), `cargo check --workspace`.
+`capabilities()` = ADR-0050's `ProviderReport`, `health()` derived from it),
+`IpConfidence`, `VmHandle`, `VmObservation`, `VmProvider`. `delonix-vm`'s `provider_spike.rs`
+becomes `provider.rs`: `spec_to_config` (the only thing that knows `VmConfig`),
+`LocalVmProvider` and `registry(id)`, implementing the context's port. A correction to the
+spike, from the ADR's own D1: `bridge` is universal (Proxmox reads it) and the spike had it
+in `LibvirtExt`; it moves to `VmSpec`. Nothing changes for any caller. **Gate:**
+`delonix-compute` and `delonix-vm` tests, `provider_live` compiling, fitness unchanged (the
+context gains no new dependencies), `cargo check --workspace`.
 
-**P4b.2 — o que os providers implementam sai do adapter.** Para `delonix-compute`:
-`VmConfig`, `Boot`, `CreateStage`/`DestroyStage`, o trait `VmBackend`, o registo inteiro
+**P4b.2 — what the providers implement leaves the adapter.** To `delonix-compute`:
+`VmConfig`, `Boot`, `CreateStage`/`DestroyStage`, the `VmBackend` trait, the whole registry
 (`BackendRegistration`, `BackendFactory`, `ReportFactory`, `register_backend`,
 `select_backend*`, `resolve_required_capabilities`, `require_capabilities`,
 `auto_detect`, `provider_reports`), `mem_mib`, `valid_vm_name`, `mac_for`,
-`vm_namespace_supported`/`restart_policy_unsupervised`, `cloudinit::DEFAULT_CI_USER`, e
-as variantes de `Error` que o Proxmox constrói. O `delonix-vm` re-exporta tudo por
-`pub use` — zero chamador muda de linha. **O que se decide aqui**: o registo é um
-`static` com `OnceLock<RwLock<Vec<…>>>`; num contexto continua a ser um mapa povoado no
-arranque pela composição (`cmd/vmbackends.rs`), sem I/O ao registar (ADR-0008). **Portão:**
-a excepção `("dep", "delonix-proxmox", "delonix-vm")` removida — o Proxmox passa a
-depender só de `delonix-compute` — e os 126 testes do `delonix-vm` inalterados.
+`vm_namespace_supported`/`restart_policy_unsupervised`, `cloudinit::DEFAULT_CI_USER`, and
+the `Error` variants Proxmox builds. `delonix-vm` re-exports everything via
+`pub use` — zero caller changes a line. **What gets decided here**: the registry is a
+`static` with `OnceLock<RwLock<Vec<…>>>`; in a context it is still a map populated at
+startup by composition (`cmd/vmbackends.rs`), with no I/O at registration time (ADR-0008).
+**Gate:** the exception `("dep", "delonix-proxmox", "delonix-vm")` removed — Proxmox now
+depends only on `delonix-compute` — and `delonix-vm`'s 126 tests unchanged.
 
-**P4b.3 — a orquestração vira use cases do contexto.** `create_with`/`stop`/`start`/
-`status`/`list`/`remove`/`destroy_with`/snapshots/`backup_disk_live` para
-`delonix_compute` (um módulo `vm`, o `app` do D4), a receber `&impl StateRepository<Vm>`
-da composição em vez de abrir o `JsonStore` (fecha metade da excepção
-`("dep", "delonix-vm", "delonix-state")`). O overlay (`qemu-img`) e o seed
-(`cloud-localds`) saem de `create_with` para um porto `LocalDiskImages`/`SeedBuilder`
-que os dois providers locais usam e um adapter implementa — o `delonix-guestfs` que a
-ADR-0040 D2.3 já nomeia para `qemu-img`/`virt-customize` —, porque um provider não pode
-depender de um adapter e duplicar o `qemu-img create` nos dois crates é a segunda cópia
-que este repo já pagou com o `mem_mib`. **É o ponto de desenho da série** e leva um
-addendum próprio antes do código. **Portão:** os 46 símbolos do `-bin` continuam a
-resolver (por `pub use`), a bateria `scripts/e2e.sh` secção `vm` e o cenário de caos
-`control_restart` sem regressão, `VmNetwork` continua a ser o único caminho para o holder.
+**P4b.3 — orchestration becomes context use cases.** `create_with`/`stop`/`start`/
+`status`/`list`/`remove`/`destroy_with`/snapshots/`backup_disk_live` move to
+`delonix_compute` (a `vm` module, D4's `app`), receiving `&impl StateRepository<Vm>`
+from composition instead of opening the `JsonStore` directly (closing half of exception
+`("dep", "delonix-vm", "delonix-state")`). The overlay (`qemu-img`) and the seed
+(`cloud-localds`) move out of `create_with` into a `LocalDiskImages`/`SeedBuilder` port
+that the two local providers use and an adapter implements — `delonix-guestfs`, which
+ADR-0040 D2.3 already names for `qemu-img`/`virt-customize` —, because a provider cannot
+depend on an adapter and duplicating `qemu-img create` in both crates would be the second
+copy this repo has already paid for with `mem_mib`. **This is the series' design point**
+and gets its own addendum before the code. **Gate:** the `-bin`'s 46 symbols keep
+resolving (via `pub use`), the `scripts/e2e.sh` `vm` section battery and the
+`control_restart` chaos scenario without regression, `VmNetwork` remains the only path to
+the holder.
 
-**P4b.4 — os dois crates de provider, e o `delonix-vm` retira-se.**
-`crates/providers/delonix-provider-cloud-hypervisor` e `-libvirt`, cada um com o seu
-`VmBackend`/`VmProvider`, a sua declaração de capacidades e a sua sonda (o
-`capabilities.rs` parte-se em dois), a registar-se pela composição como o Proxmox já faz.
-O que sobrar em `delonix-vm` é medido nessa altura; a intenção é zero. `LAYERS` ganha os
-dois nomes, `dev_docs.py` regenera o manual, `install.sh` não muda (os providers são
-bibliotecas ligadas ao `delonix`). **Portão:** `delonix-vm` fora do workspace, as
-excepções P4 restantes deste crate fora da tabela, `provider_live` e a secção `vm` da
-bateria verdes contra o binário construído dos crates novos.
+**P4b.4 — the two provider crates, and `delonix-vm` retires.**
+`crates/providers/delonix-provider-cloud-hypervisor` and `-libvirt`, each with its own
+`VmBackend`/`VmProvider`, its own capability declaration and its own probe (`capabilities.rs`
+splits in two), registering through composition the way Proxmox already does. What is left
+in `delonix-vm` at that point is measured then; the intent is zero. `LAYERS` gains the two
+new names, `dev_docs.py` regenerates the manual, `install.sh` does not change (the providers
+are libraries linked into `delonix`). **Gate:** `delonix-vm` out of the workspace, the
+remaining P4 exceptions for this crate out of the table, `provider_live` and the battery's
+`vm` section green against the binary built from the new crates.
 
-## O que fica de fora, de propósito
+## What is deliberately left out
 
-O Proxmox no porto `VmProvider` (P4c), o `delonix-launcher` (P4d, é outro adapter),
-`delonix-provider-mount`/`-truenas` (P4e), e um `DiskSource` tipado — cada um com a sua
-linha no D9. E **nenhuma fatia muda o formato em disco de `Vm`/`VmBootSpec`**: o P4b move
-código, não registos.
+Proxmox on the `VmProvider` port (P4c), `delonix-launcher` (P4d, it is another adapter),
+`delonix-provider-mount`/`-truenas` (P4e), and a typed `DiskSource` — each with its own line
+in D9. And **no slice changes the on-disk format of `Vm`/`VmBootSpec`**: P4b moves code, not
+records.
 
-## Provado vs não validado
+## Proven vs not validated
 
-Provado: as zonas, os consumidores e os nós acima, por `grep`/`sed` sobre a base
-indicada; que o `delonix-proxmox` só toca cinco símbolos; que a regra `PROVIDER →
-{FOUNDATION, CONTEXT}` está no `ALLOWED` do fitness e não é opinião. Não validado:
-o custo real das fatias 3 e 4 (o entrançado orquestração↔backends só se mede ao
-desfazê-lo), e se `delonix-linux`/`-mgmt`/`-mcp` chegam aos use cases por `pub use` ou
-precisam de mudar de importação — os quatro símbolos são os mesmos, por isso deve ser
+Proven: the zones, the consumers and the nodes above, via `grep`/`sed` over the stated
+base; that `delonix-proxmox` only touches five symbols; that the `PROVIDER →
+{FOUNDATION, CONTEXT}` rule is in fitness's `ALLOWED` and is not opinion. Not validated:
+the real cost of slices 3 and 4 (the orchestration↔backends entanglement can only be
+measured by undoing it), and whether `delonix-linux`/`-mgmt`/`-mcp` reach the use cases via
+`pub use` or need their import changed — the four symbols are the same, so it should be
 `pub use`.
 
-## Adenda P4b.2 (2026-09-26) — o que se moveu, e o registo que ficou para a P4b.4
+## P4b.2 Addendum (2026-09-26) — what moved, and the registry left for P4b.4
 
-**Feito.** Para `delonix-compute`: `vm_backend` (`VmConfig`, `CloudInitIntent`, `Boot`,
-`CreateStage`/`DestroyStage`, o trait `VmBackend` com os três `unsupported_*`,
+**Done.** To `delonix-compute`: `vm_backend` (`VmConfig`, `CloudInitIntent`, `Boot`,
+`CreateStage`/`DestroyStage`, the `VmBackend` trait with the three `unsupported_*`,
 `BackendFactory`/`ReportFactory`/`BackendRegistration`, `mem_mib`/`parse_mem_mib`,
-`DEFAULT_CI_USER`), `vm_error` (o `Error`/`Result` inteiros, com o `From<Error> for Dx`) e
-`vm_firewall`. O `delonix-vm` re-exporta tudo pelos nomes de sempre; nenhum chamador do
-`-bin`, do `delonix-linux`, da `mgmt` ou do MCP mudou uma linha. O `delonix-proxmox` passou a
-depender só de `delonix-compute`, e a excepção `("dep", "delonix-proxmox", "delonix-vm")`
-saiu do `arch_fitness.py` (10 → 9 excepções).
+`DEFAULT_CI_USER`), `vm_error` (the whole `Error`/`Result`, with `From<Error> for Dx`) and
+`vm_firewall`. `delonix-vm` re-exports everything under the usual names; no caller in
+`-bin`, `delonix-linux`, `mgmt` or MCP changed a line. `delonix-proxmox` now depends only
+on `delonix-compute`, and the exception `("dep", "delonix-proxmox", "delonix-vm")`
+dropped out of `arch_fitness.py` (10 → 9 exceptions).
 
-**O desvio ao plano, e porquê.** O plano punha o REGISTO (o `static`, `register_backend`,
-`select_backend*`, `auto_detect`) nesta fatia. Medido ao cortar: o registo é semeado com
-`CloudHypervisorBackend` e `LibvirtBackend`, que só saem do `delonix-vm` na P4b.4. Movê-lo
-agora obrigava a um gancho de sementeira entre crates, ou a deixar a ordem da auto-detecção
-depender de quem regista primeiro. O portão desta fatia não precisa dele: o Proxmox deixa de
-registar-se sozinho e devolve um `BackendRegistration` (`delonix_proxmox::registration`), que
-a raiz de composição (`cmd/vmbackends.rs`) regista — a forma que o ADR-0008 descreve. O
-registo desce na P4b.4, quando os dois locais também forem registados pela composição e não
-houver sementeira nenhuma para transportar.
+**The deviation from the plan, and why.** The plan put the REGISTRY (the `static`,
+`register_backend`, `select_backend*`, `auto_detect`) in this slice. Measured while
+cutting: the registry is seeded with `CloudHypervisorBackend` and `LibvirtBackend`, which
+only leave `delonix-vm` in P4b.4. Moving it now would have required a cross-crate seeding
+hook, or letting auto-detection order depend on who registers first. This slice's gate does
+not need it: Proxmox stops registering itself and returns a `BackendRegistration`
+(`delonix_proxmox::registration`), which the composition root (`cmd/vmbackends.rs`)
+registers — the shape ADR-0008 describes. The registry moves down in P4b.4, when the two
+local backends are also registered by composition and there is no seeding left to carry.
 
-**Duas conversões ficaram no adapter**, por regra de órfãos: `From<cloudinit::Error>` (o tipo
-de origem é do `delonix-vm`, fica como `impl`) e `From<delonix_state::Error>` (os dois tipos
-são agora de outros crates, logo passou a função `state_err`, chamada nos 14 sítios que
-faziam `?` sobre o `JsonStore`).
+**Two conversions stayed in the adapter**, by the orphan rule: `From<cloudinit::Error>`
+(the source type belongs to `delonix-vm`, stays as `impl`) and `From<delonix_state::Error>`
+(the two types now belong to other crates, so a `state_err` function took over, called at
+the 14 sites that used to do `?` over the `JsonStore`).
 
-## Adenda P4b.3 (2026-09-29) — o desenho, medido antes do código (proposta)
+## P4b.3 Addendum (2026-09-29) — the design, measured before the code (proposal)
 
-**Base:** `origin/main` `0f851aab`. O plano acima disse que a P4b.3 «leva um addendum próprio
-antes do código». É este. Nada do que se segue foi escrito em Rust ainda.
+**Base:** `origin/main` `0f851aab`. The plan above said P4b.3 «gets its own addendum
+before the code». This is it. None of what follows has been written in Rust yet.
 
-### O que se mediu
+### What was measured
 
-A orquestração ocupa hoje as linhas **3905–5361** do `crates/adapters/delonix-vm/src/lib.rs`
-(1 457 linhas; o plano media 4225–5417 sobre `355aea8a` — cresceu com o `resize`, o
-`set_cloud_init`, o `move_to_node` e o `guest_info` do ADR-0053). As funções públicas são as
-que o `-bin`, o `delonix-linux`, a `mgmt` e o MCP chamam: `create`/`create_with`,
+Orchestration today occupies lines **3905–5361** of `crates/adapters/delonix-vm/src/lib.rs`
+(1,457 lines; the plan measured 4225–5417 over `355aea8a` — it grew with `resize`, ADR-0053's
+`set_cloud_init`, `move_to_node` and `guest_info`). The public functions are the ones
+`-bin`, `delonix-linux`, `mgmt` and MCP call: `create`/`create_with`,
 `remove`/`remove_force`/`destroy`/`destroy_with`, `stop`, `pause`/`unpause`, `set_cloud_init`,
 `resize`, `move_to_node`, `guest_info`, `snapshot`/`restore`/`snapshots`/`delete_snapshot`,
 `backup_disk_live`, `apply_firewall`/`read_firewall`, `start`/`restart`/`status`/`list`.
 
-Os nós externos desse intervalo (`grep` sobre o intervalo, e as chamadas contadas sem comentários nem mensagens):
+The external nodes of that range (`grep` over the range, calls counted without comments
+or messages):
 
-| Nó | Sítios | Onde pertence |
+| Node | Sites | Where it belongs |
 |---|---|---|
-| `store(base)` / `JsonStore` (`load`/`save`/`update`/`remove`/`list`) | 15 + 18 | o `StateRepository<Vm>` do D6, injectado |
-| `backend_for` / `select_backend_requiring` / `require_capabilities` / `resolve_required_capabilities` / `firmware_boot_preference` / `standing_backend_choice` | 18 + 6 | o registo — que **ficou no `delonix-vm`** na P4b.2 (ver a adenda anterior) |
-| `qemu-img` (overlay `create -b`, `info`) | 3 chamadas | um porto de disco local |
-| `cloudinit::generate_seed_iso` → `cloud-localds` | 1 | um porto de seed |
-| `virsh` (`domblklist`, `blockcommit`) + `libvirt_domain_uri`/`libvirt_cleanup`/`libvirt_poweroff` | 4 chamadas + 5 | **o backend libvirt**, não a orquestração |
-| `network()` (o `static` do `set_network`) | 1 | o porto `VmNetwork`, que já está no compute — passado, não global |
-| `vm_admission_check` → `/proc/meminfo` | 1 | uma pergunta ao host: `delonix-node` |
-| `std::fs` sobre o directório da própria VM (criar, apagar ficheiros da VM, `path_size`, o lock) | 13 | fica no use case: é o root de estado do próprio contexto, o que o `delonix-node` já faz hoje |
+| `store(base)` / `JsonStore` (`load`/`save`/`update`/`remove`/`list`) | 15 + 18 | D6's `StateRepository<Vm>`, injected |
+| `backend_for` / `select_backend_requiring` / `require_capabilities` / `resolve_required_capabilities` / `firmware_boot_preference` / `standing_backend_choice` | 18 + 6 | the registry — which **stayed in `delonix-vm`** in P4b.2 (see the previous addendum) |
+| `qemu-img` (overlay `create -b`, `info`) | 3 calls | a local-disk port |
+| `cloudinit::generate_seed_iso` → `cloud-localds` | 1 | a seed port |
+| `virsh` (`domblklist`, `blockcommit`) + `libvirt_domain_uri`/`libvirt_cleanup`/`libvirt_poweroff` | 4 calls + 5 | **the libvirt backend**, not orchestration |
+| `network()` (the `static` behind `set_network`) | 1 | the `VmNetwork` port, already in compute — passed, not global |
+| `vm_admission_check` → `/proc/meminfo` | 1 | a question to the host: `delonix-node` |
+| `std::fs` over the VM's own directory (creating, deleting VM files, `path_size`, the lock) | 13 | stays with the use case: it is the context's own state root, which `delonix-node` already does today |
 
-E um facto sobre os contextos: **nenhum crate em `crates/contexts/` chama `Command::new`
-hoje** (`grep`: zero). O `qemu-img` e o `cloud-localds` não podem simplesmente descer com a
-orquestração.
+And one fact about the contexts: **no crate under `crates/contexts/` calls `Command::new`
+today** (`grep`: zero). `qemu-img` and `cloud-localds` cannot simply descend with
+orchestration.
 
-### Quatro achados que mudam a frase do plano
+### Four findings that change the plan's wording
 
-1. **O `backup_disk_live` não é orquestração** (4880–5025, com o `blockcommit_argv`): é todo
-   `virsh domblklist` + `qemu-img` + `virsh blockcommit --pivot`, ou seja o mecanismo do
-   backend libvirt. Sobe um método ao porto — `VmBackend::backup_disk_live(vmdir, vm, dest,
-   quiesce)`, por omissão a recusa `unsupported_*` que os outros verbos já usam — e o use case
-   fica com `load` + despacho. Tal como o plano estava, este bloco iria parar ao contexto com
-   `virsh` dentro.
-2. **O «domínio libvirt sem registo» vive na orquestração** — `remove_inner` (limpa um domínio
-   órfão de um `rm` antigo) e `stop` (desliga-o em vez de responder «no such VM»). É
-   conhecimento do libvirt. Passa a uma pergunta ao conjunto de backends por nome, sem registo:
-   `stop_unrecorded(name) -> Result<bool>` e `remove_unrecorded(name) -> Result<bool>`, que só o
-   libvirt responde com `true`.
-3. **O registo continua no adapter** (o desvio da P4b.2), por isso um use case no compute não
-   pode chamar `backend_for`. A resolução do backend também é injectada — um porto `VmBackends`
-   que o `delonix-vm` implementa sobre o seu registo até à P4b.4, e que a composição passa a
-   implementar quando o registo descer.
-4. **O `StateRepository<T>` não é object-safe** (o `update<F>` é genérico). Os use cases são
-   genéricos sobre os portos, exactamente como o `resolve_run<I, S, D, H>` do `container run`
-   (`docs/discovery/54`), e não recebem `&dyn`.
+1. **`backup_disk_live` is not orchestration** (4880–5025, with `blockcommit_argv`): it is
+   entirely `virsh domblklist` + `qemu-img` + `virsh blockcommit --pivot`, i.e. the libvirt
+   backend's mechanism. A method moves up to the port — `VmBackend::backup_disk_live(vmdir, vm, dest,
+   quiesce)`, refusing by default with `unsupported_*` as the other verbs already do — and the
+   use case is left with `load` + dispatch. As the plan stood, this block would have landed
+   in the context with `virsh` inside it.
+2. **The "unregistered libvirt domain" lives in orchestration** — `remove_inner` (cleans up
+   an orphaned domain from an old `rm`) and `stop` (powers it off instead of answering
+   "no such VM"). This is libvirt-specific knowledge. It becomes a question to the backend
+   set by name, with no registry lookup: `stop_unrecorded(name) -> Result<bool>` and
+   `remove_unrecorded(name) -> Result<bool>`, which only libvirt answers `true` to.
+3. **The registry stays in the adapter** (the P4b.2 deviation), so a compute use case
+   cannot call `backend_for`. Backend resolution is also injected — a `VmBackends` port
+   that `delonix-vm` implements over its registry until P4b.4, and that composition
+   implements once the registry moves down.
+4. **`StateRepository<T>` is not object-safe** (`update<F>` is generic). The use cases are
+   generic over the ports, exactly like `container run`'s `resolve_run<I, S, D, H>`
+   (`docs/discovery/54`), and do not receive `&dyn`.
 
-### Os portos (no `delonix_compute::ports`, ao lado do `VmNetwork`)
+### The ports (in `delonix_compute::ports`, next to `VmNetwork`)
 
 ```rust
 pub trait VmBackends {
@@ -229,253 +232,260 @@ pub trait SeedBuilder {
 }
 ```
 
-`LocalDiskImages` e `SeedBuilder` são dois portos e não um: o seed é cloud-init, não uma
-imagem de disco, e um provider com storage própria (o Proxmox, `manages_own_storage`) não usa
-nenhum dos dois. Na P4b.3 os três são implementados pelo próprio `delonix-vm` (é um adapter;
-o `Command` é legítimo lá). Na P4b.4 a implementação do disco e do seed muda para um adapter
-próprio — o `delonix-guestfs` que a ADR-0040 D2.3 já nomeia para o `qemu-img` —, e os dois
-providers locais recebem-na da composição: um provider não pode depender de um adapter, e
-duplicar o `qemu-img create` nos dois crates é a segunda cópia que o `mem_mib` já custou.
+`LocalDiskImages` and `SeedBuilder` are two ports, not one: the seed is cloud-init, not a
+disk image, and a provider with its own storage (Proxmox, `manages_own_storage`) uses
+neither. In P4b.3 all three are implemented by `delonix-vm` itself (it is an adapter;
+`Command` is legitimate there). In P4b.4 the disk and seed implementation moves to its own
+adapter — `delonix-guestfs`, which ADR-0040 D2.3 already names for `qemu-img` —, and the two
+local providers receive it from composition: a provider cannot depend on an adapter, and
+duplicating `qemu-img create` in both crates is the second copy `mem_mib` has already cost.
 
-A admissão de RAM parte-se em dois: a leitura do `/proc/meminfo` desce para o `delonix-node`
-(ao lado do `proc_starttime`, que o `adopt_pid_starttime` já usa), e o veredicto
-(`admission_verdict`, puro e já testado) vai com o use case.
+RAM admission splits in two: reading `/proc/meminfo` moves down to `delonix-node`
+(next to `proc_starttime`, which `adopt_pid_starttime` already uses), and the verdict
+(`admission_verdict`, pure and already tested) goes with the use case.
 
-### O que não muda
+### What does not change
 
-- **A superfície pública do `delonix-vm`**: os 46 símbolos do `-bin` e os quatro do
-  `delonix-linux`/`mgmt`/MCP continuam a resolver, agora como invólucros finos que abrem o
-  `JsonStore`, passam o registo, o disco, o seed e a rede, e chamam o use case.
-- **O formato em disco** de `Vm`/`VmBootSpec` e o ficheiro de lock por VM.
-- A excepção `("dep", "delonix-vm", "delonix-state")` fica até à P4b.4 (os invólucros ainda
-  abrem o `JsonStore`), mas os use cases deixam de depender do `delonix-state`.
+- **`delonix-vm`'s public surface**: the `-bin`'s 46 symbols and the four from
+  `delonix-linux`/`mgmt`/MCP keep resolving, now as thin wrappers that open the
+  `JsonStore`, pass the registry, the disk, the seed and the network, and call the use case.
+- **The on-disk format** of `Vm`/`VmBootSpec` and the per-VM lock file.
+- The exception `("dep", "delonix-vm", "delonix-state")` stays until P4b.4 (the wrappers
+  still open the `JsonStore`), but the use cases stop depending on `delonix-state`.
 
-### Em duas fatias, cada uma com o seu portão
+### In two slices, each with its own gate
 
-- **P4b.3a — o conhecimento do backend sai da orquestração, ainda dentro do `delonix-vm`.**
-  `VmBackend::backup_disk_live` (o libvirt implementa, os outros recusam por nome), o
-  `stop_unrecorded`/`remove_unrecorded`, a leitura do `/proc/meminfo` no `delonix-node`, e os
-  portos declarados no compute com a implementação no `delonix-vm`. Nenhuma função muda de
-  crate. **Portão:** os testes do `delonix-vm` inalterados, a secção `vm` do `scripts/e2e.sh`
-  (o `backup create vm` de uma VM libvirt a correr com dois discos, o caso que a bateria de
-  2026-09-24 já cobre), e zero `virsh` no intervalo da orquestração.
-- **P4b.3b — os use cases descem para `delonix_compute::vm`**, genéricos sobre
-  `StateRepository<Vm>`/`VmBackends`/`LocalDiskImages`/`SeedBuilder`/`VmNetwork`, com testes no
-  compute contra portos falsos (um repositório em memória, um backend que regista chamadas) —
-  o ganho que justifica o corte: hoje estes caminhos só se testam contra um root de estado
-  real. **Portão:** os 46 símbolos, a secção `vm` da bateria e o cenário de caos
-  `control_restart` sem regressão, e um contador novo no `arch_fitness.py` —
-  `context_spawns` (`Command::new` em `crates/contexts/`) com linha de base **0**, para o
-  contexto nunca ganhar o primeiro `Command` pelo caminho.
+- **P4b.3a — backend-specific knowledge leaves orchestration, still inside `delonix-vm`.**
+  `VmBackend::backup_disk_live` (libvirt implements it, the others refuse by name), the
+  `stop_unrecorded`/`remove_unrecorded`, reading `/proc/meminfo` in `delonix-node`, and the
+  ports declared in compute with the implementation in `delonix-vm`. No function changes
+  crate. **Gate:** `delonix-vm`'s tests unchanged, the `scripts/e2e.sh` `vm` section
+  (the `backup create vm` of a running libvirt VM with two disks, the case the 2026-09-24
+  battery already covers), and zero `virsh` in the orchestration range.
+- **P4b.3b — the use cases move down to `delonix_compute::vm`**, generic over
+  `StateRepository<Vm>`/`VmBackends`/`LocalDiskImages`/`SeedBuilder`/`VmNetwork`, with tests
+  in compute against fake ports (an in-memory repository, a backend that records calls) —
+  the gain that justifies the cut: today these paths can only be tested against a real
+  state root. **Gate:** the 46 symbols, the battery's `vm` section and the
+  `control_restart` chaos scenario without regression, and a new counter in
+  `arch_fitness.py` — `context_spawns` (`Command::new` in `crates/contexts/`) with a
+  baseline of **0**, so the context never gains its first `Command` along the way.
 
-### Provado vs não validado
+### Proven vs not validated
 
-Provado, por `grep`/`sed` sobre `0f851aab`: o intervalo, os nós e as contagens da tabela; que
-o `backup_disk_live` e o tratamento do domínio órfão só chamam `virsh`/`libvirt_*`; que nenhum
-contexto chama `Command::new`; que o `delonix-compute` já depende do `delonix-node`; que o
-`StateRepository<T>` não é object-safe. Não validado: se o `select` cabe numa assinatura sem
-arrastar mais política do que a listada (a auto-detecção e o firmware medem-se ao cortar), e o
-custo real da P4b.3b — o entrançado só se mede ao desfazê-lo, como o plano já dizia.
+Proven, via `grep`/`sed` over `0f851aab`: the range, the nodes and the table's counts; that
+`backup_disk_live` and handling of the orphaned domain only call `virsh`/`libvirt_*`; that
+no context calls `Command::new`; that `delonix-compute` already depends on `delonix-node`;
+that `StateRepository<T>` is not object-safe. Not validated: whether `select` fits in a
+signature without dragging in more policy than listed (auto-detection and firmware are
+measured while cutting), and the real cost of P4b.3b — the entanglement can only be
+measured by undoing it, as the plan already said.
 
-## Adenda P4b.3a (2026-09-29) — o conhecimento de backend saiu da orquestração
+## P4b.3a Addendum (2026-09-29) — backend knowledge left orchestration
 
-**Feito, tudo ainda dentro do `delonix-vm`.** A orquestração passou de 1 457 para 1 165 linhas
-e tem hoje **zero** `virsh`, `libvirt_domain_uri`/`libvirt_cleanup`/`libvirt_poweroff`,
-`qemu-img`, `cloudinit::` e `backend_for` — contados sobre o intervalo `valid_vm_name` →
-primeiro módulo de testes. Ficam as 15 chamadas a `store(base)`, que são da P4b.3b.
+**Done, all still inside `delonix-vm`.** Orchestration went from 1,457 to 1,165 lines and
+today has **zero** `virsh`, `libvirt_domain_uri`/`libvirt_cleanup`/`libvirt_poweroff`,
+`qemu-img`, `cloudinit::` and `backend_for` — counted over the range from `valid_vm_name` to
+the first test module. The 15 calls to `store(base)` remain, which belong to P4b.3b.
 
-- **`VmBackend::backup_disk_live`** no porto (compute), com a recusa por omissão que a
-  orquestração dava antes, com o mesmo texto e o mesmo DX-1514; o libvirt implementa-o com o
-  corpo de antes (`libvirt_backup_disk_live`, agora ao lado do `LibvirtBackend`).
-- **Os três portos** no `delonix_compute::ports` e a implementação no `delonix-vm`
-  (`local_ports.rs`: `RegistryBackends`, `QemuImgDisks`, `CloudLocaldsSeed`). A escolha do
-  backend de uma VM nova saiu do `create_with` para o `select_for_create`, junto do registo; o
-  `prepare_local_overlay` passou para dentro do `QemuImgDisks`.
-- **A leitura do `/proc/meminfo`** desceu para o `delonix-node` (`mem_available_mib`), e o
-  veredicto de admissão ficou com a orquestração.
-- **Um `eprintln!` a menos** numa biblioteca: o aviso de «cloud image em Cloud Hypervisor sem
-  libvirt» passou a `tracing::warn!` (ratchet `library_prints` 90 → 89).
+- **`VmBackend::backup_disk_live`** in the port (compute), with the same default refusal
+  orchestration used to give, same text and same DX-1514; libvirt implements it with the
+  same body as before (`libvirt_backup_disk_live`, now next to `LibvirtBackend`).
+- **The three ports** in `delonix_compute::ports` and the implementation in `delonix-vm`
+  (`local_ports.rs`: `RegistryBackends`, `QemuImgDisks`, `CloudLocaldsSeed`). Choosing a
+  new VM's backend moved out of `create_with` into `select_for_create`, next to the
+  registry; `prepare_local_overlay` moved inside `QemuImgDisks`.
+- **Reading `/proc/meminfo`** moved down to `delonix-node` (`mem_available_mib`), and the
+  admission verdict stayed with orchestration.
+- **One fewer `eprintln!`** in a library: the "cloud image on Cloud Hypervisor without
+  libvirt" warning became `tracing::warn!` (ratchet `library_prints` 90 → 89).
 
-**Desvios ao esboço da adenda anterior, medidos ao cortar:**
+**Deviations from the previous addendum's sketch, measured while cutting:**
 
-- O `VmBackends` precisou de mais duas perguntas ao registo: `require` (as capacidades exigidas,
-  que um `start` também verifica) e `declares` (a política de restart, o namespace e o
-  anti-spoof perguntam o relatório de um backend). O «domínio sem registo» ficou em três
-  métodos em vez de dois: `unrecorded(name) -> Option<&'static str>` diz QUE backend o tem (o
-  `rm` anuncia-o no progresso), e `stop_unrecorded`/`remove_unrecorded` agem.
-- O `LocalDiskImages::overlay` recebe o callback de progresso (o `CreateStage::Disk` só sai
-  quando o overlay é mesmo criado) e devolve `(base, overlay)`, porque o registo da VM guarda os
-  dois. O `SeedBuilder::seed` recebe o `VmConfig` inteiro: o seed lê o hostname, o utilizador,
-  as chaves e os volumes.
+- `VmBackends` needed two more questions to the registry: `require` (the required
+  capabilities, which `start` also checks) and `declares` (restart policy, namespace and
+  the anti-spoof check ask a backend's report). The "unregistered domain" ended up as
+  three methods instead of two: `unrecorded(name) -> Option<&'static str>` says WHICH
+  backend has it (`rm`'s progress announces it), and `stop_unrecorded`/`remove_unrecorded` act.
+- `LocalDiskImages::overlay` receives the progress callback (`CreateStage::Disk` only
+  fires once the overlay is actually created) and returns `(base, overlay)`, because the
+  VM record stores both. `SeedBuilder::seed` receives the entire `VmConfig`: the seed
+  reads the hostname, the user, the keys and the volumes.
 
-**Uma correcção à adenda anterior.** Ela dizia que o portão desta fatia era «o `backup create
-vm` de uma VM libvirt a correr com dois discos, o caso que a bateria de 2026-09-24 já cobre».
-Não cobria: a linha `vm.backup-disk` do catálogo está `partial` precisamente porque a bateria
-só fazia o backup de um container. Esta fatia acrescenta o caso à secção de snapshots libvirt
-do `scripts/e2e.sh`: com a VM a correr, o arquivo é criado, a VM continua `running`, e o
-`domblklist` mostra-a a escrever no seu próprio overlay (nem no temporário, nem na imagem base
-— o defeito que um `blockcommit` sem `--top`/`--base` esconde atrás de «Successfully
-pivoted»). **Medido:** as secções de VM da bateria contra o binário desta árvore deram 101
-PASS, 0 FAIL, com os quatro checks novos entre eles. A linha do catálogo não foi promovida:
-isso é decisão da ADR-0050, com um check de restauro ao lado.
+**A correction to the previous addendum.** It said this slice's gate was "the `backup
+create vm` of a running libvirt VM with two disks, the case the 2026-09-24 battery already
+covers". It did not: the catalog's `vm.backup-disk` line is `partial` precisely because
+the battery only backed up a container. This slice adds the case to the `scripts/e2e.sh`
+libvirt snapshot section: with the VM running, the archive is created, the VM stays
+`running`, and `domblklist` shows it writing to its own overlay (not the temporary one,
+not the base image — the defect a `blockcommit` without `--top`/`--base` hides behind
+"Successfully pivoted"). **Measured:** the battery's VM sections against this tree's binary
+gave 101 PASS, 0 FAIL, with the four new checks among them. The catalog line was not
+promoted: that is an ADR-0050 decision, with a restore check alongside it.
 
-## Adenda P4b.3b (2026-09-29) — os use cases desceram para o contexto
+## P4b.3b Addendum (2026-09-29) — the use cases moved down to the context
 
-**Feito.** A orquestração saiu do `delonix-vm` para `delonix_compute::vm` (1 612 linhas com os
-testes novos): métodos de um `VmEngine<'a, R, B, D, S>` que recebe o root, o
-`StateRepository<Vm>`, os três portos e a rede, genérico sobre eles como o `resolve_run` do
-`container run`. Desceram com ela as funções puras que ela usava (`valid_vm_name`,
-`vm_namespace_of`, a admissão de RAM, `resolve_required_capabilities`,
-`adopt_pid_starttime`/`argv_is_vmm_for`, `boot_spec_of`/`config_from`) e o `Destroyed`. O
-`delonix-vm` passou de 9 249 para 8 331 linhas: monta o engine por chamada (`engine(base)`: o
-`JsonStore`, o `RegistryBackends`, o `QemuImgDisks`, o `CloudLocaldsSeed` e a rede registada) e
-mantém as 24 funções públicas como invólucros de uma linha. Nenhum chamador do `-bin`, do
-`delonix-linux`, da `mgmt` ou do MCP mudou; os testes do `delonix-vm` continuam a chegar às
-funções puras pelos nomes de sempre (importadas de volta só para testes).
+**Done.** Orchestration left `delonix-vm` for `delonix_compute::vm` (1,612 lines including
+the new tests): methods of a `VmEngine<'a, R, B, D, S>` that receives the root, the
+`StateRepository<Vm>`, the three ports and the network, generic over them like `container
+run`'s `resolve_run`. The pure functions it used came down with it (`valid_vm_name`,
+`vm_namespace_of`, RAM admission, `resolve_required_capabilities`,
+`adopt_pid_starttime`/`argv_is_vmm_for`, `boot_spec_of`/`config_from`) and `Destroyed`.
+`delonix-vm` went from 9,249 to 8,331 lines: it assembles the engine per call (`engine(base)`:
+the `JsonStore`, `RegistryBackends`, `QemuImgDisks`, `CloudLocaldsSeed` and the registered
+network) and keeps the 24 public functions as one-line wrappers. No caller in `-bin`,
+`delonix-linux`, `mgmt` or MCP changed; `delonix-vm`'s tests still reach the pure functions
+under their usual names (imported back only for tests).
 
-- **O que a P4b.3a deixou passar:** o `check_allow_mac_spoofing` é conhecimento do libvirt (o
-  nome do backend e o filtro anti-spoof) e o `create_with` chamava-o. Passou a
-  `VmBackends::admit(backend_id, cfg)`, implementado no `delonix-vm` pela função de sempre —
-  mesmo texto, mesmo código.
-- **O `into_root()` sobre o erro do store** deu lugar a `e.is_not_found()` (ADR-0043 D4): o erro
-  que chega pelo porto é o partilhado, e é a classe que se pergunta, não a variante.
-- **O contexto não corre programas:** o `arch_fitness.py` ganhou o contador `context_spawns`
-  (`Command::new` em `crates/contexts/`), com linha de base **0**. Verificado: um `Command::new`
-  temporário no compute faz o portão chumbar com «new debt entered».
-- **Testes contra portos falsos** (`vm::tests`, 6): um repositório em memória, um backend que
-  regista chamadas, disco e seed falsos — overlay e seed numa VM local e nenhum dos dois num
-  backend com storage própria, um nome inválido que não chega a porto nenhum, o `stop` de um
-  nome sem registo a perguntar aos backends (4501 quando nenhum o tem), o `status` a reconciliar
-  uma VM que o backend parou, e o `stop` a registar `Stopped`. Retirar a guarda
-  `!own_storage` do seed faz chumbar o teste respectivo (verificado).
+- **What P4b.3a let through:** `check_allow_mac_spoofing` is libvirt-specific knowledge
+  (the backend name and the anti-spoof filter) and `create_with` used to call it. It
+  became `VmBackends::admit(backend_id, cfg)`, implemented in `delonix-vm` by the same old
+  function — same text, same code.
+- **`into_root()` on the store's error** gave way to `e.is_not_found()` (ADR-0043 D4): the
+  error arriving through the port is the shared one, and it is the class being asked, not
+  the variant.
+- **The context does not run programs:** `arch_fitness.py` gained the `context_spawns`
+  counter (`Command::new` in `crates/contexts/`), with a baseline of **0**. Verified: a
+  temporary `Command::new` in compute makes the gate fail with "new debt entered".
+- **Tests against fake ports** (`vm::tests`, 6): an in-memory repository, a backend that
+  records calls, fake disk and seed — overlay and seed for a local VM and neither for a
+  backend with its own storage, an invalid name that never reaches any port, `stop` on an
+  unregistered name asking the backends (4501 when none has it), `status` reconciling a VM
+  the backend stopped, and `stop` recording `Stopped`. Removing the `!own_storage` guard
+  from the seed makes the respective test fail (verified).
 
-**Fica para a P4b.4:** a excepção `("dep", "delonix-vm", "delonix-state")` (o `engine(base)`
-ainda abre o `JsonStore`), o registo, e os dois backends locais, que saem para os seus crates.
+**Left for P4b.4:** the exception `("dep", "delonix-vm", "delonix-state")` (`engine(base)`
+still opens the `JsonStore`), the registry, and the two local backends, which move out to
+their own crates.
 
-## Adenda P4b.4 (2026-09-29) — o desenho, medido antes do código (proposta)
+## P4b.4 Addendum (2026-09-29) — the design, measured before the code (proposal)
 
-**Base:** `origin/main` depois do #597. Como a P4b.3, esta fatia leva um desenho antes do código,
-porque a medição encontrou um ponto que o plano não confrontou: **onde se monta o engine quando
-o `delonix-vm` sair.**
+**Base:** `origin/main` after #597. Like P4b.3, this slice gets a design before the code,
+because the measurement found a point the plan did not confront: **where the engine gets
+assembled once `delonix-vm` leaves.**
 
-### O que se mediu
+### What was measured
 
-O `delonix-vm` depois da P4b.3b: 8 329 linhas no `lib.rs` (1–1150 helpers e registo; 1151–1952
-Cloud Hypervisor; 1953–4038 libvirt; 4039–4405 a montagem do engine e os 24 invólucros;
-4406–8329, **3 924 linhas de testes**), mais `capabilities.rs` (749: as duas declarações ADR-0050
-e as sondas `LibvirtHost`/`CloudHypervisorHost`), `cloudinit.rs` (317), `local_ports.rs` (157) e
-`provider.rs` (311, o `LocalVmProvider` da P4b.1).
+`delonix-vm` after P4b.3b: 8,329 lines in `lib.rs` (1–1150 helpers and registry; 1151–1952
+Cloud Hypervisor; 1953–4038 libvirt; 4039–4405 engine assembly and the 24 wrappers;
+4406–8329, **3,924 lines of tests**), plus `capabilities.rs` (749: the two ADR-0050
+declarations and the `LibvirtHost`/`CloudHypervisorHost` probes), `cloudinit.rs` (317),
+`local_ports.rs` (157) and `provider.rs` (311, P4b.1's `LocalVmProvider`).
 
-**O que os dois backends partilham é pouco** (chamadas por zona, `grep`):
+**What the two backends share is little** (calls per zone, `grep`):
 
-| Helper | CH | libvirt | Natureza |
+| Helper | CH | libvirt | Nature |
 |---|---|---|---|
-| `stable_cmd` / `capture` / `binary_in_path` | 1 / 1 / 1 | 5 / 14 / 1 | correm programas |
-| `mac_for` | 1 | 1 | pura |
-| `network()` | 5 | 0 | o porto `VmNetwork` |
-| `terminate_vmm`, `vmm_left`, `wait_vmm_left`, `vmm_to_signal`, `shq`, `memory_arg`, `cpus_arg` | sim | 0 | só CH |
-| `is_rootless`, `run_quiet`, `disk_backing_format`, `pick_lease_ip`, `leases_max_expiry` | 0 | sim | só libvirt |
+| `stable_cmd` / `capture` / `binary_in_path` | 1 / 1 / 1 | 5 / 14 / 1 | run programs |
+| `mac_for` | 1 | 1 | pure |
+| `network()` | 5 | 0 | the `VmNetwork` port |
+| `terminate_vmm`, `vmm_left`, `wait_vmm_left`, `vmm_to_signal`, `shq`, `memory_arg`, `cpus_arg` | yes | 0 | CH only |
+| `is_rootless`, `run_quiet`, `disk_backing_format`, `pick_lease_ip`, `leases_max_expiry` | 0 | yes | libvirt only |
 
-**Os testes**, classificados pelo que exercitam (114): libvirt 46, Cloud Hypervisor 27, registo 7,
-invólucros públicos 4, outros 30.
+**The tests**, classified by what they exercise (114): libvirt 46, Cloud Hypervisor 27,
+registry 7, public wrappers 4, other 30.
 
-**Quem depende do `delonix-vm`** (dependências reais nos `Cargo.toml`, não menções): o `-bin` e
-três interfaces — `delonix-mgmt`, `delonix-mcp` e `delonix-node-api` —, e estas usam o engine
-completo (`create`, `start`, `status`, `list`) e os relatórios de capacidades.
+**Who depends on `delonix-vm`** (real `Cargo.toml` dependencies, not mentions): the `-bin`
+and three interfaces — `delonix-mgmt`, `delonix-mcp` and `delonix-node-api` —, and these use
+the whole engine (`create`, `start`, `status`, `list`) and the capability reports.
 
-### O ponto que o plano não confrontou
+### The point the plan did not confront
 
-O plano dizia «`delonix-vm` fora do workspace» no fim da P4b.4. Mas a **montagem** do engine — o
-registo com os dois backends locais por uma ordem que decide a auto-detecção, o `JsonStore`, o
-disco e o seed locais, e a rede registada — tem de viver num sítio que os quatro consumidores
-partilhem, e a tabela `ALLOWED` não tem esse sítio:
+The plan said "`delonix-vm` out of the workspace" at the end of P4b.4. But **assembling**
+the engine — the registry with the two local backends in an order that decides
+auto-detection, the `JsonStore`, the local disk and seed, and the registered network — has
+to live somewhere the four consumers share, and the `ALLOWED` table has no such place:
 
-- um **adapter** não depende de providers;
-- uma **interface** não depende de outra interface;
-- um **contexto** não conhece providers nem corre programas;
-- montar em cada consumidor são **quatro cópias** do registo, e a ordem de registo é o que decide
-  qual backend uma VM sem `--backend` recebe — quatro cópias divergem.
+- an **adapter** does not depend on providers;
+- an **interface** does not depend on another interface;
+- a **context** knows nothing about providers and runs no programs;
+- assembling it in each consumer means **four copies** of the registry, and registration
+  order is what decides which backend a VM without `--backend` receives — four copies diverge.
 
-É o que a camada de aplicação da ADR-0040 (P5) existe para resolver, e ela ainda não existe.
+This is what ADR-0040's application layer (P5) exists to solve, and it does not exist yet.
 
-### A proposta
+### The proposal
 
-1. **Dois crates de provider**: `delonix-provider-cloud-hypervisor` e `delonix-provider-libvirt`,
-   cada um com o seu `VmBackend`, a sua declaração ADR-0050 e a sua sonda (o `capabilities.rs`
-   parte-se em dois), os seus helpers e os seus testes; cada um expõe `registration()`, como o
-   Proxmox já faz. O libvirt leva também o que a P4b.3 lhe deu por nome: o backup a quente, o
-   domínio sem registo (`unrecorded`/`stop_unrecorded`/`remove_unrecorded`) e o `admit`.
-2. **`mac_for`** (pura) desce para o compute. **`stable_cmd`/`capture`/`binary_in_path`** ficam uma
-   cópia em cada provider (≈20 linhas), cada uma com o teste que fixa o `LC_ALL=C` — a regressão
-   que estas funções existem para impedir (o `virsh` é gettext). Não há outro sítio legal: um
-   provider não depende de outro provider nem de um adapter, e um contexto já não corre programas
-   (`context_spawns` = 0). A cópia é pequena e o teste é o que impede as duas de divergirem na
-   única coisa que importa.
-3. **O registo desce para o compute** (`delonix_compute::vm_registry`, o que o ADR D4 já previa),
-   vazio: ninguém o semeia por dentro; a montagem regista os backends locais por uma ordem
-   explícita e escrita num sítio só.
-4. **Um adapter `delonix-guestfs`** (o nome que a ADR-0040 D2.3 já reservou para o `qemu-img`)
-   leva o `cloudinit.rs` e as implementações `LocalDiskImages`/`SeedBuilder`.
-5. **O `delonix-vm` fica, reduzido à montagem, até à P5** — o engine por chamada, o registo dos
-   dois locais, os 24 invólucros públicos e o `LocalVmProvider` —, com **duas excepções novas e
-   declaradas** no `arch_fitness.py`, `("dep", "delonix-vm", "delonix-provider-libvirt")` e
-   `("dep", "delonix-vm", "delonix-provider-cloud-hypervisor")`, fase **P5**, razão escrita: é a
-   raiz de composição que a camada de aplicação vai absorver. A regra do portão («uma excepção tem
-   de nomear a fase que a remove») é o que torna isto honesto: a dívida fica à vista, com data de
-   saída, em vez de quatro cópias do registo espalhadas pelos consumidores.
+1. **Two provider crates**: `delonix-provider-cloud-hypervisor` and `delonix-provider-libvirt`,
+   each with its own `VmBackend`, its own ADR-0050 declaration and its own probe
+   (`capabilities.rs` splits in two), its own helpers and its own tests; each exposes
+   `registration()`, as Proxmox already does. libvirt also carries what P4b.3 gave it by
+   name: hot backup, the unregistered domain
+   (`unrecorded`/`stop_unrecorded`/`remove_unrecorded`) and `admit`.
+2. **`mac_for`** (pure) moves down to compute. **`stable_cmd`/`capture`/`binary_in_path`**
+   stay as one copy in each provider (≈20 lines), each with the test that pins
+   `LC_ALL=C` — the regression these functions exist to prevent (`virsh` is gettext). There
+   is no other legal place: a provider does not depend on another provider or on an
+   adapter, and a context no longer runs programs (`context_spawns` = 0). The copy is
+   small and the test is what stops the two from diverging on the one thing that matters.
+3. **The registry moves down to compute** (`delonix_compute::vm_registry`, what the ADR's
+   D4 already anticipated), empty: nobody seeds it from inside; assembly registers the
+   local backends in an explicit order written in one place.
+4. **A `delonix-guestfs` adapter** (the name ADR-0040 D2.3 already reserved for
+   `qemu-img`) carries `cloudinit.rs` and the `LocalDiskImages`/`SeedBuilder` implementations.
+5. **`delonix-vm` stays, reduced to assembly, until P5** — the per-call engine, the
+   registration of the two locals, the 24 public wrappers and `LocalVmProvider` —, with
+   **two new, declared exceptions** in `arch_fitness.py`, `("dep", "delonix-vm",
+   "delonix-provider-libvirt")` and `("dep", "delonix-vm", "delonix-provider-cloud-hypervisor")`,
+   phase **P5**, reason written: it is the composition root that the application layer will
+   absorb. The gate rule ("an exception must name the phase that removes it") is what
+   makes this honest: the debt is visible, with an exit date, instead of four copies of the
+   registry scattered across consumers.
 
-   **Isto desvia-se do plano** («`delonix-vm` fora do workspace») e é por isso que vai por escrito
-   antes do código. A alternativa que cumpre o plano à letra é acrescentar uma camada à tabela
-   `ALLOWED` — decisão de estrutura (ADR-0040), não de uma fatia.
+   **This deviates from the plan** ("`delonix-vm` out of the workspace") and that is why it
+   goes in writing before the code. The alternative that follows the plan to the letter is
+   to add a layer to the `ALLOWED` table — a structural decision (ADR-0040), not a slice's.
 
-### Em fatias, cada uma com o seu portão
+### In slices, each with its own gate
 
-- **P4b.4a** — `mac_for` no compute, o registo no compute (semeado pela montagem), o adapter
-  `delonix-guestfs` com o `cloudinit.rs` e os dois portos. Nenhum backend muda de crate.
-- **P4b.4b** — o crate `delonix-provider-libvirt` (backend, declaração, sonda, helpers, testes).
-- **P4b.4c** — o crate `delonix-provider-cloud-hypervisor`, idem.
-- **P4b.4d** — o `delonix-vm` reduzido à montagem, as duas excepções declaradas, `LAYERS` com os
-  dois nomes novos, e o manual regenerado.
+- **P4b.4a** — `mac_for` in compute, the registry in compute (seeded by assembly), the
+  `delonix-guestfs` adapter with `cloudinit.rs` and the two ports. No backend changes crate.
+- **P4b.4b** — the `delonix-provider-libvirt` crate (backend, declaration, probe, helpers, tests).
+- **P4b.4c** — the `delonix-provider-cloud-hypervisor` crate, likewise.
+- **P4b.4d** — `delonix-vm` reduced to assembly, the two declared exceptions, `LAYERS` with
+  the two new names, and the regenerated manual.
 
-**Portão de cada uma:** os símbolos públicos dos quatro consumidores a resolver sem mudar de
-linha, a secção `vm` da bateria (101 checks hoje) e o caos `control_restart` sem regressão, o
-`provider ls`/`provider matrix` byte-a-byte iguais (as declarações só mudam de crate), e o
-`arch_fitness.py` verde com as excepções que cada fatia declara ou remove.
+**Each one's gate:** the four consumers' public symbols resolving without changing a line,
+the battery's `vm` section (101 checks today) and `control_restart` chaos without
+regression, `provider ls`/`provider matrix` byte-for-byte identical (the declarations only
+change crate), and `arch_fitness.py` green with the exceptions each slice declares or removes.
 
-### Provado vs não validado
+### Proven vs not validated
 
-Provado, por `grep` sobre o código do #597: as zonas e as contagens, os helpers partilhados, a
-repartição dos testes, e que só o `-bin` e as três interfaces dependem do `delonix-vm`. Não
-validado: o custo da partição dos 3 924 linhas de testes (a classificação acima é por palavras,
-não por leitura) e se o `LocalVmProvider` cabe na montagem sem arrastar mais nada.
+Proven, via `grep` over #597's code: the zones and counts, the shared helpers, the test
+breakdown, and that only `-bin` and the three interfaces depend on `delonix-vm`. Not
+validated: the cost of splitting the 3,924 lines of tests (the classification above is by
+keyword, not by reading) and whether `LocalVmProvider` fits into assembly without dragging
+anything else along.
 
-## Fecho da P4b.4 (2026-09-29) — #599, #602, #608 e a P4b.4d
+## P4b.4 Close-out (2026-09-29) — #599, #602, #608 and P4b.4d
 
-**O que ficou como a adenda disse:** os dois backends locais vivem nos seus crates
-(`delonix-provider-libvirt`, #602; `delonix-provider-cloud-hypervisor`, #608), o registo e o
-`mac_for` no compute (#599), e o `delonix-vm` é a raiz de composição até à P5, com as duas
-excepções declaradas. A rede de VMs (`set_network`/`network()`) desceu também para o
-`vm_registry` do compute, porque o provider CH precisa dela e não pode depender do adapter.
+**What landed as the addendum said:** the two local backends live in their own crates
+(`delonix-provider-libvirt`, #602; `delonix-provider-cloud-hypervisor`, #608), the registry
+and `mac_for` in compute (#599), and `delonix-vm` is the composition root until P5, with
+the two declared exceptions. VM networking (`set_network`/`network()`) also moved down to
+compute's `vm_registry`, because the CH provider needs it and cannot depend on the adapter.
 
-**O que se desviou da adenda, e porquê:** o adapter `delonix-guestfs` não foi criado. Nenhum
-provider precisa do `cloudinit.rs` nem do disco local, e criá-lo daria uma terceira excepção sem
-consumidor. O disco e o seed ficam no `local_ports.rs` do `delonix-vm`, com os helpers do
-`qemu-img` que lhes pertencem (P4b.4d).
+**What deviated from the addendum, and why:** the `delonix-guestfs` adapter was not
+created. No provider needs `cloudinit.rs` or the local disk, and creating it would have
+given a third exception with no consumer. The disk and the seed stay in `delonix-vm`'s
+`local_ports.rs`, with the `qemu-img` helpers that belong to them (P4b.4d).
 
-**O que a P4b.4d encontrou e fechou:**
+**What P4b.4d found and closed:**
 
-- **A promessa do ponto 2 não tinha sido cumprida.** A adenda dizia que cada cópia do
-  `stable_cmd` levava o teste que fixa o `LC_ALL=C`; nas P4b.4b/c os dois testes ficaram no
-  `delonix-vm`, e nenhum provider tinha o seu. Cada provider tem agora o seu teste do locale.
-- **Um teste oco.** O `os_estados_comparados_sao_os_literais_en_do_virsh` procurava
-  `state == "shut off"` no `lib.rs` do `delonix-vm`, de onde a comparação saíra na P4b.4b; passava
-  porque a string está no próprio código do teste. Foi retirado dali, e o libvirt ganhou a versão
-  que lê só o código (sem comentários nem o módulo de testes).
-- **A razão da excepção `delonix-vm → delonix-state` estava desactualizada** (falava de um porto
-  que já existe e de escritas XML que já estão no provider). Passou à fase P5, com o que é hoje:
-  o `JsonStore` que a montagem entrega ao engine e o marcador do backend por omissão.
+- **Point 2's promise had not been kept.** The addendum said each `stable_cmd` copy would
+  carry the test pinning `LC_ALL=C`; in P4b.4b/c the two tests stayed in `delonix-vm`, and
+  neither provider had its own. Each provider now has its own locale test.
+- **A hollow test.** `os_estados_comparados_sao_os_literais_en_do_virsh` looked for
+  `state == "shut off"` in `delonix-vm`'s `lib.rs`, from which the comparison had left in
+  P4b.4b; it passed because the string is in the test's own code. It was removed from
+  there, and libvirt gained the version that reads only the code (without comments or the
+  test module).
+- **The reason for the `delonix-vm → delonix-state` exception was out of date** (it talked
+  about a port that already exists and XML writes that are already in the provider). It
+  moved to phase P5, with what is true today: the `JsonStore` that assembly hands to the
+  engine, and the default backend's marker.
 
-**Números:** o `delonix-vm` fica com 4 346 linhas (era 9 249 antes da P4b.3b), das quais o
-`lib.rs` é montagem, os invólucros públicos e os seus testes. Testes unitários (`#[test]` no `src/`): 64 no
-`delonix-vm`, 38 no libvirt, 31 no Cloud Hypervisor.
-
+**Numbers:** `delonix-vm` is left with 4,346 lines (it was 9,249 before P4b.3b), of which
+`lib.rs` is assembly, the public wrappers and their tests. Unit tests (`#[test]` in `src/`):
+64 in `delonix-vm`, 38 in libvirt, 31 in Cloud Hypervisor.

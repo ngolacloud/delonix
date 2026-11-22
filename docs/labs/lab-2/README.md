@@ -1,100 +1,100 @@
-# Lab 2 — Limites de recursos que pegam mesmo
+# Lab 2 — Resource limits that actually stick
 
-> **Identificador:** `lab-2` · **Nível:** iniciante · **Jornada:** primeiro contacto
+> **Identifier:** `lab-2` · **Level:** beginner · **Journey:** first contact
 
-## Objectivo concreto
+## Concrete objective
 
-Pôr um tecto de memória num container (`-m 128M`) e **provar que pegou lendo o
-`memory.max` REAL do cgroup v2 do kernel** — não a saída do comando, que mente
-por omissão quando a delegação de cgroup não está feita. É o erro nº1 de quem
-começa em rootless: o container parece limitado e corre sem limite nenhum.
+Put a memory ceiling on a container (`-m 128M`) and **prove it stuck by reading
+the REAL `memory.max` of the kernel's cgroup v2** — not the command's output, which lies
+by default when cgroup delegation has not been done. It is the #1 mistake of anyone
+starting out in rootless: the container looks limited and runs with no limit at all.
 
-## Conhecimentos prévios
+## Prerequisite knowledge
 
-Terminal Linux e noção de cgroup v2. O Lab 1 ajuda mas não é obrigatório.
+Linux terminal and a notion of cgroup v2. Lab 1 helps but is not required.
 
-## Versão e ambiente testados
+## Tested version and environment
 
-> **Baseline histórica (linha 5.1.x):** os valores abaixo foram medidos na linha antiga e **ainda não foram re-medidos na linha 0.1.0 actual**.
+> **Historical baseline (5.1.x line):** the values below were measured on the old line and **have not yet been re-measured on the current 0.1.0 line**.
 
-`delonix 5.1.1`, Linux com cgroup v2 e delegação rootless de `cpu memory pids`
-(`cpuset`/`io` ausentes, e está certo). Execução rootless. Validado a 2026-10-24.
+`delonix 5.1.1`, Linux with cgroup v2 and rootless delegation of `cpu memory pids`
+(`cpuset`/`io` absent, and that is correct). Rootless execution. Validated on 2026-10-24.
 
-## Recursos mínimos
+## Minimum resources
 
-~8 MiB de disco para a imagem `alpine`; rede para o primeiro `pull`.
+~8 MiB of disk for the `alpine` image; network for the first `pull`.
 
-## Privilégios e acessos necessários
+## Required privileges and access
 
-Nenhum `sudo` no caminho feliz. Precisa de delegação do controlador `memory`
-para o teu `user@uid.service` — o que num Ubuntu de fábrica já vem ligado. Se
-não vier, corre o lab dentro de um scope delegado (ver «Como correr»).
+No `sudo` on the happy path. Needs the `memory` controller delegated
+to your `user@uid.service` — which on a stock Ubuntu already comes wired up. If
+it does not, run the lab inside a delegated scope (see "How to run").
 
-## Duração estimada
+## Estimated duration
 
-~1 minuto (dominado pelo primeiro `pull` da imagem).
+~1 minute (dominated by the first `pull` of the image).
 
-## Ficheiros de preparação
+## Preparation files
 
-Nenhum ficheiro externo. O arnês está nesta pasta:
+No external files. The harness lives in this folder:
 
-| Ficheiro | Fase |
+| File | Phase |
 |---|---|
-| `prepare.sh` | garante pré-requisitos e a imagem local |
-| `run.sh`     | executa a jornada (system setup → run -m → localizar cgroup) |
-| `verify.sh`  | asserção do `memory.max` REAL do cgroup |
-| `cleanup.sh` | remove só o que o lab criou |
-| `lab.sh`     | orquestrador `prepare → run → verify → cleanup` |
+| `prepare.sh` | ensures prerequisites and the local image |
+| `run.sh`     | runs the journey (system setup → run -m → locate cgroup) |
+| `verify.sh`  | asserts the cgroup's REAL `memory.max` |
+| `cleanup.sh` | removes only what the lab created |
+| `lab.sh`     | orchestrator `prepare → run → verify → cleanup` |
 
-## Como correr
+## How to run
 
 ```bash
-# com o delonix no PATH (instalação normal):
+# with delonix on the PATH (normal install):
 bash docs/labs/lab-2/lab.sh
 
-# apontando a um binário específico (ex.: build local):
-DELONIX=/caminho/para/delonix bash docs/labs/lab-2/lab.sh
+# pointing at a specific binary (e.g. a local build):
+DELONIX=/path/to/delonix bash docs/labs/lab-2/lab.sh
 
-# se o teu host não delegar `memory`, sem root, dentro de um scope delegado:
+# if your host does not delegate `memory`, without root, inside a delegated scope:
 systemd-run --user --scope -p Delegate=yes -- bash docs/labs/lab-2/lab.sh
 ```
 
-## Passos (o que `run.sh` faz) e porquê
+## Steps (what `run.sh` does) and why
 
-1. `system setup` — pergunta ANTES de assumir se o host aplica limites. Se
-   disser INERT/PARTIAL para `memory`, a correcção não precisa de root (scope
-   delegado acima).
-2. `container run -d --name limitado -m 128M alpine sleep 300` — tecto de
-   memória declarado.
-3. Localiza o container no cgroup v2 do teu utilizador: lê o PID de
-   `container inspect` (que devolve um **array** — ADR-0005) e a linha `0::` de
+1. `system setup` — asks BEFORE assuming whether the host enforces limits. If
+   it says INERT/PARTIAL for `memory`, the fix does not need root (delegated
+   scope above).
+2. `container run -d --name limited -m 128M alpine sleep 300` — declared memory
+   ceiling.
+3. Locates the container in your user's cgroup v2: reads the PID from
+   `container inspect` (which returns an **array** — ADR-0005) and the `0::` line of
    `/proc/<pid>/cgroup`.
-4. `cat /sys/fs/cgroup<rel>/memory.max` — a verdade do kernel, não a saída do
-   `run`.
+4. `cat /sys/fs/cgroup<rel>/memory.max` — the kernel's truth, not the
+   `run` command's output.
 
-## Checkpoints / asserções de sucesso (o que `verify.sh` exige)
+## Checkpoints / success assertions (what `verify.sh` requires)
 
-- **A** — o container está `Up` (lido de `container ps -o json`).
-- **B** — o `memory.max` REAL do cgroup é **`134217728`** (128 MiB). O arnês
-  distingue três desfechos e **falha em voz alta** em qualquer um que não seja
-  este:
-  - `memory.max=max` → delegação em falta, o container corre **sem** tecto, em
-    silêncio (o que o lab existe para apanhar);
-  - ficheiro ausente → o controlador não desceu até ti (caso `cpuset`/`io`);
-  - outro valor → o limite não pegou.
+- **A** — the container is `Up` (read from `container ps -o json`).
+- **B** — the cgroup's REAL `memory.max` is **`134217728`** (128 MiB). The harness
+  distinguishes three outcomes and **fails loudly** on any that is not
+  this one:
+  - `memory.max=max` → delegation missing, the container runs **without** a
+    ceiling, silently (which is what the lab exists to catch);
+  - file absent → the controller never made it down to you (the `cpuset`/`io` case);
+  - another value → the limit did not stick.
 
-## Limpeza
+## Cleanup
 
-`cleanup.sh` remove o container `lab2-limited` e o estado do lab. **Não** remove
-a imagem `alpine` (outros labs reutilizam-na).
+`cleanup.sh` removes the `lab2-limited` container and the lab's state. It does **not** remove
+the `alpine` image (other labs reuse it).
 
-## Resultado aprendido
+## Lesson learned
 
-A saída de um comando pode dizer `128M` e o container correr sem limite: a única
-prova é o `memory.max` do cgroup do kernel. Em rootless, o limite só pega se o
-controlador `memory` estiver delegado — e sabe-se a ler, não a confiar.
+A command's output can say `128M` while the container runs with no limit: the only
+proof is the kernel cgroup's `memory.max`. In rootless, the limit only sticks if the
+`memory` controller is delegated — and that is something you read, not something you trust.
 
-## Próximo lab
+## Next lab
 
-**Lab 3 — Duas aplicações que se falam por nome** (rede de utilizador e DNS
-interno).
+**Lab 3 — Two applications that talk to each other by name** (user network and internal
+DNS).

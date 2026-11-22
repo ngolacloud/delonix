@@ -3465,7 +3465,7 @@ pub fn pull_oci_artifact_to_file(
 /// in memory and serves them back. Enough for a real round-trip of
 /// `push_oci_artifact`→`pull_oci_artifact` without depending on the network.
 /// Also returns a counter of `GET .../blobs/...` requests served — used by
-/// `pull_from_registry_with_creds_salta_blobs_ja_no_cas` to prove a 2nd
+/// `pull_from_registry_with_creds_skips_blobs_already_in_cas` to prove a 2nd
 /// pull of the same reference does not touch the network for content
 /// already in the local CAS.
 ///
@@ -4086,7 +4086,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_repo_tag_and_digest_combined_com_registo_explicito() {
+    fn parses_repo_tag_and_digest_combined_with_explicit_registry() {
         let (h, r, t) = parse_reference("ghcr.io/owner/app:v1@sha256:deadbeef");
         assert_eq!(h, "ghcr.io");
         assert_eq!(r, "owner/app");
@@ -4207,7 +4207,7 @@ mod tests {
     }
 
     #[test]
-    fn pull_com_creds_override_usa_essas_credenciais_no_token_request() {
+    fn pull_with_creds_override_uses_those_credentials_in_the_token_request() {
         let (tx, rx) = std::sync::mpsc::channel();
         // response to the token request: 401 again (we do not need to complete the
         // pull — only to observe the Authorization sent in the token request).
@@ -4230,7 +4230,8 @@ mod tests {
         ); // an error is expected (2nd 401) — we only care about the captured Authorization.
 
         let captured = handle.join().unwrap();
-        let auth = captured.expect("o cliente devia ter pedido um token (com Authorization Basic)");
+        let auth =
+            captured.expect("the client should have requested a token (with Authorization Basic)");
         // "Basic " + base64("cri-user:cri-pass")
         let expected_b64 = {
             use base64::Engine;
@@ -4239,7 +4240,7 @@ mod tests {
         assert!(
             auth.to_ascii_lowercase()
                 .contains(&format!("basic {}", expected_b64.to_lowercase())),
-            "Authorization capturado não usa as credenciais do override: {auth:?}"
+            "captured Authorization does not use the override credentials: {auth:?}"
         );
     }
 
@@ -4249,18 +4250,18 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
 
         let target = format!("127.0.0.1:{port}/vm-images:golden");
-        let payload = b"qcow2-conteudo-fingido-para-o-teste".to_vec();
+        let payload = b"qcow2-fake-content-for-the-test".to_vec();
         let digest = push_oci_artifact(
             tmp.path(),
             &target,
             "application/vnd.delonix.vmimage.v1.qcow2",
             &payload,
         )
-        .expect("push devia ter sucesso contra o mock");
+        .expect("push should succeed against the mock");
         assert!(digest.starts_with("sha256:"));
 
         let pulled =
-            pull_oci_artifact(tmp.path(), &target).expect("pull devia ter sucesso contra o mock");
+            pull_oci_artifact(tmp.path(), &target).expect("pull should succeed against the mock");
         assert_eq!(pulled, payload);
     }
 
@@ -4271,7 +4272,7 @@ mod tests {
     /// every real `kubeadm init` (the actual cause of a real rate-limiter
     /// timeout crash). Now it checks `Cas::has` before each blob GET.
     #[test]
-    fn pull_from_registry_with_creds_salta_blobs_ja_no_cas() {
+    fn pull_from_registry_with_creds_skips_blobs_already_in_cas() {
         let (port, blob_gets, _handle) = serve_anon_registry();
         let tmp = tempfile::tempdir().unwrap();
 
@@ -4288,7 +4289,7 @@ mod tests {
         let config_digest = format!("sha256:{}", sha256_hex(&config_bytes));
         c.push_blob(&config_digest, &config_bytes).unwrap();
 
-        let layer_bytes = b"conteudo-de-layer-fingido-para-o-teste".to_vec();
+        let layer_bytes = b"fake-layer-content-for-the-test".to_vec();
         let layer_digest = format!("sha256:{}", sha256_hex(&layer_bytes));
         c.push_blob(&layer_digest, &layer_bytes).unwrap();
 
@@ -4316,21 +4317,21 @@ mod tests {
 
         let target = format!("127.0.0.1:{port}/cas-skip:tag");
         let store = crate::ImageStore::open(tmp.path()).unwrap();
-        let img1 = pull_from_registry_with_creds(&store, &target, None)
-            .expect("1º pull devia ter sucesso");
+        let img1 =
+            pull_from_registry_with_creds(&store, &target, None).expect("1st pull should succeed");
         let gets_after_first = blob_gets.load(std::sync::atomic::Ordering::SeqCst);
         assert!(
             gets_after_first > 0,
-            "o 1º pull tinha de ter pedido pelo menos 1 blob (config + layer)"
+            "the 1st pull had to request at least 1 blob (config + layer)"
         );
 
         let img2 = pull_from_registry_with_creds(&store, &target, None).expect(
-            "2º pull (MESMO store) devia ter sucesso mesmo sem tocar na rede para os blobs",
+            "2nd pull (SAME store) should succeed even without touching the network for the blobs",
         );
         let gets_after_second = blob_gets.load(std::sync::atomic::Ordering::SeqCst);
         assert_eq!(
             gets_after_first, gets_after_second,
-            "o 2º pull não devia ter pedido NENHUM blob novo — já estavam no CAS local"
+            "the 2nd pull should NOT have requested ANY new blob — they were already in the local CAS"
         );
         assert_eq!(img1.id, img2.id);
     }
@@ -5235,7 +5236,7 @@ mod tests {
     /// the read loop aborts as soon as ACTUAL bytes read exceed it — proven here with a tiny
     /// fake `max_bytes` instead of streaming gigabytes of real data.
     #[test]
-    fn blob_with_progress_capped_aborta_acima_do_limite() {
+    fn blob_with_progress_capped_aborts_above_the_limit() {
         let (port, _blob_gets, _handle) = serve_anon_registry();
         let mut c = test_client(&format!("127.0.0.1:{port}"), "blob-cap");
 
@@ -5245,7 +5246,7 @@ mod tests {
 
         let err = c
             .blob_with_progress_capped(&digest, None, 100)
-            .expect_err("devia recusar um blob maior do que o limite");
+            .expect_err("should refuse a blob larger than the limit");
         let msg = err.to_string();
         assert!(msg.contains(&digest), "{msg}");
         assert!(msg.contains("100"), "{msg}");
@@ -5253,17 +5254,17 @@ mod tests {
 
     /// Sanity check: a blob within the limit still round-trips normally.
     #[test]
-    fn blob_with_progress_capped_aceita_dentro_do_limite() {
+    fn blob_with_progress_capped_accepts_within_the_limit() {
         let (port, _blob_gets, _handle) = serve_anon_registry();
         let mut c = test_client(&format!("127.0.0.1:{port}"), "blob-cap-ok");
 
-        let small_blob = b"conteudo-pequeno".to_vec();
+        let small_blob = b"small-content".to_vec();
         let digest = format!("sha256:{}", sha256_hex(&small_blob));
         c.push_blob(&digest, &small_blob).unwrap();
 
         let got = c
             .blob_with_progress_capped(&digest, None, small_blob.len() as u64)
-            .expect("devia aceitar um blob exactamente no limite");
+            .expect("should accept a blob exactly at the limit");
         assert_eq!(got, small_blob);
     }
 
@@ -5271,12 +5272,12 @@ mod tests {
     /// real content does not match the digest declared in the manifest — simulates a
     /// compromised/tampered registry that serves different bytes under the same digest.
     #[test]
-    fn pull_oci_artifact_recusa_blob_adulterado() {
+    fn pull_oci_artifact_refuses_a_tampered_blob() {
         let (port, _blob_gets, _handle) = serve_anon_registry();
         let tmp = tempfile::tempdir().unwrap();
 
         let target = format!("127.0.0.1:{port}/vm-images:golden");
-        let payload = b"conteudo-original-legitimo".to_vec();
+        let payload = b"legitimate-original-content".to_vec();
         // `push_oci_artifact` returns the MANIFEST's digest, not the layer/blob's — what
         // we need to tamper with is the blob (the same `layer_digest` the pull will fetch).
         let layer_digest = format!("sha256:{}", sha256_hex(&payload));
@@ -5298,13 +5299,13 @@ mod tests {
         );
         let resp = http
             .put(&put_url)
-            .body(b"conteudo-adulterado-pelo-atacante".to_vec())
+            .body(b"content-tampered-by-the-attacker".to_vec())
             .send()
             .unwrap();
         assert!(resp.status().is_success());
 
         let err = pull_oci_artifact(tmp.path(), &target)
-            .expect_err("pull devia recusar o blob adulterado");
+            .expect_err("pull should refuse the tampered blob");
         assert!(format!("{err}").contains("tampered") || format!("{err}").contains("digest"));
     }
 
@@ -5316,7 +5317,7 @@ mod tests {
     /// decorative. Before the fix, `verify_manifest_digest` did not exist and this
     /// substituted manifest would have been accepted and its blobs pulled.
     #[test]
-    fn pull_por_digest_recusa_manifesto_substituido() {
+    fn pull_by_digest_refuses_a_substituted_manifest() {
         let (port, blob_gets, _handle) = serve_anon_registry();
         let tmp = tempfile::tempdir().unwrap();
 
@@ -5355,24 +5356,24 @@ mod tests {
         let target = format!("127.0.0.1:{port}/pin@{pinned}");
         let store = crate::ImageStore::open(tmp.path()).unwrap();
         let err = pull_from_registry_with_creds(&store, &target, None)
-            .expect_err("pull por digest devia recusar um manifesto que não corresponde ao pin");
+            .expect_err("a pull by digest should refuse a manifest that does not match the pin");
         let msg = format!("{err}");
         assert!(
             msg.contains("manifest digest mismatch"),
-            "erro inesperado: {msg}"
+            "unexpected error: {msg}"
         );
         // Must refuse BEFORE fetching any blob.
         assert_eq!(
             blob_gets.load(std::sync::atomic::Ordering::SeqCst),
             0,
-            "não devia ter pedido nenhum blob antes de validar o manifesto"
+            "should not have requested any blob before validating the manifest"
         );
     }
 
     /// The positive half: pulling by the CORRECT digest passes the new manifest
     /// verification (the check must not reject a legitimate digest pull).
     #[test]
-    fn pull_por_digest_correto_passa_a_verificacao_do_manifesto() {
+    fn pull_by_correct_digest_passes_manifest_verification() {
         let (port, _blob_gets, _handle) = serve_anon_registry();
         let tmp = tempfile::tempdir().unwrap();
 
@@ -5404,7 +5405,7 @@ mod tests {
         let target = format!("127.0.0.1:{port}/pinok@{real_digest}");
         let store = crate::ImageStore::open(tmp.path()).unwrap();
         pull_from_registry_with_creds(&store, &target, None)
-            .expect("pull pelo digest correcto devia passar a verificação do manifesto");
+            .expect("a pull by the correct digest should pass manifest verification");
     }
 
     /// Deterministic round-trip of the MANIFEST through the `oci_spec::image` types
@@ -5415,7 +5416,7 @@ mod tests {
     /// yield an equal `ImageManifest`. No network: proves that the migration to
     /// `oci-spec` preserves the schema on the pull/push path.
     #[test]
-    fn manifesto_round_trip_via_oci_spec_preserva_estrutura_e_digest() {
+    fn manifest_round_trip_via_oci_spec_preserves_structure_and_digest() {
         use oci_spec::image::ImageManifest;
 
         // Canonical Docker schema-2 manifest (config + 2 layers, base→top order).
@@ -5442,7 +5443,7 @@ mod tests {
 }"#;
 
         // 1) parse.
-        let m: ImageManifest = serde_json::from_str(MANIFEST).expect("parse do manifesto");
+        let m: ImageManifest = serde_json::from_str(MANIFEST).expect("parse the manifest");
         assert_eq!(m.schema_version(), 2);
         assert_eq!(
             m.config().digest().to_string(),
@@ -5476,19 +5477,16 @@ mod tests {
         assert_eq!(
             sha256_hex(&bytes1),
             sha256_hex(&bytes2),
-            "a re-serialização do manifesto tem de ser byte-idêntica (digest estável)"
+            "the manifest's re-serialisation must be byte-identical (stable digest)"
         );
         // 3) the re-parse is structurally equal (PartialEq of ImageManifest).
-        assert_eq!(
-            m, m2,
-            "round-trip do manifesto tem de preservar a estrutura"
-        );
+        assert_eq!(m, m2, "the manifest round-trip must preserve the structure");
     }
 
     // ---- resume of an interrupted blob --------------------------------------
 
     #[test]
-    fn parse_content_range_le_o_inicio_e_o_total() {
+    fn parse_content_range_reads_the_start_and_the_total() {
         assert_eq!(
             parse_content_range("bytes 100-199/200"),
             Some((100, Some(200)))
@@ -5605,27 +5603,27 @@ mod tests {
     /// transfer, the image could never finish downloading, no matter how many
     /// times it was retried.
     #[test]
-    fn blob_retoma_uma_ligacao_cortada_a_meio() {
+    fn blob_resumes_a_connection_cut_midway() {
         let payload: Vec<u8> = (0..40_000u32).map(|i| (i % 251) as u8).collect();
         let (port, requests) = serve_flaky_blob(payload.clone(), 12_345, Resume::Honour);
         let mut c = test_client(&format!("127.0.0.1:{port}"), "resume");
 
         let got = c
             .blob_with_progress_capped("sha256:whatever", None, 1 << 20)
-            .expect("uma ligação cortada a meio tem de ser retomada, não abandonada");
+            .expect("a connection cut midway must be resumed, not abandoned");
 
-        assert_eq!(got, payload, "os bytes costurados têm de bater com o blob");
+        assert_eq!(got, payload, "the stitched bytes must match the blob");
         assert_eq!(
             requests.load(std::sync::atomic::Ordering::SeqCst),
             2,
-            "devia ter bastado UM pedido de retomada — não um download inteiro de novo"
+            "ONE resume request should have been enough — not an entire fresh download"
         );
     }
 
     /// A registry that ignores `Range` must not produce a corrupt blob: the
     /// only safe reading of a 200 is "it is sending the whole thing again".
     #[test]
-    fn blob_recomeca_quando_o_servidor_ignora_o_range() {
+    fn blob_restarts_when_the_server_ignores_the_range() {
         let payload: Vec<u8> = (0..30_000u32).map(|i| (i % 97) as u8).collect();
         let (port, _) = serve_flaky_blob(payload.clone(), 9_000, Resume::Ignore);
         let mut c = test_client(&format!("127.0.0.1:{port}"), "ignore-range");
@@ -5639,17 +5637,17 @@ mod tests {
     /// that only the caller's digest check would catch, at the end of the whole
     /// download. It has to restart instead.
     #[test]
-    fn blob_recomeca_quando_o_206_vem_do_offset_errado() {
+    fn blob_restarts_when_the_206_comes_from_the_wrong_offset() {
         let payload: Vec<u8> = (0..30_000u32).map(|i| (i % 131) as u8).collect();
         let (port, _) = serve_flaky_blob(payload.clone(), 7_000, Resume::WrongOffset);
         let mut c = test_client(&format!("127.0.0.1:{port}"), "wrong-offset");
 
         let got = c
             .blob_with_progress_capped("sha256:whatever", None, 1 << 20)
-            .expect("devia recomeçar do zero, não colar no sítio errado");
+            .expect("should restart from zero, not splice at the wrong place");
         assert_eq!(
             got, payload,
-            "colar um 206 do offset errado duplicaria o prefixo"
+            "splicing a 206 from the wrong offset would duplicate the prefix"
         );
     }
 
@@ -5712,10 +5710,10 @@ mod tests {
     /// it in as if it were a per-chunk delta, so the bytes it announced grew
     /// with the square of the layer size.
     #[test]
-    fn o_progresso_de_um_blob_e_acumulado_e_nunca_passa_do_total() {
+    fn a_blobs_progress_is_cumulative_and_never_exceeds_the_total() {
         let payload: Vec<u8> = (0..50_000u32).map(|i| (i % 251) as u8).collect();
         let (port, _) = serve_flaky_blob(payload.clone(), 20_000, Resume::Honour);
-        let mut c = test_client(&format!("127.0.0.1:{port}"), "progresso");
+        let mut c = test_client(&format!("127.0.0.1:{port}"), "progress");
 
         let ticks = std::cell::RefCell::new(Vec::<u64>::new());
         let seen_total = std::cell::Cell::new(None);
@@ -5736,7 +5734,7 @@ mod tests {
         assert_eq!(
             seen_total.get(),
             Some(payload.len() as u64),
-            "o total tem de ser o do BLOB INTEIRO, não o do fragmento de um 206"
+            "the total must be that of the WHOLE BLOB, not that of a 206's fragment"
         );
     }
 
@@ -5746,11 +5744,11 @@ mod tests {
     /// single-chunk layer the old adapter (which added the running total in as
     /// if it were a delta) gave the right answer by accident.
     #[test]
-    fn o_progresso_agregado_do_pull_nao_inventa_bytes() {
+    fn the_pulls_aggregate_progress_does_not_invent_bytes() {
         let (port, _blob_gets, _handle) = serve_anon_registry();
         let tmp = tempfile::tempdir().unwrap();
 
-        let mut c = test_client(&format!("127.0.0.1:{port}"), "progresso-agregado");
+        let mut c = test_client(&format!("127.0.0.1:{port}"), "aggregated-progress");
         let config_bytes =
             br#"{"architecture":"amd64","os":"linux","rootfs":{"type":"layers","diff_ids":[]}}"#
                 .to_vec();
@@ -5789,19 +5787,19 @@ mod tests {
         };
         super::pull_from_registry_with_creds_full(
             &store,
-            &format!("127.0.0.1:{port}/progresso-agregado:tag"),
+            &format!("127.0.0.1:{port}/aggregated-progress:tag"),
             None,
             None,
             Some(&cb),
         )
-        .expect("o pull devia ter sucesso");
+        .expect("the pull should succeed");
 
         let real = layer_bytes.len() as u64;
         assert_eq!(
             peak.load(std::sync::atomic::Ordering::Relaxed),
             real,
-            "o agregado tem de ser os bytes REALMENTE transferidos (a layer), \
-             não a soma dos totais parciais"
+            "the aggregate must be the bytes ACTUALLY transferred (the layer), \
+             not the sum of the partial totals"
         );
     }
 }

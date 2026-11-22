@@ -38,6 +38,23 @@ hyper-util = { workspace = true, features = ["tokio", "server", "http1", "http2"
 tower = { workspace = true, features = ["util"] }
 libc = { workspace = true }
 tracing = { workspace = true }
+# The TCP transport's mutual TLS (ADR-0096): a TCP listener is wrapped in a
+# rustls `ServerConfig` with require-and-verify client auth. The provider is
+# `ring` (already in the tree, no aws-lc C surface); PEM is parsed via the
+# `rustls-pki-types` re-export, as `ingress_proxy.rs` does. The unix path takes
+# none of this.
+tokio-rustls = { workspace = true, features = ["ring", "logging", "tls12"] }
+# Reading the caller's identity (subject CN / URI SAN) from the client leaf the
+# mutual-TLS handshake already verified (ADR-0098 A3). `rustls`/`webpki` verify a
+# chain but do not expose the subject, so the already-verified `CertificateDer` is
+# parsed here. Already in the lock — A2 pulled it in via `rcgen`'s `x509-parser`
+# feature (ADR-0097 §7); this is only a direct edge from this crate, no new
+# third-party code.
+x509-parser = { workspace = true }
+# The audit record's `ts` is RFC 3339 (ADR-0098 A3). `time` is already in the
+# lock (A2 made it a direct dep of the binary, ADR-0097); the `formatting`
+# feature adds no new crate, only the RFC-3339 writer.
+time = { workspace = true, features = ["formatting"] }
 
 [build-dependencies]
 tonic-build = { workspace = true }
@@ -85,6 +102,17 @@ delonix-volume = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 http-body-util = { workspace = true }
 tempfile = { workspace = true }
+# ADR-0096 proof: the mTLS integration test (`tests/tls_mtls.rs`) generates a CA
+# and a client/server leaf with `rcgen`, and drives the handshake with the
+# `rustls` client (re-exported by `tokio-rustls` for the crate; named directly
+# here for the test's own client config). The `ring` provider matches the dep.
+rcgen = { workspace = true, features = ["ring", "pem"] }
+rustls = { workspace = true, features = ["ring", "std", "tls12"] }
+# A5 live proof (`tests/live_watch_generation.rs`, the TCP+mTLS leg): a gRPC
+# client that drives `WatchEvents` over the production transport needs an async
+# TLS stream under tonic — the `rustls` client the crate already uses, wrapped
+# for tokio. Dev-only; production's TLS is the server side in the bin.
+tokio-rustls = { workspace = true, features = ["ring"] }
 
 [lints]
 workspace = true

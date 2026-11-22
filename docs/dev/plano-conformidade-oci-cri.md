@@ -1,157 +1,163 @@
-# Plano de conformidade OCI + CRI — alinhar o Delonix com Docker/Podman
+# OCI + CRI conformance plan — aligning Delonix with Docker/Podman
 
-> **Objetivo.** Fazer o Delonix passar os **mesmos contratos de interoperabilidade** que o
-> containerd/CRI-O (CRI) e qualquer runtime OCI (image/distribution/runtime) passam, para ser
-> drop-in para o kubelet e para registries — e, num track separado e com ressalva, cobrir a
-> Docker Engine API que ferramentas de terceiros chamam via `DOCKER_HOST`.
+> **Goal.** Make Delonix pass the **same interoperability contracts** that
+> containerd/CRI-O (CRI) and any OCI runtime (image/distribution/runtime) pass, to be
+> drop-in for the kubelet and for registries — and, on a separate track with a caveat,
+> cover the Docker Engine API that third-party tools call via `DOCKER_HOST`.
 >
-> **Princípio de medição.** Cada fase fecha contra uma **suite upstream com um número**, não
-> "parece feito". Nunca divergência silenciosa (recusa explícita + razão). Teste que falha sem a
-> correção e passa com ela, como o resto do projeto. Onde um teste não se aplica ao modelo
-> (daemonless, rootless), nomeia-se **N/A** com a razão — não se inflaciona a percentagem.
+> **Measurement principle.** Each phase closes against an **upstream suite with a number**, not
+> "looks done". Never silent divergence (explicit refusal + reason). A test that fails without the
+> fix and passes with it, like the rest of the project. Where a test does not apply to the model
+> (daemonless, rootless), it is named **N/A** with the reason — the percentage is never inflated.
 >
-> **Âmbito e a ressalva do `paridade-docker-podman.md §5`.** OCI (image/distribution/runtime) e
-> CRI são contratos de interop onde conformidade total vale a pena — fazem do Delonix um
-> substituto real. A Docker Engine API (Track D) é conveniência de ecossistema; o próprio projeto
-> desaconselha perseguir paridade total com a Docker CLI, por isso o Track D cobre só o que
-> ferramentas automáticas chamam, não `docker run` interactivo.
+> **Scope and the `paridade-docker-podman.md §5` caveat.** OCI (image/distribution/runtime) and
+> CRI are interop contracts where full conformance is worth it — they make Delonix a real
+> drop-in replacement. The Docker Engine API (Track D) is ecosystem convenience; the project
+> itself advises against chasing full Docker CLI parity, so Track D covers only what
+> automated tools call, not interactive `docker run`.
 
-## Baseline medido (binário `ee615f3b`, 2026-10-24)
+## Measured baseline (binary `ee615f3b`, 2026-10-24)
 
-| Contrato | Estado | Fonte |
+| Contract | Status | Source |
 |---|---|---|
-| CRI — critest v1.36.0 | **RE-MEDIDO 2026-10-24 na v5.1.1 (`main @ ab4751ac`): 84/104 (`84 Passed \| 20 Failed \| 18 Skipped`)** — supera o 79/103 de v0.63 (2026-08). Linha que hoje embarca como 0.1.0 | `reports/cri-conformance-2026-10-24/00-audit-report.md` · `scripts/critest.sh` |
-| OCI Image | **interop provada na v5.1.1**: delonix→docker **e** delonix→podman + docker→delonix, por digest (IMG-1 corrigido 2026-10-24) | `reports/conformance/A1-oci-image-distribution.md` |
-| OCI Distribution | push/pull cross-engine OK na v5.1.1; suite `distribution-spec` é server-side → **N/A** (Delonix é cliente) | A1 |
+| CRI — critest v1.36.0 | **RE-MEASURED 2026-10-24 on v5.1.1 (`main @ ab4751ac`): 84/104 (`84 Passed \| 20 Failed \| 18 Skipped`)** — beats the 79/103 from v0.63 (2026-08). The line that ships today as 0.1.0 | `reports/cri-conformance-2026-10-24/00-audit-report.md` · `scripts/critest.sh` |
+| OCI Image | **interop proven on v5.1.1**: delonix→docker **and** delonix→podman + docker→delonix, by digest (IMG-1 fixed 2026-10-24) | `reports/conformance/A1-oci-image-distribution.md` |
+| OCI Distribution | push/pull cross-engine OK on v5.1.1; the `distribution-spec` suite is server-side → **N/A** (Delonix is a client) | A1 |
 | OCI Runtime — bundle | **v5.1.1**: ociVersion 1.3.0 ✅, seccomp ✅, `runc run` rootless rc=0 ✅ (RT-1/2/3) — `oci-runtime-tool validate` OK | B1/B2 reports |
-| OCI Runtime — CLI runc | **não existe** (o único gap de runtime real) — RT-4 / ADR-0080 | B1 |
-| Docker Engine API | **15/26** rotas (medido ao vivo na v5.1.1) | `delonix serve docker-api --matrix` |
+| OCI Runtime — runc CLI | **does not exist** (the one real runtime gap) — RT-4 / ADR-0080 | B1 |
+| Docker Engine API | **15/26** routes (measured live on v5.1.1) | `delonix serve docker-api --matrix` |
 
-> **Aviso de proveniência (importante).** A primeira versão deste plano herdou a matriz de gaps do
-> relatório **v3.1.0** (`fa8c6297`). Estamos na **v5.1.1**: re-medir contra o código actual mostrou
-> que vários "gaps" estão **stale** — a mount-propagation já funciona (B2), o `.tmp` de layer já é
-> limpo em-processo (G-035), e o `tag@digest` é formato válido, não bug (G-033). **Este plano é
-> conduzido por medições na v5.1.1, não pela matriz v3.1.0.** Um "gap" só entra se REPRODUZIR na v5.1.1.
+> **Provenance warning (important).** This plan's first version inherited the gap matrix from the
+> **v3.1.0** report (`fa8c6297`). We are on **v5.1.1**: re-measuring against current code showed
+> that several "gaps" are **stale** — mount propagation already works (B2), a layer's `.tmp` is
+> already cleaned in-process (G-035), and `tag@digest` is a valid format, not a bug (G-033). **This
+> plan is driven by measurements on v5.1.1, not by the v3.1.0 matrix.** A "gap" only counts if it
+> REPRODUCES on v5.1.1.
 
-**As 20 falhas do CRI (medição de 2026-10-24), por área:** AppArmor 6 · Mount Propagation 3 ·
-Security Context 3 (HostPID, PodPID, SeccompProfilePath) · Rede 2 · Streaming 2 (portforward) ·
-Image Manager 2 (ambas já corrigidas, #18/#19) · RO-mount 1 · Image Identifier Consistency 1.
-(A repartição antiga — 24 falhas de v0.63, AppArmor 9 — fica no histórico de `cri-conformance.md`.)
+**The CRI's 20 failures (2026-10-24 measurement), by area:** AppArmor 6 · Mount Propagation 3 ·
+Security Context 3 (HostPID, PodPID, SeccompProfilePath) · Networking 2 · Streaming 2 (portforward) ·
+Image Manager 2 (both already fixed, #18/#19) · RO-mount 1 · Image Identifier Consistency 1.
+(The old breakdown — 24 failures from v0.63, AppArmor 9 — stays in `cri-conformance.md`'s history.)
 
-## Decisões do dono (2026-10-24)
+## Owner decisions (2026-10-24)
 
-1. **Prioridade: CRI primeiro** (kubelet drop-in — o diferenciador container+VM+k8s).
-2. **`NoNewPrivs=false`:** honrar o pedido do CRI (passa a conformidade) **mantendo NNP sempre-ligado
-   por omissão no caminho CLI/normal**. A garantia por omissão não muda; só o CRI a pode relaxar.
-3. **OOM post-mortem:** **investir no supervisor** — o supervisor por-container (que já existe para
-   `--restart`/`wait`) lê o cgroup ANTES do teardown e regista `OOMKilled`/137. Não é N/A.
+1. **Priority: CRI first** (kubelet drop-in — the container+VM+k8s differentiator).
+2. **`NoNewPrivs=false`:** honor the CRI's request (passes conformance) **while keeping NNP
+   always-on by default on the CLI/normal path**. The default guarantee does not change; only
+   the CRI may relax it.
+3. **OOM post-mortem:** **invest in the supervisor** — the per-container supervisor (which
+   already exists for `--restart`/`wait`) reads the cgroup BEFORE teardown and records
+   `OOMKilled`/137. Not N/A.
 
 ---
 
-## Track C — CRI (PRIORITÁRIO) · gate: re-medir na v5.1.1, depois → ~100/103 em rootful
+## Track C — CRI (PRIORITY) · gate: re-measure on v5.1.1, then → ~100/103 in rootful
 
-**Passo zero: re-medir o critest na v5.1.1 — FEITO (2026-10-24): 84/104** (`scripts/critest.sh`;
-relatório em `reports/cri-conformance-2026-10-24/`). O 79/103 era de v0.63 (2026-08); a repartição
-de falhas abaixo foi actualizada para a corrida de 2026-10-24. Os fixes #18/#19 do `ImageService`
-(C2, worktree `cri-image-repodigests-and-user`) já entraram; falta portforward (C3,
-`cri-portforward-conformance`). As fases abaixo mantêm-se como mapa das ÁREAS.
+**Step zero: re-measure critest on v5.1.1 — DONE (2026-10-24): 84/104** (`scripts/critest.sh`;
+report in `reports/cri-conformance-2026-10-24/`). The 79/103 was from v0.63 (2026-08); the
+failure breakdown below has been updated for the 2026-10-24 run. The `ImageService` fixes
+#18/#19 (C2, worktree `cri-image-repodigests-and-user`) have already landed; portforward
+(C3, `cri-portforward-conformance`) remains. The phases below still stand as a map of the AREAS.
 
-Cada fase = uma área de falha do critest, com a spec que falha nomeada.
+Each phase = one area of critest failure, with the failing spec named.
 
-| Fase | Área (nº specs) | O que fazer | Gate |
+| Phase | Area (# specs) | What to do | Gate |
 |---|---|---|---|
-| **C1** | Security Context (4) | `PodPID` namespace; `RunAsUserName`; `SeccompProfilePath` por caminho (liga ao seccomp-custom que já erra em vez de ignorar); **`NoNewPrivs=false`** (decisão 2 — relaxável só pelo CRI) | +4 |
-| **C2** | Image Manager (2) | pull por digest via CRI; `Uid`/`Username` no `ImageStatus` | +2 |
-| **C3** | Streaming (2) | servidor de streaming CRI: `PortForward` + base de `Exec`/`Attach` com hijack (**partilhado com D3**) | +2 |
-| **C4** | Networking (1) + Mount Propagation (3) | port mapping só com porta de container; `rshared`/`rslave` (**vem do Track B2**) | +4 |
-| **C5** | RO-mount (1) + Multiple Containers (1) | mounts read-only não-recursivos; caso multi-container | +2 |
-| **C6** | OOM (1) | supervisor capta OOM antes do teardown do cgroup (decisão 3) | +1 |
-| **C7** | AppArmor (9) | traduzir o perfil por-container do CRI; correr a suite **rootful** (carregar perfis exige privilégio — N/A em rootless, nomeado); provar os que não são de ambiente | +0 a +9 conforme rootful/rootless |
+| **C1** | Security Context (4) | `PodPID` namespace; `RunAsUserName`; `SeccompProfilePath` by path (wires into the custom-seccomp path that already errors instead of ignoring); **`NoNewPrivs=false`** (decision 2 — relaxable only by the CRI) | +4 |
+| **C2** | Image Manager (2) | pull by digest via CRI; `Uid`/`Username` in `ImageStatus` | +2 |
+| **C3** | Streaming (2) | CRI streaming server: `PortForward` + the `Exec`/`Attach` base with hijack (**shared with D3**) | +2 |
+| **C4** | Networking (1) + Mount Propagation (3) | port mapping with container port only; `rshared`/`rslave` (**comes from Track B2**) | +4 |
+| **C5** | RO-mount (1) + Multiple Containers (1) | non-recursive read-only mounts; multi-container case | +2 |
+| **C6** | OOM (1) | supervisor captures OOM before cgroup teardown (decision 3) | +1 |
+| **C7** | AppArmor (9) | translate the CRI's per-container profile; run the suite **rootful** (loading profiles needs privilege — N/A in rootless, named); prove the ones that are not environment-dependent | +0 to +9 depending on rootful/rootless |
 
-> **N/A honestos a nomear no relatório final:** as specs de AppArmor que exigem carregar um perfil
-> (privilégio que o rootless não tem) ficam N/A em rootless e provam-se em rootful. Nenhuma outra.
+> **Honest N/As to name in the final report:** the AppArmor specs that require loading a
+> profile (privilege rootless doesn't have) stay N/A in rootless and are proven in rootful. No
+> others.
 
-**Pré-requisito do Track B:** C4 depende de B2 (mount propagation). Fazer B2 no arranque do Track C.
-
----
-
-## Track B — OCI Runtime Spec (habilita o CRI)
-
-| Fase | O que fazer | Gate |
-|---|---|---|
-| **B1** | Correr `opencontainers/runtime-tools` validation contra (a) o bundle de `image export` + runc/crun e (b) o init próprio do Delonix (config.json → namespaces/caps/seccomp/mounts/hooks/rlimits). Script reproduzível. | baseline publicado |
-| **B2** | Mount propagation `rshared`/`rslave` (**fecha 3 do CRI — C4**) | runtime-tools + critest |
-| **B3** | Readonly recursivo + masked/readonly paths (decisão G-009) | runtime-tools |
-
-## Track A — OCI Image + Distribution (fundação de interop de imagens)
-
-**Re-baseline na v5.1.1 (2026-10-24): esta track está em grande parte FEITA — o resto é opcional.**
-A interop OCI de imagem foi **provada ao vivo** nos três motores (IMG-1 corrigido: `push` publica
-manifesto OCI, puxável por docker E podman). Os "gaps" G-033/035/039 do relatório v3.1.0 **saíram**
-após re-medição:
-
-- **G-033** (tag+digest) — **NÃO é bug**: `repo:tag@digest` é formato OCI/Docker válido e comum (o
-  kind usa-o); recusar partiria o kind. Se um dia se quiser detectar um *conflito* real (a tag
-  resolve para outro digest), é uma decisão de representação local — fora do âmbito até ser pedido.
-- **G-035** (`.tmp` de layer) — **já limpo em-processo** (`overlay.rs:492-508`). Resíduo mínimo: só
-  um `.tmp` órfão de um processo MORTO a meio, que o `prune` não varre — melhoria pequena, agrupável
-  numa futura passagem do `prune`, não um gap de conformidade.
-- **G-039** (archive docker-save LEGADO `<hash>/layer.tar`) — real mas **só afecta archives
-  pré-OCI**; o `docker save` moderno produz o layout `blobs/sha256/` que o `load` já aceita. Baixa
-  prioridade; a correcção (mapa path→digest) tem subtileza nos layers.
-
-| Opcional | O que fica | Gate |
-|---|---|---|
-| A-sbom/scan/sign | `image sbom`/`scan`/`verify`/`sign` — medir a cobertura real na v5.1.1 (não medido nesta campanha) | baseline publicado |
-| A-manifest-list | multi-arch no `push` (hoje 1 arch por invocação) | round-trip multi-arch |
-
-> `oci-image-tool` (image-spec) **não compila** (breakage `Sirupsen/logrus`) e a `distribution-spec`
-> é server-side — por isso a prova de imagem na v5.1.1 é a **interop entre motores**, não uma suite.
-
-## Track D — Docker Engine API (ecossistema; ressalva §5)
-
-| Fase | Rota(s) | Porquê |
-|---|---|---|
-| **D1** | `GET /containers/{id}/logs` (framing stdout/stderr) | desbloqueia `wait_for_logs` do testcontainers — maior valor isolado |
-| **D2** | `/events`, `/build`, `/networks`, `/volumes`, `GET …/stats` | superfície que compose/kind/ferramentas tocam |
-| **D3** | `POST …/exec` + `…/attach` (hijack HTTP) | **partilha o servidor de streaming do C3** |
-
-> Fora de âmbito deliberado: `docker run` interactivo contra o servidor (comportamento interno do
-> CLI Go), e paridade de `--format`/CLI que o `§5` desaconselha.
+**Track B prerequisite:** C4 depends on B2 (mount propagation). Do B2 at the start of Track C.
 
 ---
 
-## Sequência e dependências
+## Track B — OCI Runtime Spec (enables CRI)
 
-**Estado na v5.1.1:** Track A (imagem) **provada** (IMG-1); Track B RT-1/2/3 + B2 **feitos** — só falta
-**RT-4** (CLI runc, ADR-0080, GO-gated). O trabalho real restante é RT-4, o Track C (a re-medir) e o
-Track D.
+| Phase | What to do | Gate |
+|---|---|---|
+| **B1** | Run `opencontainers/runtime-tools` validation against (a) the bundle from `image export` + runc/crun and (b) Delonix's own init (config.json → namespaces/caps/seccomp/mounts/hooks/rlimits). Reproducible script. | published baseline |
+| **B2** | Mount propagation `rshared`/`rslave` (**closes 3 of CRI's — C4**) | runtime-tools + critest |
+| **B3** | Recursive readonly + masked/readonly paths (decision G-009) | runtime-tools |
+
+## Track A — OCI Image + Distribution (image interop foundation)
+
+**Re-baseline on v5.1.1 (2026-10-24): this track is largely DONE — the rest is optional.**
+OCI image interop was **proven live** across all three engines (IMG-1 fixed: `push` publishes
+an OCI manifest, pullable by both docker AND podman). The v3.1.0 report's "gaps" G-033/035/039
+**fell away** on re-measurement:
+
+- **G-033** (tag+digest) — **NOT a bug**: `repo:tag@digest` is a valid and common OCI/Docker
+  format (the kind uses it); refusing it would break the kind. If one day a real *conflict*
+  (the tag resolving to a different digest) needs detecting, that's a local representation
+  decision — out of scope until requested.
+- **G-035** (layer `.tmp`) — **already cleaned in-process** (`overlay.rs:492-508`). Minimal
+  residue: only an orphan `.tmp` from a process that DIED midway, which `prune` doesn't sweep —
+  a small improvement, groupable into a future `prune` pass, not a conformance gap.
+- **G-039** (LEGACY docker-save archive `<hash>/layer.tar`) — real but **only affects
+  pre-OCI archives**; modern `docker save` produces the `blobs/sha256/` layout that `load`
+  already accepts. Low priority; the fix (path→digest map) has subtlety around layers.
+
+| Optional | What remains | Gate |
+|---|---|---|
+| A-sbom/scan/sign | `image sbom`/`scan`/`verify`/`sign` — measure real coverage on v5.1.1 (not measured in this campaign) | published baseline |
+| A-manifest-list | multi-arch on `push` (today 1 arch per invocation) | multi-arch round-trip |
+
+> `oci-image-tool` (image-spec) **does not compile** (breakage in `Sirupsen/logrus`) and
+> `distribution-spec` is server-side — so the v5.1.1 image proof is **cross-engine interop**,
+> not a suite.
+
+## Track D — Docker Engine API (ecosystem; §5 caveat)
+
+| Phase | Route(s) | Why |
+|---|---|---|
+| **D1** | `GET /containers/{id}/logs` (stdout/stderr framing) | unblocks testcontainers' `wait_for_logs` — the biggest isolated value |
+| **D2** | `/events`, `/build`, `/networks`, `/volumes`, `GET …/stats` | the surface compose/kind/tools touch |
+| **D3** | `POST …/exec` + `…/attach` (HTTP hijack) | **shares C3's streaming server** |
+
+> Deliberately out of scope: interactive `docker run` against the server (internal Go CLI
+> behavior), and `--format`/CLI parity, which `§5` advises against.
+
+---
+
+## Sequence and dependencies
+
+**Status on v5.1.1:** Track A (image) **proven** (IMG-1); Track B RT-1/2/3 + B2 **done** — only
+**RT-4** (runc CLI, ADR-0080, GO-gated) remains. The real remaining work is RT-4, Track C (to
+re-measure), and Track D.
 
 ```
-[v5.1.1 feito]  A (interop) ✅   B2 mount-prop ✅   RT-1/2/3 bundle ✅
-[real restante]
-   RT-4 (ADR-0080, GO) ─► runtime-tools validation suite contra o Delonix
-   C0 re-medir critest ─► C1 ─► C2 ─► C3 ─┬─► C4 ─► C5 ─► C6 ─► C7
+[v5.1.1 done]  A (interop) ✅   B2 mount-prop ✅   RT-1/2/3 bundle ✅
+[real remaining]
+   RT-4 (ADR-0080, GO) ─► runtime-tools validation suite against Delonix
+   C0 re-measure critest ─► C1 ─► C2 ─► C3 ─┬─► C4 ─► C5 ─► C6 ─► C7
                                           └─(C3 streaming)─► D3 ─► D1 ─► D2
 ```
 
-1. **Track C**: re-medir o critest na v5.1.1 (C0), depois fechar por área — o retorno estratégico
-   (em curso pelo dono: C2/C3).
-2. **RT-4** (quando o dono der GO): desbloqueia medir o runtime pela suite upstream.
-3. **Track D** por último, com a ressalva; D3 cai de borla com o C3 (mesmo servidor de streaming).
-4. **Track A**: só o opcional (sbom/scan/sign, manifest-list) — a interop já está provada.
+1. **Track C**: re-measure critest on v5.1.1 (C0), then close area by area — the strategic
+   return (underway by the owner: C2/C3).
+2. **RT-4** (when the owner gives GO): unblocks measuring the runtime through the upstream suite.
+3. **Track D** last, with the caveat; D3 comes for free with C3 (same streaming server).
+4. **Track A**: only the optional items (sbom/scan/sign, manifest-list) — interop is already proven.
 
-## Como medir (reproduzível, por fase)
+## How to measure (reproducible, per phase)
 
-- CRI: `scripts/critest.sh` → `Ran N of 122 ... X Passed | Y Failed`. Publicar o diff de X a cada fase.
-- OCI runtime: `runtime-tools` validation (instalar em A1/B1); publicar pass/fail por secção do spec.
-- OCI image/distribution: suites upstream `image-spec`/`distribution-spec`; publicar baseline e deltas.
-- Docker API: `delonix serve docker-api --matrix` (rotas servidas/recusadas) + `tests/compat/docker_api_smoke.py` e um run de testcontainers.
-- Cada fase traz um teste que falha sem a correção (o método do projeto).
+- CRI: `scripts/critest.sh` → `Ran N of 122 ... X Passed | Y Failed`. Publish the delta in X at each phase.
+- OCI runtime: `runtime-tools` validation (install in A1/B1); publish pass/fail per spec section.
+- OCI image/distribution: upstream `image-spec`/`distribution-spec` suites; publish baseline and deltas.
+- Docker API: `delonix serve docker-api --matrix` (served/refused routes) + `tests/compat/docker_api_smoke.py` and a testcontainers run.
+- Each phase brings a test that fails without the fix (the project's method).
 
-## Riscos / tensões conhecidas
+## Known risks / tensions
 
-- **NNP vs CRI** (decisão 2): o caminho que relaxa NNP só pode ser alcançável pelo CRI, nunca pela CLI.
-- **AppArmor rootless** (C7): parte das 9 specs é limite de privilégio, não lacuna — medir rootful para separar.
-- **OOM daemonless** (C6): o supervisor tem de ler o cgroup na janela entre a morte e o teardown; corrida real.
-- **Disco do host a 96%**: as suites OCI/CRI puxam imagens e escrevem artefactos — libertar espaço antes de A1/B1.
+- **NNP vs CRI** (decision 2): the path that relaxes NNP must only be reachable through the CRI, never the CLI.
+- **AppArmor rootless** (C7): part of the 9 specs is a privilege limit, not a gap — measure rootful to tell them apart.
+- **Daemonless OOM** (C6): the supervisor must read the cgroup in the window between death and teardown; a real race.
+- **Host disk at 96%**: the OCI/CRI suites pull images and write artifacts — free up space before A1/B1.

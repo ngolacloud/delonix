@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Gate de língua: o código deste repositório escreve-se em inglês.
 
-Conta três dívidas — identificadores, comentários e mensagens ao utilizador
-ainda em português — e compara com `scripts/lang_baseline.json`.
+Conta quatro dívidas — identificadores, comentários, mensagens ao utilizador e
+documentação `.md` ainda em português — e compara com `scripts/lang_baseline.json`.
 
 O gate é um RATCHET, não um tecto: falha se o número SUBIR (entrou português
 novo) e falha se DESCER sem a linha de base ter sido baixada no mesmo commit.
@@ -38,6 +38,30 @@ SKIP_FILES = {"scripts/lang_ratchet.py", "scripts/lang_pt_lexicon.txt"}
 # LANG-01 is about the code; counting a translation as debt would make the gate
 # fail for doing exactly what the handbook is for.
 SKIP_PREFIXES = ("docs/handbook/",)
+
+# Same argument, other generated artefact: `docs/providers/capability-matrix.md`
+# is produced by `delonix provider matrix` and a test keeps the file equal to that
+# output, so it cannot be edited by hand — the language it carries is the language
+# of the SOURCE strings (the `Evidence` of each `Capability`, which cite the
+# titles of `scripts/e2e.sh` checks). Counting the artefact asks for the one edit
+# the repo forbids. Measured 2026-11-22: 17 of its lines counted, 14 of them
+# already inside the baseline, so the gate was reporting the battery's Portuguese
+# in the wrong place for as long as the matrix has existed. Translating it belongs
+# to the English-source campaign, at the source, together with the battery.
+GENERATED_MD = ("docs/providers/capability-matrix.md",)
+
+# Documentação `.md`: a FONTE escreve-se em inglês, mas há locales traduzidos de
+# propósito ao lado da fonte (docs/dev/<página>.md ↔ docs/dev/pt-AO/<página>.md,
+# ADRs `*.pt-AO.md`). Contá-los como dívida faria o gate exigir que se
+# "traduzisse" o que já é, por desenho, a tradução. Estes ficam de fora; o resto
+# do `.md` (incluindo reports/ e docs/ sem sufixo de locale) conta.
+# `docs/releases/archive/` is a FROZEN historical changelog (v0.md): the release
+# notes of versions long shipped. It is a record of what was written at the time,
+# not living source we maintain, so it is excluded like the handbook — translating
+# frozen history would churn an immutable archive for no reader's benefit.
+MD_SKIP_PREFIXES = ("docs/dev/pt-AO/", "docs/dev/zh-CN/", "docs/dev/fr-FR/",
+                    "docs/releases/archive/")
+MD_SKIP_SUFFIX = ".pt-AO.md"
 
 # Declarações que introduzem um nome, por linguagem.
 DECL = {
@@ -116,12 +140,17 @@ def walk(root: Path):
             continue
         if rel.as_posix() in SKIP_FILES or rel.as_posix().startswith(SKIP_PREFIXES):
             continue
-        if path.suffix in DECL or path.suffix in COMMENT:
+        if path.suffix == ".md":
+            relp = rel.as_posix()
+            if relp.startswith(MD_SKIP_PREFIXES) or relp.endswith(MD_SKIP_SUFFIX):
+                continue
+            yield path
+        elif path.suffix in DECL or path.suffix in COMMENT:
             yield path
 
 
 def scan(pt: set[str]):
-    hits = {"identifiers": [], "comments": [], "user_text": []}
+    hits = {"identifiers": [], "comments": [], "user_text": [], "docs": []}
     for path in walk(ROOT):
         ext = path.suffix
         try:
@@ -129,6 +158,23 @@ def scan(pt: set[str]):
         except OSError:
             continue
         rel = path.relative_to(ROOT).as_posix()
+        if ext == ".md" and rel in GENERATED_MD:
+            continue
+        if ext == ".md":
+            # Prosa: uma linha conta se tiver pelo menos uma palavra do léxico PT.
+            # Saltar blocos de código (``` … ```): comandos e output não são prosa
+            # e dariam falsos positivos com nomes de flags/saídas.
+            in_fence = False
+            for n, line in enumerate(lines, 1):
+                s = line.strip()
+                if s.startswith("```"):
+                    in_fence = not in_fence
+                    continue
+                if in_fence or not s:
+                    continue
+                if is_pt_text(s, pt):
+                    hits["docs"].append((rel, n, s[:70]))
+            continue
         for n, line in enumerate(lines, 1):
             if ext in DECL:
                 for m in DECL[ext].finditer(line):
@@ -150,7 +196,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--list", action="store_true", help="mostra cada ocorrência")
     ap.add_argument("--update", action="store_true", help="reescreve a linha de base")
-    ap.add_argument("--only", choices=sorted(("identifiers", "comments", "user_text")))
+    ap.add_argument("--only", choices=sorted(("identifiers", "comments", "user_text", "docs")))
     args = ap.parse_args()
 
     pt = load_lexicon()

@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Refuses an AI-attribution trailer in a commit message.
+#
+# The rule is the owner's, from 2026-09-24: no `Co-Authored-By: Claude …`, nor
+# any other AI attribution trailer, in a commit message or a PR description. The
+# work is the person's who directed it.
+#
+# It needs a gate because the rule alone did not hold. Measured 2026-11-22 over
+# the whole history: **810** such trailers, and they were still arriving —
+# 126 in August, 83 in September, 443 in October, 136 in November, the most
+# recent five days before this hook was written. A rule that every session is
+# free to forget is a rule that the contributors page quietly contradicts.
+#
+# Install: `make bootstrap`, or `git config core.hooksPath .githooks`.
+# Bypass:  `git commit --no-verify` (git's own, deliberately left alone).
+set -euo pipefail
+
+msg_file=${1:?commit-msg hook: no message file}
+
+# Vendor domains, never NAMES. `Claude` is a common first name, and refusing a
+# human co-author called Claude would be a false positive in the one place a
+# false positive costs the most — someone's credit. Every one of the 810 found
+# in this history carries `<noreply@anthropic.com>`, so the domain is enough.
+AI_DOMAINS='anthropic\.com|openai\.com|users\.noreply\.github\.com/copilot'
+
+# Ask GIT what a trailer is, instead of grepping the body. A message may NAME
+# the trailer while explaining the rule — the commit that introduced the
+# `.mailmap` does exactly that — and a grep would refuse it. `interpret-trailers
+# --parse` returns only what a parser (git's, GitHub's) would act on.
+trailers=$(git interpret-trailers --parse <"$msg_file" 2>/dev/null || true)
+[ -n "$trailers" ] || exit 0
+
+offenders=$(printf '%s\n' "$trailers" | grep -Ei "$AI_DOMAINS" || true)
+[ -n "$offenders" ] || exit 0
+
+cat >&2 <<EOF
+commit-msg: refused — AI attribution trailer
+
+$(printf '%s\n' "$offenders" | sed 's/^/    /')
+
+The rule (CLAUDE.md, 2026-09-24): a commit message carries no
+\`Co-Authored-By: Claude …\`, nor any other AI attribution trailer. The work
+belongs to whoever directed it, and the contributors page counts a co-author
+trailer as a person.
+
+Remove the line(s) and commit again. If you are sure, \`git commit --no-verify\`.
+EOF
+exit 1

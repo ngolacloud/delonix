@@ -227,6 +227,15 @@ pub struct PullArgs {
 // cannot drift into accepting different flags.
 #[derive(clap::Args)]
 pub struct LsArgs {
+    /// Accepted for Docker/Podman parity (`docker images -a`): Delonix already
+    /// lists every image, the untagged `<none>` ones included, so there is no
+    /// hidden intermediate-image set for this to reveal — it has no effect.
+    #[arg(short = 'a', long)]
+    pub(crate) all: bool,
+    /// Print only the image IDs, one per image and deduplicated across tags —
+    /// `docker images -q`. Composes with `rm`/`rmi`. Ignored with `-o json`.
+    #[arg(short = 'q', long)]
+    pub(crate) quiet: bool,
     /// Output format: `table` (default) or `json` (ADR-0005).
     // `pub(crate)` because `verbs.rs` (the generic `get images`) builds this
     // struct by hand to reach the SAME handler as `image ls` / `images`.
@@ -380,7 +389,7 @@ pub enum ImageCmd {
         /// Gate on a declarative policy file (JSON: `fail_on`, `ignore` waiver
         /// list, `ignore_unfixed`). Richer CI gate than `--fail-on`; takes
         /// precedence over it. Exits 1 on failure.
-        #[arg(long = "policy", value_name = "FICHEIRO")]
+        #[arg(long = "policy", value_name = "FILE")]
         policy: Option<String>,
         /// Report the vulnerability delta against another image (added/removed
         /// CVEs), like `docker scout compare`, instead of the dashboard.
@@ -390,7 +399,7 @@ pub enum ImageCmd {
         #[arg(long)]
         update: bool,
         /// Feed source for `--update`: URL or file (or $DELONIX_ADVISORY_FEED).
-        #[arg(long = "feed", value_name = "URL|FICHEIRO")]
+        #[arg(long = "feed", value_name = "URL|FILE")]
         feed: Option<String>,
     },
     /// The image's SBOM as an SPDX 2.3 document, not the table `scan
@@ -578,7 +587,13 @@ pub fn run(action: ImageCmd) -> Result<()> {
     let (images, store) = open_stores()?;
     match action {
         ImageCmd::Pull(PullArgs { image, verify }) => cmd_pull(&images, &image, verify.as_deref()),
-        ImageCmd::Ls(LsArgs { output }) => cmd_ls(&images, output),
+        // `all` is accepted for Docker parity only (see `LsArgs`): the listing
+        // already includes every image, so there is nothing extra to surface.
+        ImageCmd::Ls(LsArgs {
+            all: _,
+            quiet,
+            output,
+        }) => cmd_ls(&images, quiet, output),
         ImageCmd::Inspect { names } => cmd_inspect(&images, &names),
         ImageCmd::Exists { name } => cmd_exists(&images, &name),
         ImageCmd::Untag { name } => cmd_untag(&images, &name),
@@ -1120,11 +1135,20 @@ fn image_is_orphan(store: &delonix_state::Store, img: &delonix_oci::Image) -> Op
     Some(!cs.iter().any(|c| container_references_image(&c.image, img)))
 }
 
-fn cmd_ls(images: &ImageStore, format: super::output::OutputFormat) -> Result<()> {
+fn cmd_ls(images: &ImageStore, quiet: bool, format: super::output::OutputFormat) -> Result<()> {
     let format = super::config::resolve_output(&super::util::state_root(), format);
     let mut imgs = images.list()?;
     // Newest first, as in `docker images`.
     imgs.sort_by_key(|i| std::cmp::Reverse(i.created_unix));
+    // `-q` prints one id per image (already deduplicated — `list()` returns one
+    // record per image, tags live inside it). JSON wins over `--quiet`, the same
+    // precedence `container ps` applies.
+    if quiet && format != super::output::OutputFormat::Json {
+        for img in &imgs {
+            println!("{}", img.short_id());
+        }
+        return Ok(());
+    }
     let cstore = delonix_state::Store::open(super::util::state_root().join("containers")).ok();
     if format == super::output::OutputFormat::Json {
         let rows: Vec<ImageLsRow> = imgs
@@ -1363,6 +1387,21 @@ fn cmd_prune(
             ]
         )
     );
+    // A default prune only takes the dangling images; the `ORPHAN=yes` rows of
+    // `image ls` are tagged and stay. Say so, so "prune did nothing" does not
+    // become a bug report for behaviour that is working as designed.
+    if !all {
+        let n = super::prune::unused_tagged_image_count(images, store)?;
+        if n > 0 {
+            println!(
+                "{}",
+                super::po::tf(
+                    "hint: {n} tagged image(s) are unused — `delonix image prune --all` would also remove them.",
+                    &[("n", &n.to_string())]
+                )
+            );
+        }
+    }
     Ok(())
 }
 
@@ -1924,8 +1963,9 @@ mod tests {
         )
         .expect("build spec");
 
-        let json = serde_json::to_vec(&spec).expect("serializar");
-        let parsed: Spec = serde_json::from_slice(&json).expect("round-trip pelo tipo canónico");
+        let json = serde_json::to_vec(&spec).expect("serialize");
+        let parsed: Spec =
+            serde_json::from_slice(&json).expect("round-trip through the canonical type");
 
         // GAP-RT-2: the default (non-rootless) bundle has NO user namespace and
         // NO id mappings — it is a real-root bundle.
@@ -1938,9 +1978,9 @@ mod tests {
                     .unwrap()
                     .iter()
                     .any(|n| n.typ() == LinuxNamespaceType::User),
-                "default bundle não deve ter user namespace"
+                "default bundle must not have a user namespace"
             );
-            assert!(linux.uid_mappings().is_none(), "default: sem uid mappings");
+            assert!(linux.uid_mappings().is_none(), "default: no uid mappings");
         }
 
         // GAP-RT-2: a --rootless bundle DOES carry the user namespace + mappings
@@ -1956,23 +1996,23 @@ mod tests {
                 .unwrap()
                 .iter()
                 .any(|n| n.typ() == LinuxNamespaceType::User),
-            "--rootless tem de adicionar o user namespace"
+            "--rootless must add the user namespace"
         );
         let umaps = rlinux.uid_mappings().as_ref().expect("uid mappings");
         assert!(
             umaps.iter().any(|m| m.container_id() == 0 && m.size() == 1),
-            "container uid 0 mapeia para um único uid do host (o nosso)"
+            "container uid 0 maps to a single host uid (ours)"
         );
         assert!(
             umaps
                 .iter()
                 .any(|m| m.container_id() == 1
                     && m.host_id() == delonix_linux::rootless_subid_bases().0),
-            "container uid 1.. mapeia para os subuids delegados (base real do utilizador)"
+            "container uid 1.. maps to the delegated subuids (the user's real base)"
         );
         assert!(
             rlinux.gid_mappings().is_some(),
-            "--rootless: gid mappings presentes"
+            "--rootless: gid mappings present"
         );
 
         // ociVersion present and the version `runc`/`crun` emit (GAP-RT-1).
@@ -1984,16 +2024,16 @@ mod tests {
             .linux()
             .as_ref()
             .and_then(|l| l.seccomp().as_ref())
-            .expect("bundle tem de carregar um perfil seccomp (GAP-RT-3)");
+            .expect("bundle must carry a seccomp profile (GAP-RT-3)");
         assert_eq!(
             seccomp.default_action(),
             LinuxSeccompAction::ScmpActErrno,
-            "default-deny: tudo o que não está na allowlist devolve ERRNO"
+            "default-deny: anything not in the allowlist returns ERRNO"
         );
         let allowed: Vec<String> = seccomp
             .syscalls()
             .as_ref()
-            .expect("regras de syscalls")
+            .expect("syscall rules")
             .iter()
             .filter(|s| s.action() == LinuxSeccompAction::ScmpActAllow)
             .flat_map(|s| s.names().clone())
@@ -2001,7 +2041,7 @@ mod tests {
         for essential in ["read", "write", "execve", "openat"] {
             assert!(
                 allowed.iter().any(|n| n == essential),
-                "a allowlist do bundle tem de conter o syscall essencial {essential}"
+                "the bundle's allowlist must contain the essential syscall {essential}"
             );
         }
 
@@ -2012,11 +2052,11 @@ mod tests {
             mounts
                 .iter()
                 .any(|m| m.destination() == std::path::Path::new("/proc")),
-            "bundle tem de montar /proc (era a lacuna que o tornava não-funcional)"
+            "bundle must mount /proc (this was the gap that made it non-functional)"
         );
         assert!(
             mounts.len() >= 5,
-            "conjunto de mounts padrão do runc (proc/sys/dev/pts/shm/…)"
+            "runc's default mount set (proc/sys/dev/pts/shm/…)"
         );
 
         // Process: args/env/cwd propagated and EFFECTIVE capabilities (not just bounding).
@@ -2028,7 +2068,7 @@ mod tests {
         let eff = caps.effective().as_ref().expect("effective caps");
         assert!(
             eff.contains(&Capability::NetBindService),
-            "as capacidades têm de ir ao conjunto EFETIVO, não só ao bounding"
+            "capabilities must go into the EFFECTIVE set, not just the bounding set"
         );
 
         // Standard hardening that the previous bundle omitted.
@@ -2054,7 +2094,7 @@ mod tests {
     /// alpine:latest` silently untagged an image a live container still
     /// depended on.
     #[test]
-    fn container_references_image_normaliza_o_nome_nu() {
+    fn container_references_image_normalizes_the_bare_name() {
         let img = tagged_image("sha256:abc", &["alpine:latest"]);
         assert!(container_references_image("alpine", &img));
         assert!(container_references_image("alpine:latest", &img));
@@ -2062,7 +2102,7 @@ mod tests {
     }
 
     #[test]
-    fn container_references_image_por_id_ou_digest_despido() {
+    fn container_references_image_by_id_or_bare_digest() {
         let img = tagged_image("sha256:abc", &[]);
         assert!(container_references_image("sha256:abc", &img));
         assert!(container_references_image("abc", &img));

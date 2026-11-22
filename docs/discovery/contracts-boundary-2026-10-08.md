@@ -1,246 +1,247 @@
-# A fronteira PaaS ↔ Runtime nos contratos actuais (2026-10-08)
+# The PaaS ↔ Runtime boundary in today's contracts (2026-10-08)
 
-Levantamento read-only, medido contra `delonix-runtime` na tag `v5.0.0` + 32 commits
-(`1cbe9639`, worktree `naas-kaas-caas`). Objectivo: confirmar se o contrato
-`delonix.node.v1` (crate `delonix-node-api`, `proto/delonix/node/v1/*.proto`) já permite o
-caminho `PaaS → contrato → adaptador → backend` sem SSH, sem o PaaS construir regras de
-firewall à mão, sem tocar em ficheiros internos de um provider, e sem ter de corrigir
-recursos a meio-criados. Cada afirmação abaixo foi confirmada no código actual, não só na
-prosa do `AGENTS.md`.
+Read-only survey, measured against `delonix-runtime` on tag `v5.0.0` + 32 commits
+(`1cbe9639`, worktree `naas-kaas-caas`). Objective: confirm whether the
+`delonix.node.v1` contract (crate `delonix-node-api`, `proto/delonix/node/v1/*.proto`) already
+allows the `PaaS → contract → adapter → backend` path with no SSH, with no PaaS hand-building
+firewall rules, with no touching a provider's internal files, and with no need to
+fix half-created resources. Every statement below was confirmed against the current code, not only
+against `AGENTS.md`'s prose.
 
-## 1. Separação de camadas
+## 1. Layer separation
 
-`proto/delonix/node/v1/common.proto` declara a regra na cabeça do ficheiro (guardrail #2):
+`proto/delonix/node/v1/common.proto` states the rule at the top of the file (guardrail #2):
 
 > «No notion of tenant, account, plan, quota or billing (…). `namespace` is the ENGINE's
 > isolation namespace — a client may map its own grouping onto it, the engine never
 > learns what that grouping is.»
 
-Confirmado por três caminhos independentes, nenhum deles o `scripts/arch_fitness.py`:
+Confirmed through three independent paths, none of them `scripts/arch_fitness.py`:
 
-1. **`scripts/arch_fitness.py` existe e corre** (`python3 scripts/arch_fitness.py`, ok em
-   todos os checks). A sua função `consumer_mentions()` (linhas 302-329) só recusa o
-   **nome de um consumidor** (`delonix-paas`, `delonix-api`, `ngolacloud`, `paas`,
-   `delonixctl`, …) em `crates/`, `bins/`, `proto/` — não varre por `tenant`/`billing`/
-   `quota`/`customer`/`plan`/`account` como conceitos de domínio. Dito de outro modo: o
-   gate garante «o motor não conhece o PaaS pelo nome», não «o motor não tem noção de
-   inquilino».
-2. **Procura manual independente** (`grep -rniE "tenant|billing|customer|\bplan\b|quota|
-   account" crates/ bins/ proto/`) devolveu ~90 ocorrências, **todas** inofensivas depois
-   de lidas uma a uma:
-   - `plan`/`Plan` é sempre o verbo do reconciliador (`stack plan`, `fn plan(...)`,
-     `PlanStack`), nunca um plano de facturação.
-   - `quota` é sempre uma quota TÉCNICA de recurso: cgroup `cpu.max`/`quotactl` (kernel),
-     quota de volume (`VolumeStore::set_quota`, bytes), quota de um dataset remoto
-     (`delonix-truenas`). Nenhuma quota de inquilino/plano.
-   - `account` é sempre a conta do SISTEMA OPERATIVO (a conta que recebe uma chave SSH
-     num convidado, `/etc/subuid`), nunca uma conta de cliente.
-   - `tenant`/`customer` aparecem só em **comentários de doutrina** e em **nomes de
-     variável de teste** (`crates/contexts/delonix-compute/src/record.rs:290-319`, a
-     testar que `safe_cgroup_segment` aceita `"tenant-acme"` como uma string qualquer e
-     recusa `"Tenant"`/espaços — um teste sobre sanitização de string, não sobre
-     inquilinos) — e no próprio doc-comment que explica a fronteira
+1. **`scripts/arch_fitness.py` exists and runs** (`python3 scripts/arch_fitness.py`, ok on
+   every check). Its `consumer_mentions()` function (lines 302-329) only refuses the
+   **name of a consumer** (`delonix-paas`, `delonix-api`, `ngolacloud`, `paas`,
+   `delonixctl`, …) in `crates/`, `bins/`, `proto/` — it does not scan for `tenant`/`billing`/
+   `quota`/`customer`/`plan`/`account` as domain concepts. In other words: the gate ensures
+   «the engine does not know the PaaS by name», not «the engine has no notion of
+   tenancy».
+2. **An independent manual search** (`grep -rniE "tenant|billing|customer|\bplan\b|quota|
+   account" crates/ bins/ proto/`) returned ~90 occurrences, **all** harmless once read
+   one by one:
+   - `plan`/`Plan` is always the reconciler's verb (`stack plan`, `fn plan(...)`,
+     `PlanStack`), never a billing plan.
+   - `quota` is always a TECHNICAL resource quota: cgroup `cpu.max`/`quotactl` (kernel),
+     volume quota (`VolumeStore::set_quota`, bytes), a remote dataset's quota
+     (`delonix-truenas`). No tenant/plan quota at all.
+   - `account` is always the OPERATING SYSTEM account (the account that receives an SSH
+     key on a guest, `/etc/subuid`), never a customer account.
+   - `tenant`/`customer` appear only in **doctrine comments** and in **test
+     variable names** (`crates/contexts/delonix-compute/src/record.rs:290-319`, testing
+     that `safe_cgroup_segment` accepts `"tenant-acme"` as just any string and
+     refuses `"Tenant"`/spaces — a test about string sanitization, not about
+     tenants) — and in the very doc-comment that explains the boundary
      (`record.rs:431-439`: «the engine stays independent of tenants, plans and
      billing…»).
-   - `crates/contexts/delonix-security-runtime` tem um TESTE PRÓPRIO
-     (`no_file_in_this_crate_speaks_of_a_tenant`, `lib.rs:71-98`) que falha se um campo
-     `tenant`/`project`/`environment` entrar nesse crate especificamente — mais estrito
-     que o `arch_fitness.py`, mas âmbito a um único crate (o de eventos de segurança).
-3. **`python3 scripts/contract_gate.py`** corre limpo (`buf format`/`buf lint`/`buf
-   breaking against v5.0.0`/mapeamento HTTP das 57 rotas/OpenAPI gerado/45 caminhos REST
-   distintos) — o contrato publicado está formalmente estável e sem reutilização de
-   caminho.
+   - `crates/contexts/delonix-security-runtime` has ITS OWN TEST
+     (`no_file_in_this_crate_speaks_of_a_tenant`, `lib.rs:71-98`) that fails if a
+     `tenant`/`project`/`environment` field lands in that specific crate — stricter
+     than `arch_fitness.py`, but scoped to a single crate (the security-events one).
+3. **`python3 scripts/contract_gate.py`** runs clean (`buf format`/`buf lint`/`buf
+   breaking against v5.0.0`/HTTP mapping of the 57 routes/generated OpenAPI/45 distinct
+   REST paths) — the published contract is formally stable and has no path
+   reuse.
 
-**Veredicto**: a separação está genuinamente limpa HOJE — não há nenhum campo, struct ou
-rota que carregue tenant/plano/quota-de-negócio/facturação. Mas a prova disso é feita por
-**leitura humana após um `grep` amplo**, não por um gate automático que procure os termos
-de domínio em si. O `arch_fitness.py` protege contra «o motor aprender o NOME do
-consumidor»; não existe um gate equivalente que falhe se alguém introduzir um campo
-`tenant_id`/`billing_plan` com um nome genérico (`owner`, `group`, `scope`) que não bata
-com `CONSUMER_NAMES`. É uma lacuna de **gate**, não de **estado actual do código**.
+**Verdict**: the separation is genuinely clean TODAY — there is no field, struct or
+route that carries tenant/plan/business-quota/billing. But proof of that is done by
+**human reading after a broad `grep`**, not by an automated gate that looks for the
+domain terms themselves. `arch_fitness.py` guards against «the engine learning the
+consumer's NAME»; there is no equivalent gate that fails if someone introduces a
+`tenant_id`/`billing_plan` field under a generic name (`owner`, `group`, `scope`) that does not match
+`CONSUMER_NAMES`. It is a **gate** gap, not a gap in the **current state of the
+code**.
 
-## 2. O que o Runtime ainda confia no chamador
+## 2. What the Runtime still trusts the caller for
 
-A pergunta do enunciado («nome de recurso que o chamador escolhe livremente sem
-verificação de posse») foi verificada nos dois sentidos: traversal/injecção técnica, e
-posse/âmbito lógico.
+The prompt's question («a resource name the caller freely chooses, with no
+ownership check») was checked both ways: technical traversal/injection, and
+logical ownership/scope.
 
-### 2a. Traversal e injecção técnica — fechado no que está servido
+### 2a. Traversal and technical injection — closed for what is served
 
 `CreateNetwork`/`DeleteNetwork` (`crates/interfaces/delonix-node-api/src/
-network_ops.rs:174,207`) chamam `delonix_sdn::NetworkStore::validate_name`/
-`validate_subnet` ANTES de qualquer efeito, com teste a provar a recusa de
-`"../evil"`/`"a/b"`/`"bridge"` (`network_ops.rs:445-448`). As leituras (`GetVolume`/
-`ListVolumes`, `volumes.rs:218-284`) nunca constroem um caminho a partir do `req.name` —
-enumeram o store inteiro (`entries(root)` → `VolumeStore::list_all()`, que lê nomes já
-sanitizados em disco) e filtram por igualdade de string. Não há path-traversal alcançável
-pelo node-api nos quatro verbos hoje servidos (`Create/DeleteNetwork`, `Get/
+network_ops.rs:174,207`) call `delonix_sdn::NetworkStore::validate_name`/
+`validate_subnet` BEFORE any effect, with a test proving `"../evil"`/`"a/b"`/`"bridge"`
+are refused (`network_ops.rs:445-448`). The reads (`GetVolume`/
+`ListVolumes`, `volumes.rs:218-284`) never build a path from `req.name` —
+they enumerate the whole store (`entries(root)` → `VolumeStore::list_all()`, which reads
+already-sanitized names on disk) and filter by string equality. There is no path-traversal
+reachable through the node-api in the four verbs served today (`Create/DeleteNetwork`, `Get/
 ListVolumes`).
 
-### 2b. Posse e âmbito lógico — NÃO verificado, por desenho, e isso é uma fronteira real
+### 2b. Ownership and logical scope — NOT checked, by design, and that is a real boundary
 
-Nenhuma mensagem do contrato carrega um campo de identidade do chamador ou de posse do
-recurso:
+No message in the contract carries a field for caller identity or resource
+ownership:
 
-- `ResourceMeta` (`common.proto:39-50`) tem `name`/`namespace`/`uid`/`labels`/
-  `annotations`/`etag` — nada que diga "quem pode tocar nisto".
-- `DeleteNetworkRequest`/`DeleteVolumeRequest` (`infra.proto:202-211,302-308`) só têm
-  `namespace`/`name`/`etag`/`force`/`request_id`. **Qualquer chamador que saiba (ou
-  adivinhe) o nome apaga o recurso** — o único travão é o `etag` (se o chamador o passar)
-  e a verificação de dependentes.
-- O `delonix.io/stack`/`OwnerMark` que o AGENTS.md documenta (posse por etiqueta,
-  `delonix-stack/src/reconcile.rs`; `OwnerMark` em `delonix-networking/src/
-  ownership.rs`) é um mecanismo de **contabilidade de poda** (o que um `stack apply
-  --prune`/`stack destroy` pode tocar) e de **GC em objectos remotos de provider**
-  (Proxmox SDN vnet, OPNsense alias) — nunca é lido como controlo de acesso em nenhuma
-  das RPCs do node-api. `CreateNetwork` aceita `labels`/`annotations` do PRÓPRIO
-  chamador (`network_ops.rs:124-131`) e grava-os tal e qual; nada impede um segundo
-  chamador de criar ou de apagar um recurso com a etiqueta de posse de outro.
-- `ListOperationsRequest` (`operations.proto:82-86`) só tem `page`/`active_only` — **zero
-  âmbito**. Qualquer chamador com acesso ao socket vê TODAS as operações do nó
-  (`GetOperation`/`ListOperations`, `service.rs:268-294`), incluindo o `target`
-  (`Network/lab`), o `request_id` e o erro de QUALQUER outro chamador. Não há
-  `owner`/`caller_id` no `Record` persistido (`operations.rs:53-73`).
-- `ListVolumesRequest.namespace` aceita o literal `"*"` (`volumes.rs:82-88`,
-  `wanted()`), que devolve TODAS as namespaces de uma vez, sem gate nenhum — é uma
-  escotilha deliberada para um operador humano (`delonix volume ls -A`), mas
-  reexposta tal e qual no contrato remoto: um chamador que só devia ver a sua própria
-  namespace e passe (ou receba de um PaaS com bug) `namespace: "*"` lê tudo.
-- Em contraste, `NetworkService` fixa a namespace de rede sempre a `default`
-  (`check_namespace`, `network_ops.rs:76-83`) — não há isolamento de rede por namespace
-  no node-api hoje, mas também não há essa fuga específica, porque não há mais do que
-  uma namespace para ler.
-- À parte do node-api: `docs/adr/0069-kind-catalog-reassessment-and-strict-manifests.md`
-  (linhas 147-150) já regista, para a camada `stack`/CLI, que a identidade de um recurso
-  com âmbito (`namespace/nome`) é hoje **convenção de string** (`destroy_one` faz
-  `find` sobre o nome do plano) e que um `ResourceKey` estrutural «tornaria isso
-  estrutural em vez de convencional» — ninguém mediu precisar dele ainda, mas é a MESMA
-  classe de fragilidade.
+- `ResourceMeta` (`common.proto:39-50`) has `name`/`namespace`/`uid`/`labels`/
+  `annotations`/`etag` — nothing saying "who may touch this".
+- `DeleteNetworkRequest`/`DeleteVolumeRequest` (`infra.proto:202-211,302-308`) only have
+  `namespace`/`name`/`etag`/`force`/`request_id`. **Any caller who knows (or
+  guesses) the name deletes the resource** — the only brake is the `etag` (if the caller
+  passes it) and the dependents check.
+- The `delonix.io/stack`/`OwnerMark` that AGENTS.md documents (ownership by label,
+  `delonix-stack/src/reconcile.rs`; `OwnerMark` in `delonix-networking/src/
+  ownership.rs`) is a mechanism for **prune accounting** (what a `stack apply
+  --prune`/`stack destroy` may touch) and for **GC on remote provider objects**
+  (Proxmox SDN vnet, OPNsense alias) — it is never read as access control in any
+  node-api RPC. `CreateNetwork` accepts `labels`/`annotations` from the
+  CALLER itself (`network_ops.rs:124-131`) and writes them verbatim; nothing stops a
+  second caller from creating or deleting a resource carrying another's ownership label.
+- `ListOperationsRequest` (`operations.proto:82-86`) only has `page`/`active_only` — **zero
+  scope**. Any caller with access to the socket sees ALL of the node's operations
+  (`GetOperation`/`ListOperations`, `service.rs:268-294`), including the `target`
+  (`Network/lab`), the `request_id` and the error of ANY other caller. There is no
+  `owner`/`caller_id` on the persisted `Record` (`operations.rs:53-73`).
+- `ListVolumesRequest.namespace` accepts the literal `"*"` (`volumes.rs:82-88`,
+  `wanted()`), which returns ALL namespaces at once, with no gate at all — it is a
+  deliberate escape hatch for a human operator (`delonix volume ls -A`), but
+  it is re-exposed as-is over the remote contract: a caller who should only see their own
+  namespace and passes (or receives from a buggy PaaS) `namespace: "*"` reads everything.
+- By contrast, `NetworkService` fixes the network namespace permanently to `default`
+  (`check_namespace`, `network_ops.rs:76-83`) — there is no per-namespace network isolation
+  in the node-api today, but there is also no such specific leak, because there is no more than
+  one namespace to read.
+- Outside the node-api: `docs/adr/0069-kind-catalog-reassessment-and-strict-manifests.md`
+  (lines 147-150) already records, for the `stack`/CLI layer, that a scoped
+  resource's identity (`namespace/name`) is today **string convention**
+  (`destroy_one` does a `find` over the plan's name) and that a structural
+  `ResourceKey` «would make that structural instead of conventional» — nobody has
+  measured needing it yet, but it is the SAME class of fragility.
 
-**Isolamento rede/socket**: o único controlo de identidade que existe é o do TRANSPORTE —
-`SO_PEERCRED` contra o uid do próprio processo servidor, socket `0600`
-(`crates/interfaces/delonix-node-api/src/lib.rs:46-47,117-134`). Ou seja: hoje o node-api
-só é alcançável por um processo que corre com o MESMO uid do servidor no MESMO host — o
-que implícitamente assume «um node-api por host, um chamador de confiança total (o
-agente local do PaaS nesse host)». Não há noção de "chamador A" vs "chamador B" no
-socket — o `SO_PEERCRED` garante só "é o dono do processo", não "é QUEM diz que é".
+**Network/socket isolation**: the only identity control that exists is at the TRANSPORT
+layer — `SO_PEERCRED` against the server process's own uid, socket `0600`
+(`crates/interfaces/delonix-node-api/src/lib.rs:46-47,117-134`). That is: today the node-api
+is only reachable by a process running with the SAME uid as the server on the SAME host — which
+implicitly assumes «one node-api per host, one fully-trusted caller (the
+PaaS's local agent on that host)». There is no notion of "caller A" vs "caller B" on the
+socket — `SO_PEERCRED` only guarantees "it is the process's owner", not "it is WHO it claims to be".
 
-**Veredicto da pergunta 9**: as fronteiras TÉCNICAS de baixo nível (nomes de ficheiro,
-subnets, ids de operação) já são validadas no servidor, independentemente do que o PaaS
-tenha verificado a montante — isso está bem. Mas a fronteira LÓGICA («este chamador pode
-tocar neste recurso, nesta namespace, ver esta operação») não existe no contrato: o
-Runtime confia inteiramente que (a) só um agente de confiança fala com o socket, e (b)
-esse agente só pede o que esse agente tem autoridade para pedir. É uma posição coerente
-com a doutrina («o motor não conhece inquilinos»), mas significa que QUALQUER bug no lado
-do PaaS que esqueça de filtrar `namespace`/`name`/`request_id` antes de os repassar dá
-acesso cruzado sem que o Runtime o note ou recuse.
+**Verdict for question 9**: the low-level TECHNICAL boundaries (file names,
+subnets, operation ids) are already validated on the server, regardless of what the PaaS
+has already checked upstream — that part is fine. But the LOGICAL boundary («can this caller
+touch this resource, in this namespace, see this operation») does not exist in the
+contract: the Runtime trusts entirely that (a) only a trusted agent talks to the
+socket, and (b) that agent only asks for what it has authority to ask for. It is a position
+consistent with the doctrine («the engine has no notion of tenants»), but it means ANY bug on
+the PaaS side that forgets to filter `namespace`/`name`/`request_id` before passing it through grants
+cross-access with no notice or refusal from the Runtime.
 
-## 3. Matriz de maturidade dos contratos
+## 3. Contract maturity matrix
 
-| Área | Estado hoje (evidência) | Gap | Onde fechar |
+| Area | State today (evidence) | Gap | Where to close it |
 |---|---|---|---|
-| **Schemas/versionamento** | Pacote único `delonix.node.v1` (`common.proto` + `node/operations/infra/compute.proto`), `buf lint`/`buf breaking against v5.0.0`/mapeamento HTTP e OpenAPI gerados e verificados pelo `scripts/contract_gate.py` (corrido: `ok` nos 6 checks, 57 rotas mapeadas, 45 caminhos REST distintos). Sem versionamento por grupo de recurso (ao contrário dos manifestos da CLI, que usam `compute.delonix.io/v1alpha1` etc.) — é tudo `v1` plano. | Uma mudança incompatível em QUALQUER mensagem obriga a subir o pacote inteiro para `v2`, mesmo que só um recurso tenha mudado. Aceitável enquanto o contrato é jovem; cedo ou tarde fica caro. | Decidir, por ADR, se `delonix.node.v1` continua monolítico ou se cada `message`/serviço ganha o seu próprio ciclo de versão (seria mudança estrutural grande — não urgente hoje). |
-| **Idempotência** | `request_id` em TODAS as mensagens de criação/eliminação do proto (`CreateNetworkRequest.request_id`, `DeleteVolumeRequest.request_id`, etc. — confirmado por grep em `infra.proto`/`compute.proto`). Implementado e testado para as 2 rotas servidas: `operations::replay`/`begin` (`network_ops.rs:212-224,253-291`; testes `the_same_create_sent_twice_does_the_work_once`, `the_same_delete_sent_twice_is_answered_once_not_with_not_found`). O REST lê `Idempotency-Key` e injecta-o em `request_id` (`service.rs:396-404`). | O CAMPO existe em todas as 22 mensagens que devolvem `Operation`, mas o MECANISMO (`operations::begin`/`replay`) só está ligado a 2 delas (`CreateNetwork`/`DeleteNetwork`). As outras 20 (Volume, Image, Stack, Container, Pod, VM, Snapshot) são `UNIMPLEMENTED` — o campo é aceite pelo parser e nunca usado. | `crates/interfaces/delonix-node-api/src/service.rs` — ligar cada verbo novo ao MESMO `operations::begin/finish/replay` já escrito, não reinventar. |
-| **Operações assíncronas** | Ver secção 4 — `OperationService` (registo em disco, `Interrupted` por dono morto, retenção de 7 dias) está feito e testado para o que já existe. | Só 2 de 22 RPCs de mutação que devolvem `Operation` passam pelo mecanismo. `WatchOperation`/`CancelOperation` são `UNIMPLEMENTED` (`service.rs:295-316`) — um cliente só pode fazer *poll* por `GetOperation`, nunca subscrever nem cancelar. | `operations.rs` já tem o `Record`; falta o `stream` de `WatchOperation` (ver nota de design abaixo) e `CancelOperation` (hoje não há sequer um conceito de "pedir para parar" no meio de um `create_work`/`delete_work`, que são funções síncronas e não cooperativas). |
-| **Erros estruturados** | RFC 9457 `application/problem+json` no REST (`service.rs:684-715`, `delonix_model::codes::problem`), `tonic::Status` com código de classe + metadata `dx-number` no gRPC (`network_ops.rs:42-73`), dicionário `DX-CDNN` central e estável (`delonix-model/src/codes.rs:1-10`: «a number never changes meaning and is never reused»). | O proto PROMETE (`common.proto:114-122`) um `ErrorDetail` (`reason`/`resource`/`metadata`/`retryable`/`retry_after`) «attached to every non-OK gRPC status as a binary detail» — mas isso só é construído dentro de `Operation.error` (`operations.rs:340-349`, confirmado por grep — é a ÚNICA construção de `ErrorDetail` em todo o crate). Um erro SÍNCRONO (`GetNetwork` not-found, `DeleteNetwork` em uso) nunca ganha o binary detail; carrega só a string `dx-number` em metadata ASCII. Um cliente gRPC genérico que espere `google.rpc.Status.details[]` (o padrão usado por `tonic_types`/outros serviços) não o encontra; tem de saber ler a metadata proprietária. | `network_ops.rs::status_of` / o equivalente para cada serviço novo — construir e anexar um `ErrorDetail` via `Status::with_details` (ou a convenção `grpc-status-details-bin`) também no caminho síncrono, não só dentro de `Operation.error`. |
-| **Desired-vs-observed** | O reconciliador de 3 vias já existe e está maduro (`delonix-stack/src/reconcile.rs`, `kinds.rs` — doc-comment explica a tabela única `KindFacts` e os 3 bugs reais que a motivaram; `plan()` é puro, testado, compara manifesto/máquina/`delonix.io/last-applied`). `ResourceMeta.etag`/`Condition` no proto já modelam observado-vs-esperado ao nível do contrato (`common.proto:39-66`). `NetworkService.GetNetwork` já lê `Realized` do dataplane real (ADR-0042 slice E1). | O `plan`/`apply` DECLARATIVO (o que resolve "o que muda para bater com o manifesto") está TODO no `delonix-stack`/CLI local — `StackService.PlanStack`/`ApplyStack`/`DestroyStack` são as 3 RPCs do contrato que o expõem, e as 3 são `UNIMPLEMENTED` (nem registadas em `service.rs`). Um PaaS não pode pedir "convergir para este estado" pela rede; só pode pedir operações imperativas RPC-a-RPC (e mesmo essas, hoje, só Network create/delete). | `StackService` em `service.rs` + um novo `crates/interfaces/delonix-node-api/src/stack_ops.rs` que chame `delonix_stack::reconcile::plan`/o `apply` que o CLI já usa — ADR-0042 nomeia isto como dependente da P5 do ADR-0040 (ver AGENTS.md: «F6 do ADR-0059 ADIADA até à P5», mesma dependência). |
-| **Criar/adoptar/actualizar/substituir/eliminar** | O proto já desenha bem o padrão para `Container` (`UpdateContainerRequest` com `FieldMask update_mask` + `etag`, `infra.proto`/`compute.proto:285-300`) e `etag`/`force` em todos os `Delete*Request`. | Por recurso: **Network** — Create/Delete servidos, **sem Update** no proto (não há `UpdateNetworkRequest` nenhum — labels só se definem na criação) e **sem adopção**: `CreateNetwork` sobre um nome já existente é sempre `AlreadyExists` (`network_ops.rs:215-220`), nunca a semântica de adopção que a CLI (`stack apply`) já tem via `delonix.io/last-applied`. **Volume** — só leitura; Create/Delete `UNIMPLEMENTED`. **Container/Pod/VM/Stack/Image** — nenhum verbo servido (nem Create nem Get). | Um ADR curto decide se `CreateNetwork` ganha um modo "adopt-if-exists-and-unowned" (replicando a regra do reconciliador) antes de o Container/VM wave chegar — senão cada wave reinventa a decisão. |
-| **Eventos estáveis** | `WatchEvents` está NO contrato (`node.proto:38`) e tem handler registado — mas devolve sempre `Err(not_yet("WatchEvents"))` (`service.rs:40-46,147-153`). O crate `delonix-node::events` (mencionado na tabela de crates do AGENTS.md) existe como registo interno, mas não está ligado a este stream. | Zero eventos estáveis entregues pela rede hoje. Um PaaS não tem forma de saber "a VM X mudou de estado" sem *poll* contínuo de `Get*`. | Ligar `delonix_node::events` (o que já existe) ao `WatchEvents` — provavelmente a MESMA infra-estrutura de streaming que `WatchOperation` vai precisar; faz sentido desenhá-las juntas. |
-| **Descoberta de capacidades por provider** | **Feita e servida** — `ListProviders` (`NodeService`, ADR-0050 D5) devolve `ProviderInfo{id, kind, available, capabilities[], health, catalog_version}` com `Capability{name, supported, detail, state}` de 6 estados (`supported`/`partial`/`unsupported-by-provider`/`requires-external-component`/`not-implemented`/`unavailable-on-host`) — confirmado em `service.rs:78-108,137-146` e testável hoje (gRPC + REST + `/docs`/`/redoc`). A regra «`supported` cita evidência que existe» é imposta por teste (`the_declared_providers_are_the_published_matrix`, catálogo documentado no AGENTS.md). | Nenhum. Esta é a área MAIS madura do contrato — o PaaS já pode perguntar "este nó aguenta snapshot com memória?" antes de tentar, em vez de descobrir por erro. | — |
+| **Schemas/versioning** | Single `delonix.node.v1` package (`common.proto` + `node/operations/infra/compute.proto`), `buf lint`/`buf breaking against v5.0.0`/generated and verified HTTP mapping and OpenAPI by `scripts/contract_gate.py` (run: `ok` on all 6 checks, 57 routes mapped, 45 distinct REST paths). No per-resource-group versioning (unlike the CLI's manifests, which use `compute.delonix.io/v1alpha1` etc.) — it is all flat `v1`. | A breaking change in ANY message forces bumping the whole package to `v2`, even if only one resource changed. Acceptable while the contract is young; sooner or later it gets expensive. | Decide, via ADR, whether `delonix.node.v1` stays monolithic or each `message`/service gets its own version cycle (would be a big structural change — not urgent today). |
+| **Idempotency** | `request_id` on EVERY creation/deletion message in the proto (`CreateNetworkRequest.request_id`, `DeleteVolumeRequest.request_id`, etc. — confirmed by grep in `infra.proto`/`compute.proto`). Implemented and tested for the 2 served routes: `operations::replay`/`begin` (`network_ops.rs:212-224,253-291`; tests `the_same_create_sent_twice_does_the_work_once`, `the_same_delete_sent_twice_is_answered_once_not_with_not_found`). REST reads `Idempotency-Key` and injects it as `request_id` (`service.rs:396-404`). | The FIELD exists on all 22 messages that return an `Operation`, but the MECHANISM (`operations::begin`/`replay`) is wired to only 2 of them (`CreateNetwork`/`DeleteNetwork`). The other 20 (Volume, Image, Stack, Container, Pod, VM, Snapshot) are `UNIMPLEMENTED` — the field is accepted by the parser and never used. | `crates/interfaces/delonix-node-api/src/service.rs` — wire each new verb to the SAME already-written `operations::begin/finish/replay`, do not reinvent it. |
+| **Async operations** | See section 4 — `OperationService` (on-disk ledger, `Interrupted` on a dead owner, 7-day retention) is done and tested for what already exists. | Only 2 of 22 mutation RPCs that return an `Operation` go through the mechanism. `WatchOperation`/`CancelOperation` are `UNIMPLEMENTED` (`service.rs:295-316`) — a client can only *poll* via `GetOperation`, never subscribe or cancel. | `operations.rs` already has the `Record`; missing is the `WatchOperation` `stream` (see the design note below) and `CancelOperation` (today there is not even a concept of "ask it to stop" midway through a `create_work`/`delete_work`, which are synchronous, non-cooperative functions). |
+| **Structured errors** | RFC 9457 `application/problem+json` on REST (`service.rs:684-715`, `delonix_model::codes::problem`), `tonic::Status` with a class code + `dx-number` metadata on gRPC (`network_ops.rs:42-73`), central, stable `DX-CDNN` dictionary (`delonix-model/src/codes.rs:1-10`: «a number never changes meaning and is never reused»). | The proto PROMISES (`common.proto:114-122`) an `ErrorDetail` (`reason`/`resource`/`metadata`/`retryable`/`retry_after`) «attached to every non-OK gRPC status as a binary detail» — but it is only built inside `Operation.error` (`operations.rs:340-349`, confirmed by grep — it is the ONLY construction of `ErrorDetail` in the whole crate). A SYNCHRONOUS error (`GetNetwork` not-found, `DeleteNetwork` in use) never gets the binary detail; it only carries the `dx-number` string in ASCII metadata. A generic gRPC client expecting `google.rpc.Status.details[]` (the pattern used by `tonic_types`/other services) does not find it; it has to know how to read the proprietary metadata. | `network_ops.rs::status_of` / the equivalent for each new service — build and attach an `ErrorDetail` via `Status::with_details` (or the `grpc-status-details-bin` convention) on the synchronous path too, not only inside `Operation.error`. |
+| **Desired-vs-observed** | The 3-way reconciler already exists and is mature (`delonix-stack/src/reconcile.rs`, `kinds.rs` — the doc-comment explains the single `KindFacts` table and the 3 real bugs that motivated it; `plan()` is pure, tested, compares manifest/machine/`delonix.io/last-applied`). `ResourceMeta.etag`/`Condition` in the proto already model observed-vs-expected at the contract level (`common.proto:39-66`). `NetworkService.GetNetwork` already reads `Realized` from the real dataplane (ADR-0042 slice E1). | DECLARATIVE `plan`/`apply` (what resolves "what has to change to match the manifest") lives ENTIRELY in `delonix-stack`/the local CLI — `StackService.PlanStack`/`ApplyStack`/`DestroyStack` are the 3 contract RPCs that expose it, and all 3 are `UNIMPLEMENTED` (not even registered in `service.rs`). A PaaS cannot ask over the network to "converge to this state"; it can only issue imperative RPC-by-RPC operations (and even those, today, only Network create/delete). | `StackService` in `service.rs` + a new `crates/interfaces/delonix-node-api/src/stack_ops.rs` calling `delonix_stack::reconcile::plan`/the `apply` the CLI already uses — ADR-0042 names this as dependent on ADR-0040's P5 (see AGENTS.md: «ADR-0059's F6 DEFERRED until P5», the same dependency). |
+| **Create/adopt/update/replace/delete** | The proto already draws the pattern well for `Container` (`UpdateContainerRequest` with `FieldMask update_mask` + `etag`, `infra.proto`/`compute.proto:285-300`) and `etag`/`force` on every `Delete*Request`. | Per resource: **Network** — Create/Delete served, **no Update** in the proto (there is no `UpdateNetworkRequest` at all — labels can only be set at creation) and **no adoption**: `CreateNetwork` over an already-existing name is always `AlreadyExists` (`network_ops.rs:215-220`), never the adoption semantics the CLI (`stack apply`) already has via `delonix.io/last-applied`. **Volume** — read-only; Create/Delete `UNIMPLEMENTED`. **Container/Pod/VM/Stack/Image** — no verb served at all (neither Create nor Get). | A short ADR decides whether `CreateNetwork` gets an "adopt-if-exists-and-unowned" mode (replicating the reconciler's rule) before the Container/VM wave arrives — otherwise each wave reinvents the decision. |
+| **Stable events** | `WatchEvents` is IN the contract (`node.proto:38`) and has a registered handler — but it always returns `Err(not_yet("WatchEvents"))` (`service.rs:40-46,147-153`). The `delonix-node::events` crate (mentioned in AGENTS.md's crate table) exists as an internal registry, but is not wired to this stream. | Zero stable events delivered over the network today. A PaaS has no way to know "VM X changed state" without continuous *poll* of `Get*`. | Wire `delonix_node::events` (which already exists) to `WatchEvents` — probably the SAME streaming infrastructure `WatchOperation` will need; makes sense to design them together. |
+| **Per-provider capability discovery** | **Done and served** — `ListProviders` (`NodeService`, ADR-0050 D5) returns `ProviderInfo{id, kind, available, capabilities[], health, catalog_version}` with `Capability{name, supported, detail, state}` across 6 states (`supported`/`partial`/`unsupported-by-provider`/`requires-external-component`/`not-implemented`/`unavailable-on-host`) — confirmed in `service.rs:78-108,137-146` and testable today (gRPC + REST + `/docs`/`/redoc`). The rule «`supported` cites evidence that exists» is enforced by a test (`the_declared_providers_are_the_published_matrix`, catalogue documented in AGENTS.md). | None. This is the MOST mature area of the contract — the PaaS can already ask "does this node support snapshot with memory?" before trying, instead of discovering it by error. | — |
 
-## 4. Operações assíncronas
+## 4. Async operations
 
-O `OperationService` (ADR-0042 D4/E2, `crates/interfaces/delonix-node-api/src/
-operations.rs`) cobre bem, PARA O QUE ESTÁ LIGADO A ELE, as quatro perguntas do
-enunciado:
+`OperationService` (ADR-0042 D4/E2, `crates/interfaces/delonix-node-api/src/
+operations.rs`) covers, WELL, FOR WHAT IS WIRED INTO IT, the four questions in
+the prompt:
 
-1. **Criado com ID antes do trabalho.** `begin()` escreve o `Record` em
-   `<root>/operations/<id>.json` com `state: Running` ANTES de o `work` closure correr
-   (`network_ops.rs:221-229`); provado pelo teste
-   `create_is_persisted_running_before_the_work_and_succeeds_with_the_target`, que
-   espreita a lista DURANTE o `work` e confirma que já lá está.
-2. **Consulta de progresso.** `GetOperation`/`ListOperations` servidos (gRPC + REST,
-   `service.rs:268-294`), com `ETag`/paginação — um cliente que perdeu a resposta inicial
-   volta e lê o estado pelo `id`.
-3. **Resultado idempotente por `request_id`.** `operations::replay` (chamado ANTES de
-   qualquer verificação que o próprio primeiro pedido tornou verdadeira — ex.: "já
-   existe") devolve a MESMA `Operation` para o mesmo `(verb, target, request_id)`, sem
-   repetir o efeito — testado (`the_same_create_sent_twice_does_the_work_once`: `runs`
-   fica em 1).
-4. **Cliente que perde a ligação e volta a perguntar depois, sem repetir o efeito.**
-   Dois casos, os dois cobertos: (a) o cliente tem o `id` da `Operation` — faz
-   `GetOperation`; se o processo que a fazia morreu a meio, `settled()`
-   (`operations.rs:140-161`) marca-a `Failed/Interrupted` na PRÓXIMA leitura, nunca
-   `Running` para sempre — e diz "leia o alvo para ver o que ficou, e reenvie o pedido".
-   (b) o cliente só tem o `request_id` original — reenvia o MESMO pedido e
-   `operations::replay` devolve a resposta já dada, sem voltar a executar `work`.
+1. **Created with an ID before the work.** `begin()` writes the `Record` to
+   `<root>/operations/<id>.json` with `state: Running` BEFORE the `work` closure runs
+   (`network_ops.rs:221-229`); proven by the test
+   `create_is_persisted_running_before_the_work_and_succeeds_with_the_target`, which
+   peeks at the list DURING the `work` and confirms it is already there.
+2. **Progress query.** `GetOperation`/`ListOperations` served (gRPC + REST,
+   `service.rs:268-294`), with `ETag`/pagination — a client who lost the initial
+   response comes back and reads the state by `id`.
+3. **Idempotent result by `request_id`.** `operations::replay` (called BEFORE
+   any check the first request itself already made true — e.g. "already
+   exists") returns the SAME `Operation` for the same `(verb, target, request_id)`, without
+   repeating the effect — tested (`the_same_create_sent_twice_does_the_work_once`: `runs`
+   stays at 1).
+4. **A client that loses the connection and asks again later, without repeating the effect.**
+   Two cases, both covered: (a) the client has the `Operation`'s `id` — it does
+   `GetOperation`; if the process doing the work died midway, `settled()`
+   (`operations.rs:140-161`) marks it `Failed/Interrupted` on the NEXT read, never
+   `Running` forever — and says "read the target to see what is left, and resend the request".
+   (b) the client only has the original `request_id` — it resends the SAME request and
+   `operations::replay` returns the response already given, without re-running `work`.
 
-**O que falta, medido por RPC**: 24 RPCs do contrato devolvem `Operation` (grep em
-`infra.proto`+`compute.proto`+`operations.proto`); dessas, `GetOperation` é a leitura que
-já serve o mecanismo em si e `CancelOperation`/`WatchOperation` (esta devolve `stream
-Operation`, por isso fica fora da contagem de 24, mas é a mesma família) são as outras 3
-RPCs do `OperationService`, sempre `UNIMPLEMENTED`. Ficam **22 RPCs de mutação** (`Create`/
-`Delete`/`Apply`/`Pull`/… que criam ou terminam um recurso) — e dessas só **2**
-(`CreateNetwork`, `DeleteNetwork`) passam pelo `operations::begin`/`finish`/`replay`. As
-outras 20 — `Create/DeleteVolume`, `Pull/Push/Build/Scan/DeleteImage`, `Apply/
+**What is missing, measured per RPC**: 24 contract RPCs return an `Operation` (grep in
+`infra.proto`+`compute.proto`+`operations.proto`); of those, `GetOperation` is the read that
+already serves the mechanism itself and `CancelOperation`/`WatchOperation` (the latter returns
+`stream Operation`, so it falls outside the count of 24, but it is the same family) are the other 3
+RPCs of `OperationService`, always `UNIMPLEMENTED`. That leaves **22 mutation RPCs** (`Create`/
+`Delete`/`Apply`/`Pull`/… that create or terminate a resource) — and of those only **2**
+(`CreateNetwork`, `DeleteNetwork`) go through `operations::begin`/`finish`/`replay`. The
+other 20 — `Create/DeleteVolume`, `Pull/Push/Build/Scan/DeleteImage`, `Apply/
 DestroyStack`, `Create/DeleteContainer`, `Create/DeletePod`, `Create/Delete/Start/
-StopVirtualMachine`, `Create/Restore/DeleteSnapshot` — respondem `UNIMPLEMENTED`
-directamente no `service.rs` (nem chegam a criar um `Record`). Numericamente: **2 de 22
-(≈9%)** das mutações assíncronas do contrato estão realmente ligadas ao mecanismo que as
-torna seguras para um cliente com rede instável — o resto nem está acessível.
+StopVirtualMachine`, `Create/Restore/DeleteSnapshot` — respond `UNIMPLEMENTED`
+directly in `service.rs` (they don't even get as far as creating a `Record`). Numerically: **2 of 22
+(≈9%)** of the contract's async mutations are actually wired to the mechanism that
+makes them safe for a client on unstable networking — the rest is not even reachable.
 
-## 5. As 3 lacunas mais graves (para o PaaS poder delegar sem contornar o contrato)
+## 5. The 3 most serious gaps (for the PaaS to be able to delegate without bypassing the contract)
 
-1. **Container/Pod/VM/Stack/Image não têm NENHUM verbo servido no node-api — o PaaS não
-   tem como criar nada "real" pela rede hoje.** `ContainerService` (12 RPCs),
+1. **Container/Pod/VM/Stack/Image have NO verb served at all in the node-api — the PaaS has
+   no way to create anything "real" over the network today.** `ContainerService` (12 RPCs),
    `PodService` (4), `VirtualMachineService` (13), `StackService` (3), `ImageService`
-   (7) — 39 de 59 RPCs do contrato, 0 implementadas (`service.rs` não tem `impl
-   ContainerService for NodeApi` nenhum; a REST cai sempre no `_ => Err(not_served)` da
-   linha 414). O PaaS, hoje, só pode: criar/apagar uma rede, ler volumes, listar
-   capacidades do nó. Para o resto (correr um container, criar uma VM, aplicar um
-   stack) o caminho continua a ser o CLI local — exactamente o SSH/comando-à-mão que
-   este desenho quer eliminar.
-   - **Onde**: `crates/interfaces/delonix-node-api/src/service.rs` (registar os
-     `impl *Service for NodeApi`) + um módulo `compute_ops.rs` que chame
-     `delonix_compute::run`/o motor de containers já usado pela CLI (`cmd/
-     container.rs`), tal como `network_ops.rs` chama `delonix_sdn::netops`.
-   - **Teste que provaria**: um teste de integração gRPC real (como
-     `crates/interfaces/delonix-cri/tests/grpc_status.rs` já faz para o CRI) que sobe o
-     servidor num socket unix de teste, chama `CreateContainer` com um `request_id`,
-     confirma `Operation.state == Succeeded` e que o container existe no `Store` real —
-     e repete o MESMO `request_id` confirmando que não corre duas vezes.
+   (7) — 39 of 59 contract RPCs, 0 implemented (`service.rs` has no `impl
+   ContainerService for NodeApi` at all; REST always falls into the `_ => Err(not_served)` at
+   line 414). The PaaS, today, can only: create/delete a network, read volumes, list
+   the node's capabilities. For everything else (running a container, creating a VM, applying
+   a stack) the path remains the local CLI — exactly the SSH/hand-typed-command
+   this design wants to eliminate.
+   - **Where**: `crates/interfaces/delonix-node-api/src/service.rs` (register the
+     `impl *Service for NodeApi`) + a `compute_ops.rs` module calling
+     `delonix_compute::run`/the container engine the CLI already uses (`cmd/
+     container.rs`), the way `network_ops.rs` calls `delonix_sdn::netops`.
+   - **Test that would prove it**: a real gRPC integration test (like
+     `crates/interfaces/delonix-cri/tests/grpc_status.rs` already does for CRI) that brings up
+     the server on a test unix socket, calls `CreateContainer` with a `request_id`,
+     confirms `Operation.state == Succeeded` and that the container exists in the real `Store` —
+     and repeats the SAME `request_id` confirming it does not run twice.
 
-2. **Nenhuma RPC síncrona ou assíncrona carrega uma noção de "quem pediu isto", e por
-   isso `ListOperations`/`DeleteNetwork`/`ListVolumes(namespace="*")` são superfícies de
-   acesso cruzado se o PaaS alguma vez repassar um `namespace`/`name` sem o filtrar
-   primeiro.** Hoje isto é seguro PORQUE o socket só aceita o mesmo uid do servidor
-   (`SO_PEERCRED`) — ou seja, assume-se 1 agente de confiança total por nó. No dia em
-   que o desenho precisar de mais de um chamador por nó (vários processos do PaaS, um
-   proxy multiplexado, um segundo agente), não há NADA no contrato que impeça um deles
-   de ver/apagar o que outro criou.
-   - **Onde**: `proto/delonix/node/v1/common.proto` — um campo opcional, por exemplo
-     `string caller_scope` em `ResourceMeta`/`ListOperationsRequest`, verificado contra
-     o `delonix.io/stack`/`OwnerMark` já existentes do lado do servidor (reaproveitar o
-     mecanismo de posse que já existe para poda, em vez de inventar um segundo). Decisão
-     de desenho: continuar "um agente de confiança total por nó" é aceitável e deve
-     ficar ESCRITO como tal num ADR, para não ser descoberto tarde como suposição
-     implícita.
-   - **Teste que provaria**: dois `request_id`/chamadores distintos criam duas redes com
-     etiquetas de posse diferentes; um `DeleteNetwork` do segundo chamador sobre o nome
-     da PRIMEIRA falha com uma razão de posse — hoje esse teste não pode nem ser escrito,
-     porque não há campo para o exprimir.
+2. **No RPC, synchronous or asynchronous, carries a notion of "who asked for this", and
+   that is why `ListOperations`/`DeleteNetwork`/`ListVolumes(namespace="*")` are
+   cross-access surfaces if the PaaS ever passes through a `namespace`/`name` without filtering
+   it first.** Today this is safe BECAUSE the socket only accepts the server's own uid
+   (`SO_PEERCRED`) — that is, it assumes 1 fully-trusted agent per node. The day
+   the design needs more than one caller per node (several PaaS processes, a
+   multiplexed proxy, a second agent), there is NOTHING in the contract to stop one of them
+   from seeing/deleting what another created.
+   - **Where**: `proto/delonix/node/v1/common.proto` — an optional field, say
+     `string caller_scope` in `ResourceMeta`/`ListOperationsRequest`, checked against
+     the already-existing `delonix.io/stack`/`OwnerMark` on the server side (reuse the
+     ownership mechanism that already exists for pruning, rather than inventing a second one). Design
+     decision: continuing with "one fully-trusted agent per node" is acceptable and should
+     be WRITTEN DOWN as such in an ADR, so it is not discovered late as an
+     implicit assumption.
+   - **Test that would prove it**: two distinct `request_id`s/callers create two networks with
+     different ownership labels; a `DeleteNetwork` from the second caller against the
+     FIRST one's name fails with an ownership reason — today that test cannot even be
+     written, because there is no field to express it in.
 
-3. **O `ErrorDetail` estruturado que o contrato promete ("attached to every non-OK gRPC
-   status") só existe dentro de `Operation.error` — o caminho de erro síncrono (a
-   maioria dos erros reais: not-found, conflito, etag obsoleto) nunca o constrói, e por
-   isso um cliente gRPC genérico (não escrito à mão contra esta API) não consegue
-   classificar a falha sem saber ler a metadata ASCII proprietária `dx-number`.**
-   - **Onde**: `network_ops.rs::status_of` (e o equivalente que qualquer serviço novo
-     vai precisar) — construir um `ErrorDetail{reason, resource, metadata, retryable,
-     retry_after}` e anexá-lo ao `tonic::Status` via `Status::with_details`/
-     `grpc-status-details-bin`, ao lado (não em substituição) da metadata `dx-number`
-     já usada pelo REST.
-   - **Teste que provaria**: um teste que chama `GetNetwork` sobre um nome inexistente
-     e decodifica o binary detail do `tonic::Status` (não a metadata ASCII) esperando um
-     `ErrorDetail.reason == "DX_NOT_FOUND"` e `resource == "Network/<nome>"` — hoje esse
-     teste falharia porque o detail nunca é anexado.
+3. **The structured `ErrorDetail` the contract promises ("attached to every non-OK gRPC
+   status") only exists inside `Operation.error` — the synchronous error path (the
+   majority of real errors: not-found, conflict, stale etag) never builds it, and
+   so a generic gRPC client (not hand-written against this API) cannot
+   classify the failure without knowing how to read the proprietary ASCII metadata `dx-number`.**
+   - **Where**: `network_ops.rs::status_of` (and the equivalent any new service will
+     need) — build an `ErrorDetail{reason, resource, metadata, retryable,
+     retry_after}` and attach it to the `tonic::Status` via `Status::with_details`/
+     `grpc-status-details-bin`, alongside (not replacing) the `dx-number` metadata
+     already used by REST.
+   - **Test that would prove it**: a test that calls `GetNetwork` over a nonexistent name
+     and decodes the binary detail of the `tonic::Status` (not the ASCII metadata) expecting an
+     `ErrorDetail.reason == "DX_NOT_FOUND"` and `resource == "Network/<name>"` — today that
+     test would fail because the detail is never attached.

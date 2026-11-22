@@ -102,11 +102,50 @@ fn create(store: &Store, id: &str, bundle: &Path) -> Result<()> {
         .map_err(|e| Error::Invalid(format!("oci-runtime: bundle '{}': {e}", bundle.display())))?;
     let spec = Spec::load(bundle.join("config.json"))
         .map_err(|e| Error::Invalid(format!("oci-runtime: config.json: {e}")))?;
-    let (mut c, _rootfs) = spec_to_container(id, &bundle, &spec)?;
+    let (mut c, rootfs) = spec_to_container(id, &bundle, &spec)?;
     c.status = Status::Created;
+    // Capture the resolved rootfs NOW. The OCI model fixes the container's
+    // configuration at `create`; `start` must not re-read `config.json` (the
+    // caller may overwrite it in between — runtime-spec
+    // `config_updates_without_affect`), so it launches from this path + the
+    // already-translated `Container` fields instead.
+    c.oci_rootfs = Some(rootfs);
+    // runc inherited-fd model: the caller (the `runtime-tools` suite, or a shell
+    // `>` redirect) points OUR fd 1 / fd 2 at the files the container's stdout /
+    // stderr must land in — `<bundle>/stdout-<uuid>` / `stderr-<uuid>`. `create`
+    // holds no persistent init to keep those fds open to `start`, so resolve the
+    // files BEHIND them now and persist the paths; `start` reopens them and the
+    // init writes there directly. Resolved before the `println!` so our own id
+    // line never lands in the container's stdout file.
+    c.oci_stdout = oci_stdio_target(1);
+    c.oci_stderr = oci_stdio_target(2);
     store.save(&c)?;
-    println!("{id}");
+    // runc prints nothing on `create`; keep the id line for an interactive/
+    // piped invocation, but never when it would pollute the inherited stdout
+    // file the suite parses as the container's TAP.
+    if c.oci_stdout.is_none() {
+        println!("{id}");
+    }
     Ok(())
+}
+
+/// Resolves the file behind our own `fd` (1 or 2) for the runc inherited-fd
+/// stdio model, or `None` when it is not a redirected regular file.
+///
+/// Only an absolute path to a **regular file** counts: a tty (`/dev/pts/*`), a
+/// pipe (`pipe:[…]`), a socket or `/dev/null` is the interactive/daemon case,
+/// where there is no file to hand `start` and the historical detached path
+/// (stdout → `/dev/null`) is correct. `/proc/self/fd/<n>` is a symlink to the
+/// open file's path; `metadata` follows it to classify the target.
+fn oci_stdio_target(fd: i32) -> Option<String> {
+    let link = std::fs::read_link(format!("/proc/self/fd/{fd}")).ok()?;
+    if !link.is_absolute() {
+        return None;
+    }
+    if !std::fs::metadata(&link).ok()?.is_file() {
+        return None;
+    }
+    Some(link.to_string_lossy().into_owned())
 }
 
 fn start(store: &Store, id: &str) -> Result<()> {
@@ -117,14 +156,19 @@ fn start(store: &Store, id: &str) -> Result<()> {
             "oci-runtime: {id} is already running"
         )));
     }
-    // Recover the bundle + re-derive the rootfs the init pivots into. A runc
-    // bundle has no delonix network, so this is the host-net launch path.
-    let bundle = bundle_of(&c)
-        .ok_or_else(|| Error::Invalid(format!("oci-runtime: {id} has no bundle recorded")))?
-        .to_string();
-    let spec = Spec::load(Path::new(&bundle).join("config.json"))
-        .map_err(|e| Error::Invalid(format!("oci-runtime: config.json: {e}")))?;
-    let (_c2, rootfs) = spec_to_container(id, Path::new(&bundle), &spec)?;
+    // Launch from the configuration captured at `create`, NOT from a fresh read
+    // of `config.json`: the OCI model fixes the container's config at `create`,
+    // and the caller may have replaced `config.json` in between (runtime-spec
+    // `config_updates_without_affect`). Every field `start` needs was already
+    // translated onto the persisted `Container` (uid/gid, mounts, caps, seccomp,
+    // sysctls, devices, limits…), and the rootfs the init pivots into was
+    // resolved and stored at `create`. A runc bundle has no delonix network, so
+    // this is the host-net launch path.
+    let rootfs = c.oci_rootfs.clone().ok_or_else(|| {
+        Error::Invalid(format!(
+            "oci-runtime: {id} has no rootfs recorded (was it created by this engine?)"
+        ))
+    })?;
     // `gather`/`spawn` read uid/gid/mounts from the RunSpec, not the Container
     // (launch_spec.rs is the engine's own builder): carry them explicitly or the
     // translated `process.user`/`mounts` become silent no-ops on launch.
@@ -135,6 +179,13 @@ fn start(store: &Store, id: &str) -> Result<()> {
         run_uid: c.run_uid,
         run_gid: c.run_gid,
         mounts: c.mounts.clone(),
+        // runc inherited-fd stdio: the container writes STRAIGHT to the files
+        // `create` resolved (its own fd 1 / fd 2 — the suite's `stdout-<uuid>`/
+        // `stderr-<uuid>`), bypassing the detached log driver. Without this the
+        // `runtimetest` TAP went to the detached /dev/null and the suite read
+        // an empty stdout ("No subtests run"); with it the TAP reaches `prove`.
+        oci_stdout: c.oci_stdout.clone(),
+        oci_stderr: c.oci_stderr.clone(),
         ..Default::default()
     };
     runtime::create_with(store, &mut c, &rootfs, &spec)?;
@@ -344,27 +395,43 @@ pub fn spec_to_container(id: &str, bundle: &Path, spec: &Spec) -> Result<(Contai
     // itself, so they are skipped — passing them as binds would double-mount.
     c.mounts = oci_bind_mounts(spec);
 
-    // Namespaces: a user namespace means a rootless-style launch (mappings come
-    // from the bundle's own `linux.uidMappings`, which the init honours). A
-    // network namespace with NO path is an isolated netns (`--net none`); one
-    // WITH a path asks to join an existing netns, which has no honoured path.
+    // Namespaces. A PATHLESS namespace asks for a FRESH one, which the engine
+    // already creates (see `clone_flags`): user → a rootless-style launch
+    // (mappings come from the bundle's own `linux.uidMappings`), network → an
+    // isolated netns (`--net none`), cgroup → a private cgroup namespace, and
+    // pid/ipc/uts/mount are created by default.
+    //
+    // A namespace WITH a `path` asks to JOIN an existing one (setns). This
+    // engine does not join by path for ANY type, so it is refused by name
+    // rather than ignoring the path and silently creating a fresh namespace the
+    // caller did not ask for (guardrail 6). That refusal is also exactly what
+    // keeps the runtime-tools `linux_ns_path_type` negatives red-by-refusal
+    // independently of any other guard — the wrong-type-path cases MUST error.
     if let Some(nss) = spec.linux().as_ref().and_then(|l| l.namespaces().as_ref()) {
         use oci_spec::runtime::LinuxNamespaceType as NsT;
         for ns in nss {
+            if ns.path().is_some() {
+                return Err(Error::Invalid(format!(
+                    "oci-runtime: config.json declares a {:?} namespace with a `path` (join an \
+                     existing namespace) — not implemented; remove the path (for a fresh \
+                     namespace) or run it under runc",
+                    ns.typ()
+                )));
+            }
             match ns.typ() {
                 NsT::User => c.userns = true,
-                NsT::Network => {
-                    if ns.path().is_some() {
-                        return Err(Error::Invalid(
-                            "oci-runtime: config.json declares a network namespace with a `path` \
-                             (join an existing netns) — not implemented; remove the path (for an \
-                             isolated netns) or run it under runc"
-                                .to_string(),
-                        ));
-                    }
-                    c.net_mode = Some("none".to_string());
+                NsT::Network => c.net_mode = Some("none".to_string()),
+                NsT::Cgroup => c.cgroupns_private = true,
+                // pid/ipc/uts/mount: the engine already clones a fresh one of
+                // each, so a pathless request is satisfied as-is.
+                NsT::Pid | NsT::Ipc | NsT::Uts | NsT::Mount => {}
+                // time (and any future type) has no honoured path here.
+                other => {
+                    return Err(Error::Invalid(format!(
+                        "oci-runtime: config.json declares a {other:?} namespace — not implemented \
+                         by this engine; remove it or run it under runc"
+                    )))
                 }
-                _ => {}
             }
         }
     }
@@ -431,74 +498,113 @@ pub fn spec_to_container(id: &str, bundle: &Path, spec: &Spec) -> Result<(Contai
     }
 
     // `linux.seccomp` → a custom profile REPLACES the engine's built-in
-    // allowlist, but the compiler accepts only a bounded subset (≤2 actions, no
-    // per-arg rules, no KILL_PROCESS/TRACE/NOTIFY). Parse it NOW so an
+    // allowlist. The compiler accepts argument-filtered rules (the default
+    // Docker/containerd/runtime-tools profile shape) but is still bounded to the
+    // two-action seccompiler model (one non-default action) and the action types
+    // it implements (no KILL_PROCESS/TRACE/NOTIFY). Parse it NOW so an
     // unsupported profile is refused at `create` instead of aborting the
     // container at init (exit 126); on success store the JSON the init installs.
     if let Some(seccomp) = spec.linux().as_ref().and_then(|l| l.seccomp().as_ref()) {
         let json = serde_json::to_string(seccomp)
             .map_err(|e| Error::Invalid(format!("oci-runtime: serialise linux.seccomp: {e}")))?;
-        // parse() rejects per-arg rules / unsupported action types; compile()
-        // rejects a profile with more than one non-default action. The init runs
-        // both, so run both here to refuse at `create`, not abort at init.
+        // parse() rejects unsupported action/operator types; compile() rejects a
+        // profile with more than one non-default action. The init runs both, so
+        // run both here to refuse at `create`, not abort at init.
         let (profile, _) = runtime::seccomp_profile::parse(&json).map_err(|e| {
             Error::Invalid(format!(
                 "oci-runtime: config.json `linux.seccomp` is outside the supported subset ({e}); \
-                 simplify it (≤2 actions, no per-arg rules) or run it under runc"
+                 simplify it (≤2 actions) or run it under runc"
             ))
         })?;
         runtime::seccomp_profile::compile(&profile).map_err(|e| {
             Error::Invalid(format!(
                 "oci-runtime: config.json `linux.seccomp` is outside the supported subset ({e}); \
-                 simplify it (≤2 actions, no per-arg rules) or run it under runc"
+                 simplify it (≤2 actions) or run it under runc"
             ))
         })?;
         c.seccomp_profile = Some(json);
     }
 
-    // `process.capabilities`: make the kept set equal the bundle's BOUNDING set
-    // (the ceiling) by expressing it as cap_add/cap_drop deltas off the engine's
-    // KEPT_CAPS baseline — so a bundle that drops caps to harden is honoured
-    // instead of silently left at the baseline (over-privileged). The engine's
-    // model is a single kept mask, so it cannot represent distinct effective/
-    // permitted/inheritable sets or raise ambient caps: an ambient request is
-    // refused by name. (bounding is the ceiling the others are subsets of.)
+    // `process.capabilities`: the OCI model keeps FIVE distinct sets
+    // (bounding/effective/permitted/inheritable/ambient). The engine honours
+    // them verbatim — including RAISING the ambient set with
+    // `PR_CAP_AMBIENT_RAISE` — instead of collapsing everything onto its single
+    // kept mask (which forced an ambient request to be refused by name). Each
+    // name is validated, and so are the kernel's own preconditions, so an
+    // impossible request is refused HERE at `create`, not aborted at init (126):
+    //   * effective ⊆ permitted (you cannot make effective a cap you lack), and
+    //   * ambient ⊆ permitted ∩ inheritable (the raise would EINVAL otherwise).
+    // The derived BOUNDING set is also written back as cap_add/cap_drop deltas
+    // off the KEPT_CAPS baseline, so the surfaces that still read the single
+    // mask (inspect, the CRI ceiling) see the ceiling this bundle asked for.
     if let Some(caps) = process.capabilities().as_ref() {
-        if caps.ambient().as_ref().is_some_and(|a| !a.is_empty()) {
-            return Err(Error::Invalid(
-                "oci-runtime: config.json `process.capabilities.ambient` — ambient capabilities are \
-                 not raised by this engine; remove them or run it under runc"
-                    .to_string(),
-            ));
-        }
-        if let Some(bounding) = caps.bounding().as_ref() {
-            use runtime::capabilities::{cap_name, cap_num, KEPT_CAPS};
-            let mut want = std::collections::BTreeSet::new();
-            for cap in bounding {
+        use oci_spec::runtime::Capability;
+        use runtime::capabilities::{cap_name, cap_num, KEPT_CAPS};
+        // One OCI cap list → (mask, canonical `CAP_<NAME>` strings). An unknown
+        // capability is refused by name (the LinuxProcCapError the suite checks).
+        let to_set = |list: Option<&std::collections::HashSet<Capability>>,
+                      which: &str|
+         -> Result<(u64, Vec<String>)> {
+            let mut mask = 0u64;
+            let mut names = Vec::new();
+            for cap in list.into_iter().flatten() {
                 let name = oci_cap_name(cap);
                 let num = cap_num(&name).ok_or_else(|| {
                     Error::Invalid(format!(
-                        "oci-runtime: config.json names a capability this engine does not know \
-                         ({name:?}); remove it or run it under runc"
+                        "oci-runtime: config.json `process.capabilities.{which}` names a capability \
+                         this engine does not know ({name:?}); remove it or run it under runc"
                     ))
                 })?;
-                want.insert(num);
-            }
-            let kept: std::collections::BTreeSet<u8> = KEPT_CAPS.iter().copied().collect();
-            // Drop what the baseline keeps but the bundle does not want...
-            for &n in &kept {
-                if !want.contains(&n) {
-                    if let Some(name) = cap_name(n) {
-                        c.cap_drop.push(format!("CAP_{name}"));
-                    }
+                mask |= 1u64 << num;
+                if let Some(canon) = cap_name(num) {
+                    names.push(format!("CAP_{canon}"));
                 }
             }
-            // ...and add what the bundle wants beyond the baseline.
-            for &n in &want {
-                if !kept.contains(&n) {
-                    if let Some(name) = cap_name(n) {
-                        c.cap_add.push(format!("CAP_{name}"));
-                    }
+            Ok((mask, names))
+        };
+        let (bounding, b_names) = to_set(caps.bounding().as_ref(), "bounding")?;
+        let (effective, e_names) = to_set(caps.effective().as_ref(), "effective")?;
+        let (permitted, p_names) = to_set(caps.permitted().as_ref(), "permitted")?;
+        let (inheritable, i_names) = to_set(caps.inheritable().as_ref(), "inheritable")?;
+        let (ambient, a_names) = to_set(caps.ambient().as_ref(), "ambient")?;
+        if effective & !permitted != 0 {
+            return Err(Error::Invalid(
+                "oci-runtime: config.json `process.capabilities.effective` is not a subset of \
+                 `permitted` — a capability cannot be effective without being permitted; fix the \
+                 bundle or run it under runc"
+                    .to_string(),
+            ));
+        }
+        if ambient & !(permitted & inheritable) != 0 {
+            return Err(Error::Invalid(
+                "oci-runtime: config.json `process.capabilities.ambient` is not a subset of \
+                 `permitted` ∩ `inheritable` — an ambient capability must be in both before it can \
+                 be raised; fix the bundle or run it under runc"
+                    .to_string(),
+            ));
+        }
+        c.oci_caps = Some(delonix_compute::OciCapSets {
+            bounding: b_names,
+            effective: e_names,
+            permitted: p_names,
+            inheritable: i_names,
+            ambient: a_names,
+        });
+        // Mirror the bounding ceiling into cap_add/cap_drop off the baseline.
+        let want: std::collections::BTreeSet<u8> =
+            (0u8..64).filter(|n| (bounding >> n) & 1 == 1).collect();
+        let kept: std::collections::BTreeSet<u8> = KEPT_CAPS.iter().copied().collect();
+        for &n in &kept {
+            if !want.contains(&n) {
+                if let Some(name) = cap_name(n) {
+                    c.cap_drop.push(format!("CAP_{name}"));
+                }
+            }
+        }
+        for &n in &want {
+            if !kept.contains(&n) {
+                if let Some(name) = cap_name(n) {
+                    c.cap_add.push(format!("CAP_{name}"));
                 }
             }
         }
@@ -680,9 +786,9 @@ mod tests {
     use oci_spec::runtime::{
         Capability, Linux, LinuxBuilder, LinuxCapabilitiesBuilder, LinuxCpuBuilder,
         LinuxDeviceBuilder, LinuxDeviceType, LinuxNamespaceBuilder, LinuxNamespaceType,
-        LinuxPidsBuilder, LinuxResourcesBuilder, LinuxSeccompAction, LinuxSeccompBuilder,
-        LinuxSyscallBuilder, MountBuilder, PosixRlimitBuilder, PosixRlimitType, Process,
-        UserBuilder,
+        LinuxPidsBuilder, LinuxResourcesBuilder, LinuxSeccompAction, LinuxSeccompArgBuilder,
+        LinuxSeccompBuilder, LinuxSeccompOperator, LinuxSyscallBuilder, MountBuilder,
+        PosixRlimitBuilder, PosixRlimitType, Process, UserBuilder,
     };
     use std::collections::{HashMap, HashSet};
 
@@ -894,7 +1000,37 @@ mod tests {
             .expect("linux");
         let err = spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
             .expect_err("netns path refused");
-        assert!(err.to_string().contains("network namespace"), "{err}");
+        let msg = err.to_string();
+        assert!(msg.contains("Network namespace with a `path`"), "{err}");
+    }
+
+    /// Joining ANY namespace by path (not only the network one) is refused — the
+    /// engine creates fresh namespaces, never joins existing ones. This is the
+    /// refusal the runtime-tools `linux_ns_path_type` negatives rely on.
+    #[test]
+    fn refuses_any_namespace_with_path() {
+        for ty in [
+            LinuxNamespaceType::Pid,
+            LinuxNamespaceType::Ipc,
+            LinuxNamespaceType::Uts,
+            LinuxNamespaceType::Mount,
+            LinuxNamespaceType::Cgroup,
+            LinuxNamespaceType::User,
+        ] {
+            let ns = LinuxNamespaceBuilder::default()
+                .typ(ty)
+                .path("/proc/self/ns/ipc")
+                .build()
+                .expect("ns");
+            let linux = LinuxBuilder::default()
+                .namespaces(vec![ns])
+                .build()
+                .expect("linux");
+            let err =
+                spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
+                    .expect_err("ns path refused");
+            assert!(err.to_string().contains("with a `path`"), "{ty:?}: {err}");
+        }
     }
 
     #[test]
@@ -1063,6 +1199,59 @@ mod tests {
     }
 
     #[test]
+    fn honours_arg_filtered_seccomp_profile() {
+        // The shape the default generated config carries: ERRNO default, `clone`
+        // allowed only when it creates none of the listed namespaces (masked-eq
+        // on arg 0), `personality` pinned to a safe value (eq on arg 0). This is
+        // exactly what used to be refused as "outside the supported subset"; it
+        // must now be accepted and stored for the init to install.
+        let clone_arg = LinuxSeccompArgBuilder::default()
+            .index(0usize)
+            .value(0x1000_0000u64) // CLONE_NEWUSER
+            .value_two(0u64)
+            .op(LinuxSeccompOperator::ScmpCmpMaskedEq)
+            .build()
+            .expect("arg");
+        let pers_arg = LinuxSeccompArgBuilder::default()
+            .index(0usize)
+            .value(0u64)
+            .op(LinuxSeccompOperator::ScmpCmpEq)
+            .build()
+            .expect("arg");
+        let clone = LinuxSyscallBuilder::default()
+            .names(vec!["clone".to_string()])
+            .action(LinuxSeccompAction::ScmpActAllow)
+            .args(vec![clone_arg])
+            .build()
+            .expect("clone");
+        let personality = LinuxSyscallBuilder::default()
+            .names(vec!["personality".to_string()])
+            .action(LinuxSeccompAction::ScmpActAllow)
+            .args(vec![pers_arg])
+            .build()
+            .expect("personality");
+        let seccomp = LinuxSeccompBuilder::default()
+            .default_action(LinuxSeccompAction::ScmpActErrno)
+            .syscalls(vec![
+                seccomp_syscall("read", LinuxSeccompAction::ScmpActAllow),
+                clone,
+                personality,
+            ])
+            .build()
+            .expect("seccomp");
+        let linux = LinuxBuilder::default()
+            .seccomp(seccomp)
+            .build()
+            .expect("linux");
+        let (c, _) = spec_to_container("c1", Path::new("/b"), &spec_with_linux(proc_true(), linux))
+            .expect("arg-filtered profile accepted");
+        assert!(
+            c.seccomp_profile.is_some(),
+            "an arg-filtered profile is installed"
+        );
+    }
+
+    #[test]
     fn refuses_seccomp_with_more_than_one_non_default_action() {
         let seccomp = LinuxSeccompBuilder::default()
             .default_action(LinuxSeccompAction::ScmpActErrno)
@@ -1127,14 +1316,22 @@ mod tests {
         );
     }
 
+    /// Ambient is now RAISED, not refused — but only when it is a subset of
+    /// permitted ∩ inheritable (the kernel's precondition for the raise). An
+    /// ambient cap outside that intersection is an impossible request, refused
+    /// at `create` rather than aborted at init.
     #[test]
-    fn refuses_ambient_capabilities() {
+    fn refuses_ambient_outside_permitted_and_inheritable() {
+        let one: HashSet<Capability> = vec![Capability::NetRaw].into_iter().collect();
+        let empty: HashSet<Capability> = HashSet::new();
         let caps = LinuxCapabilitiesBuilder::default()
-            .ambient(
-                vec![Capability::NetRaw]
-                    .into_iter()
-                    .collect::<std::collections::HashSet<_>>(),
-            )
+            .bounding(one.clone())
+            .effective(empty.clone())
+            // ambient asks for NET_RAW but it is in neither permitted nor
+            // inheritable → the raise could never succeed.
+            .permitted(empty.clone())
+            .inheritable(empty)
+            .ambient(one)
             .build()
             .expect("caps");
         let process = ProcessBuilder::default()
@@ -1146,6 +1343,67 @@ mod tests {
         let err = spec_to_container("c1", Path::new("/b"), &spec_no_linux(process))
             .expect_err("ambient refused");
         assert!(err.to_string().contains("ambient"), "{err}");
+    }
+
+    /// The default-generator shape (all five sets equal, ambient non-empty) is
+    /// now ACCEPTED: the sets are recorded verbatim on `oci_caps` so the init
+    /// can install and raise them. This is the config every runtime-tools
+    /// container-running case carries.
+    #[test]
+    fn honours_five_equal_capability_sets_including_ambient() {
+        let set: HashSet<Capability> =
+            vec![Capability::Chown, Capability::NetRaw, Capability::Kill]
+                .into_iter()
+                .collect();
+        let caps = LinuxCapabilitiesBuilder::default()
+            .bounding(set.clone())
+            .effective(set.clone())
+            .permitted(set.clone())
+            .inheritable(set.clone())
+            .ambient(set)
+            .build()
+            .expect("caps");
+        let process = ProcessBuilder::default()
+            .args(vec!["/bin/true".to_string()])
+            .cwd("/")
+            .capabilities(caps)
+            .build()
+            .expect("process");
+        let (c, _) = spec_to_container("c1", Path::new("/b"), &spec_no_linux(process)).expect("ok");
+        let oc = c.oci_caps.expect("oci_caps populated");
+        assert!(oc.ambient.contains(&"CAP_NET_RAW".to_string()), "{oc:?}");
+        assert!(oc.bounding.contains(&"CAP_KILL".to_string()), "{oc:?}");
+        assert_eq!(oc.ambient.len(), 3);
+        assert_eq!(oc.inheritable.len(), 3);
+    }
+
+    #[test]
+    fn oci_stdio_target_resolves_a_regular_file_and_rejects_a_pipe() {
+        use std::os::fd::AsRawFd;
+        // A regular file behind an fd → its absolute path (the runc inherited-fd
+        // case: the suite's `stdout-<uuid>`). Use an arbitrary fd, not 1/2, so
+        // the test is parallel-safe (it never touches the process's own stdio).
+        let dir = std::env::temp_dir().join(format!("dlx-oci-stdio-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("tmpdir");
+        let path = dir.join("stdout-test");
+        let f = std::fs::File::create(&path).expect("file");
+        let got = oci_stdio_target(f.as_raw_fd()).expect("a regular file resolves");
+        assert_eq!(
+            std::fs::canonicalize(&got).unwrap(),
+            std::fs::canonicalize(&path).unwrap()
+        );
+        // A pipe (`pipe:[…]`, not an absolute path) → None: the interactive/
+        // daemon case keeps the historical detached-to-/dev/null path.
+        let mut fds = [0i32; 2];
+        // SAFETY: a standard pipe(2) into a 2-int buffer.
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        assert_eq!(oci_stdio_target(fds[0]), None, "a pipe is not a file");
+        // SAFETY: closing the two pipe fds we just opened.
+        unsafe {
+            libc::close(fds[0]);
+            libc::close(fds[1]);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

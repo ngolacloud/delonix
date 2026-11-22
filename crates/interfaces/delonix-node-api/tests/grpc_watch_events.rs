@@ -15,6 +15,7 @@
 
 use delonix_node_api::events;
 use delonix_node_api::proto::v1::WatchEventsRequest;
+use std::sync::Arc;
 use tokio_stream::StreamExt;
 
 #[tokio::test]
@@ -28,8 +29,13 @@ async fn watch_stream_delivers_an_event_emitted_after_it_opened() {
     // The watch opens with no `since`: only what happens AFTER it is sent. A
     // fast poll keeps the test brisk; the server runs the same loop at 200ms.
     let poll = std::time::Duration::from_millis(20);
-    let mut stream =
-        events::watch(root.clone(), WatchEventsRequest::default(), poll).expect("the stream opens");
+    let mut stream = events::watch(
+        root.clone(),
+        WatchEventsRequest::default(),
+        poll,
+        Arc::new(delonix_node_api::store::NoStore),
+    )
+    .expect("the stream opens");
 
     // An EXTERNAL change: another writer appends to the file bus, exactly as a
     // concurrent `delonix container stop` would, with no daemon in between.
@@ -60,7 +66,13 @@ async fn watch_stream_delivers_an_event_emitted_after_it_opened() {
         kinds: vec!["container".into()],
         ..Default::default()
     };
-    let mut only_containers = events::watch(root.clone(), req, poll).expect("the stream opens");
+    let mut only_containers = events::watch(
+        root.clone(),
+        req,
+        poll,
+        Arc::new(delonix_node_api::store::NoStore),
+    )
+    .expect("the stream opens");
     delonix_node::events::emit(&root, "volume", "remove", "v0", "data", None);
     delonix_node::events::emit(&root, "container", "start", "c2", "api", None);
     let ev = tokio::time::timeout(std::time::Duration::from_secs(10), only_containers.next())

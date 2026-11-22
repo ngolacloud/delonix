@@ -1012,9 +1012,9 @@ impl ImageStore {
         {
             let mut b = tar::Builder::new(&mut buf);
             let entries =
-                std::fs::read_dir(rootfs).map_err(|e| Error::Layer(format!("ler rootfs: {e}")))?;
+                std::fs::read_dir(rootfs).map_err(|e| Error::Layer(format!("read rootfs: {e}")))?;
             for entry in entries {
-                let entry = entry.map_err(|e| Error::Layer(format!("ler rootfs: {e}")))?;
+                let entry = entry.map_err(|e| Error::Layer(format!("read rootfs: {e}")))?;
                 let name = entry.file_name();
                 let in_tar = std::path::Path::new(&name);
                 let is_pseudo = name
@@ -1023,10 +1023,10 @@ impl ImageStore {
                 // A pseudo-filesystem mount point: the directory entry itself,
                 // none of its contents.
                 Self::append_tree(&mut b, &entry.path(), in_tar, !is_pseudo, ids)
-                    .map_err(|e| Error::Layer(format!("empacotar rootfs: {e}")))?;
+                    .map_err(|e| Error::Layer(format!("pack rootfs: {e}")))?;
             }
             b.finish()
-                .map_err(|e| Error::Layer(format!("fechar tar: {e}")))?;
+                .map_err(|e| Error::Layer(format!("close tar: {e}")))?;
         }
         Ok(buf)
     }
@@ -1600,11 +1600,11 @@ mod tests {
     }
 
     #[test]
-    fn run_mount_secret_e_reconhecido_e_separado_do_cmdline() {
+    fn run_mount_secret_is_recognized_and_separated_from_cmdline() {
         let df = "FROM alpine:3.19\nRUN --mount=type=secret,id=npm,target=/root/.npmrc npm install";
         let parsed = parse_dockerfile_with_args(df, &[]).unwrap();
         let Step::Run(r) = &parsed.steps[0] else {
-            panic!("esperava Step::Run")
+            panic!("expected Step::Run")
         };
         assert_eq!(r.cmdline, "npm install");
         assert_eq!(r.secret_mounts.len(), 1);
@@ -1614,7 +1614,7 @@ mod tests {
     }
 
     #[test]
-    fn run_mount_secret_sem_target_usa_default_e_aceita_required() {
+    fn run_mount_secret_without_target_uses_default_and_accepts_required() {
         let (mounts, caches, cmdline) =
             parse_run_flags("--mount=type=secret,id=x,required=true cat /run/secrets/x").unwrap();
         assert_eq!(cmdline, "cat /run/secrets/x");
@@ -1626,7 +1626,7 @@ mod tests {
     }
 
     #[test]
-    fn run_mount_cache_e_reconhecido_id_default_e_o_target() {
+    fn run_mount_cache_is_recognized_id_defaults_to_target() {
         let (secrets, caches, cmdline) =
             parse_run_flags("--mount=type=cache,target=/root/.cache/pip pip install -r req.txt")
                 .unwrap();
@@ -1638,7 +1638,7 @@ mod tests {
     }
 
     #[test]
-    fn run_mount_cache_com_id_explicito_nao_usa_o_default() {
+    fn run_mount_cache_with_explicit_id_does_not_use_default() {
         let (_, caches, _) =
             parse_run_flags("--mount=type=cache,id=pip-cache,target=/root/.cache/pip true")
                 .unwrap();
@@ -1647,13 +1647,13 @@ mod tests {
     }
 
     #[test]
-    fn run_mount_cache_sem_target_e_erro_claro() {
+    fn run_mount_cache_without_target_is_a_clear_error() {
         let err = parse_run_flags("--mount=type=cache,id=x echo hi").unwrap_err();
         assert!(err.to_string().contains("target"));
     }
 
     #[test]
-    fn run_mount_cache_sharing_e_ro_sao_recusados_nao_engolidos() {
+    fn run_mount_cache_sharing_and_ro_are_refused_not_swallowed() {
         let err =
             parse_run_flags("--mount=type=cache,target=/x,sharing=locked echo hi").unwrap_err();
         assert!(err.to_string().contains("sharing"));
@@ -1662,7 +1662,7 @@ mod tests {
     }
 
     #[test]
-    fn run_mount_tipo_nao_suportado_e_erro_claro_nao_shell_literal() {
+    fn run_mount_unsupported_type_is_a_clear_error_not_shell_literal() {
         let err = parse_run_flags("--mount=type=ssh echo hi").unwrap_err();
         assert!(err.to_string().contains("type=ssh"));
         assert!(err.to_string().contains("type=secret"));
@@ -1670,7 +1670,7 @@ mod tests {
     }
 
     #[test]
-    fn run_flag_desconhecida_e_erro_nao_ignorada_em_silencio() {
+    fn run_unknown_flag_is_an_error_not_silently_ignored() {
         let err = parse_run_flags("--network=none echo hi").unwrap_err();
         assert!(err.to_string().contains("network"));
     }
@@ -1707,7 +1707,7 @@ mod tests {
         assert_eq!(
             lines.len(),
             2,
-            "3 linhas físicas do RUN → 1 lógica, + o ENV"
+            "3 physical RUN lines → 1 logical, + the ENV"
         );
         assert!(
             lines[0].starts_with("RUN apt install")
@@ -1739,8 +1739,8 @@ mod tests {
         );
         // Legacy `ENV key value` (without `=`).
         assert_eq!(
-            parse_env_pairs("GREETING olá mundo"),
-            vec![("GREETING".into(), "olá mundo".into())]
+            parse_env_pairs("GREETING hello world"),
+            vec![("GREETING".into(), "hello world".into())]
         );
     }
 }

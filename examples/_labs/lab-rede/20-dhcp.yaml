@@ -1,4 +1,4 @@
-# lab-dhcp — servidor DHCP da LAN do laboratorio
+# lab-dhcp — DHCP server for the lab LAN
 apiVersion: delonix.io/v1
 kind: Vm
 metadata:

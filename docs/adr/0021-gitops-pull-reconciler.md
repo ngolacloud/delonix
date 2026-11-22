@@ -13,9 +13,9 @@
 `docs/gitops.md` describes a complete GitOps flow and then says, in its own
 closing section, what it does not do:
 
-> **Não reconcilia continuamente.** Converge quando lhe chamas. Um loop de
-> controlo é trabalho de orquestrador, fora de escopo por desenho — o que aqui
-> existe é um gate de deriva, que é o mesmo resultado sem um daemon.
+> **It does not reconcile continuously.** It converges when you call it. A
+> control loop is the orchestrator's job, out of scope by design — what exists
+> here is a drift gate, which is the same outcome without a daemon.
 
 That is honest and it is also incomplete. Measured against the four
 [OpenGitOps](https://opengitops.dev/) principles, the engine satisfies
@@ -69,9 +69,10 @@ the design, which is why they are here and not in a footnote:
 ## The three objections this has to answer first
 
 **Is this a daemon?** No, and the distinction is already written in `AGENTS.md`:
-continuous reconciliation «entra por unit/timer `systemd` a invocar o `stack
-apply` que já existe, e um processo residente precisa do seu próprio ADR com a
-evidência do que o timer não resolveu». This ADR takes exactly that path. A
+continuous reconciliation «comes in via a `systemd` unit/timer invoking the
+`stack apply` that already exists, and a resident process needs its own ADR
+with the evidence of what the timer did not resolve». This ADR takes exactly
+that path. A
 timer that fires a short-lived process leaves nothing running between fires;
 the engine with GitOps unconfigured is byte-for-byte the engine of today. The
 `watch` mode the proposal mentions as an alternative for hosts without systemd

@@ -996,7 +996,7 @@ mod tests {
     /// machine — see the live `strace` validation recorded in the session notes
     /// for evidence that `fsync(tmp)` really does precede `rename()`.
     #[test]
-    fn write_atomic_nunca_deixa_um_leitor_ver_ficheiro_parcial() {
+    fn write_atomic_never_lets_a_reader_see_a_partial_file() {
         let (_tmp, root) = tmp_dir();
         let target = root.join("state.json");
 
@@ -1038,27 +1038,24 @@ mod tests {
         assert_eq!(
             torn.load(Ordering::SeqCst),
             0,
-            "um leitor apanhou o ficheiro a meio de uma escrita"
+            "a reader caught the file mid-write"
         );
-        // E não ficou lixo: só o alvo, nenhum `.tmp` sobrevivente.
+        // And no garbage left behind: only the target, no surviving `.tmp`.
         let leftovers: Vec<_> = fs::read_dir(&root)
             .unwrap()
             .flatten()
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .filter(|n| n != "state.json")
             .collect();
-        assert!(
-            leftovers.is_empty(),
-            "ficheiros temporários órfãos: {leftovers:?}"
-        );
+        assert!(leftovers.is_empty(), "orphan temp files: {leftovers:?}");
     }
 
-    /// `load` por prefixo/nome tem de manter EXACTAMENTE a semântica anterior
-    /// depois de deixar de construir um `Container` inteiro por registo: id
-    /// exacto, prefixo de id, nome, e — o que é fácil de partir sem dar por
-    /// isso — o desempate pelo mais RECENTE quando um prefixo casa com vários.
+    /// `load` by prefix/name must keep EXACTLY the previous semantics after it
+    /// stopped building a whole `Container` per record: exact id, id prefix,
+    /// name, and — the one easy to break without noticing — the tie-break by
+    /// MOST RECENT when a prefix matches several.
     #[test]
-    fn load_resolve_id_exacto_prefixo_e_nome_com_desempate_pelo_mais_recente() {
+    fn load_resolves_id_exact_prefix_and_name_with_tie_break_by_most_recent() {
         let (_tmp, root) = tmp_dir();
         let store = Store::open(&root).unwrap();
 
@@ -1082,55 +1079,56 @@ mod tests {
         new.created_unix = 2_000;
         store.save(&new).unwrap();
 
-        // id exacto
+        // exact id
         assert_eq!(store.load("abcdef111111").unwrap().name, "antigo");
-        // nome
+        // name
         assert_eq!(store.load("recente").unwrap().id, "abcdef999999");
-        // prefixo não-ambíguo
+        // unambiguous prefix
         assert_eq!(store.load("abcdef9").unwrap().name, "recente");
-        // prefixo AMBÍGUO → o mais recente ganha (comportamento de sempre)
+        // AMBIGUOUS prefix → the most recent wins (long-standing behaviour)
         assert_eq!(
             store.load("abcdef").unwrap().id,
             "abcdef999999",
-            "um prefixo ambíguo tem de continuar a resolver para o mais recente"
+            "an ambiguous prefix must keep resolving to the most recent"
         );
-        // o objecto devolvido vem COMPLETO, não só os campos do índice
+        // the returned object comes back COMPLETE, not just the index fields
         let full = store.load("recente").unwrap();
         assert_eq!(full.image, "img");
         assert_eq!(full.command, vec!["x".to_string()]);
-        // inexistente
+        // nonexistent
         assert!(store.load("nao-existe").is_err_and(|e| e.is_not_found()));
     }
 
-    /// REGRESSÃO (auditoria de segurança): um ficheiro temporário em `/tmp` não
-    /// pode ser sequestrável por outro utilizador local.
+    /// REGRESSION (security audit): a temp file in `/tmp` must not be
+    /// hijackable by another local user.
     ///
-    /// O caso que motivou isto: `delonix-sdn::bpf` escrevia o objecto BPF no
-    /// caminho FIXO `/tmp/delonix_flow.bpf.o` com `fs::write`, e esse ficheiro é
-    /// depois carregado no kernel por um processo com `CAP_BPF`/root. Quem
-    /// pré-criasse o caminho ficava DONO dele (num `/tmp` sticky nem sequer o
-    /// podemos apagar) e podia trocar-lhe o conteúdo antes do `bpftool` o ler.
+    /// The case that motivated it: `delonix-sdn::bpf` wrote the BPF object to
+    /// the FIXED path `/tmp/delonix_flow.bpf.o` with `fs::write`, and that file
+    /// is then loaded into the kernel by a process with `CAP_BPF`/root. Whoever
+    /// pre-created the path OWNED it (in a sticky `/tmp` we cannot even unlink
+    /// it) and could swap its contents before `bpftool` read it.
     ///
-    /// O que este teste prova é a propriedade que fecha isso: com o caminho já
-    /// ocupado — inclusive por um SYMLINK, que é o vector de redirecção —, a
-    /// escrita nunca lhe toca. Nasce sempre um ficheiro NOVO, e a vítima do
-    /// symlink fica intacta.
+    /// What this test proves is the property that closes it: with the path
+    /// already occupied — including by a SYMLINK, which is the redirection
+    /// vector — the write never touches it. A NEW file is always born, and the
+    /// symlink's victim stays intact.
     #[test]
-    fn write_private_temp_nao_escreve_num_caminho_sequestrado() {
+    fn write_private_temp_does_not_write_to_a_hijacked_path() {
         use std::os::unix::fs::PermissionsExt;
 
         // Removed when the test ends, also when an assert fails; this test
         // used to be the one here that never removed its folder.
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
-        // O "ficheiro do sistema" que o atacante quer que nós sobrescrevamos.
+        // The "system file" the attacker wants us to overwrite.
         let victim = root.join("ficheiro-importante");
         fs::write(&victim, b"conteudo-original").unwrap();
 
-        // Não se consegue plantar um symlink no nome que a função VAI escolher
-        // (é único por desenho — e é essa a outra metade da defesa). O que se
-        // prova aqui é a primitiva de que ela depende, com o symlink já no
-        // lugar: `create_new` recusa um caminho existente e não o segue.
+        // You cannot plant a symlink at the name the function WILL choose (it
+        // is unique by design — and that is the other half of the defence).
+        // What is proven here is the primitive it relies on, with the symlink
+        // already in place: `create_new` refuses an existing path and does not
+        // follow it.
         let squatted = root.join("squatted");
         std::os::unix::fs::symlink(&victim, &squatted).unwrap();
         let r = fs::OpenOptions::new()
@@ -1139,67 +1137,70 @@ mod tests {
             .open(&squatted);
         assert!(
             r.is_err(),
-            "create_new tem de recusar um caminho já existente (incluindo symlink)"
+            "create_new must refuse an already-existing path (including a symlink)"
         );
         assert_eq!(
             fs::read(&victim).unwrap(),
             b"conteudo-original",
-            "a vítima do symlink foi escrita — a redirecção não foi bloqueada"
+            "the symlink's victim was written — the redirection was not blocked"
         );
 
-        // E o caminho feliz: ficheiro novo, modo 0600 desde a criação, e cada
-        // chamada devolve um caminho DIFERENTE (senão a 2.ª invocação voltaria a
-        // ser um alvo previsível).
+        // And the happy path: a new file, mode 0600 from creation, and each
+        // call returns a DIFFERENT path (otherwise the 2nd invocation would be
+        // a predictable target again).
         let a = write_private_temp("dlx-test-priv", b"aaa").unwrap();
         let b = write_private_temp("dlx-test-priv", b"bbb").unwrap();
-        assert_ne!(a, b, "dois stages seguidos não podem partilhar o nome");
+        assert_ne!(a, b, "two consecutive stages must not share the name");
         assert_eq!(fs::read(&a).unwrap(), b"aaa");
         assert_eq!(fs::read(&b).unwrap(), b"bbb");
         for p in [&a, &b] {
             let mode = fs::metadata(p).unwrap().permissions().mode() & 0o777;
             assert_eq!(
                 mode, 0o600,
-                "temp privado nasceu com o modo errado: {mode:o}"
+                "private temp was born with the wrong mode: {mode:o}"
             );
             let _ = fs::remove_file(p);
         }
     }
 
-    /// REGRESSION: um ficheiro secreto tem de nascer JÁ com o modo restrito.
+    /// REGRESSION: a secret file must be born ALREADY with the restricted mode.
     ///
-    /// `fs::write` + `set_permissions` cria-o sob o umask e só depois o aperta —
-    /// uma janela em que outro utilizador local o consegue abrir. É o mesmo
-    /// TOCTOU residual que o caminho do kubeconfig fechou com `OpenOptions::mode`,
-    /// e que o cofre de segredos ainda tinha.
+    /// `fs::write` + `set_permissions` creates it under the umask and only then
+    /// tightens it — a window in which another local user can open it. It is
+    /// the same residual TOCTOU the kubeconfig path closed with
+    /// `OpenOptions::mode`, and that the secret vault still had.
     #[test]
-    fn write_atomic_mode_cria_o_ficheiro_ja_restrito() {
+    fn write_atomic_mode_creates_the_file_already_restricted() {
         use std::os::unix::fs::PermissionsExt;
         let (_tmp, root) = tmp_dir();
         let target = root.join("segredo.json");
 
         write_atomic_mode(&target, b"selado", Some(0o600)).unwrap();
         let mode = fs::metadata(&target).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600, "o segredo nasceu com o modo errado: {mode:o}");
+        assert_eq!(
+            mode, 0o600,
+            "the secret was born with the wrong mode: {mode:o}"
+        );
         assert_eq!(fs::read(&target).unwrap(), b"selado");
 
-        // Sem modo explícito, o comportamento antigo (umask) mantém-se — não é
-        // uma mudança para quem não pediu nada.
+        // With no explicit mode, the old behaviour (umask) stays — not a change
+        // for anyone who did not ask for one.
         let plain = root.join("normal.json");
         write_atomic(&plain, b"x").unwrap();
         assert!(plain.exists());
 
-        // E nenhum dos dois deixou temporários para trás.
+        // And neither of the two left any temp behind.
         let leftovers: Vec<_> = fs::read_dir(&root)
             .unwrap()
             .flatten()
             .map(|e| e.file_name().to_string_lossy().into_owned())
             .filter(|n| n.ends_with(".tmp"))
             .collect();
-        assert!(leftovers.is_empty(), "temporários órfãos: {leftovers:?}");
+        assert!(leftovers.is_empty(), "orphan temp files: {leftovers:?}");
     }
 
     #[test]
-    fn safe_key_neutraliza_path_traversal() {
+    fn safe_key_neutralizes_path_traversal() {
         // `.` is an allowed character (legitimate ids/names have dots), but `/`
         // is ALWAYS replaced — so "../" never survives as a separator:
         // the result is always ONE SINGLE file name component, even if it
@@ -1215,7 +1216,7 @@ mod tests {
     }
 
     #[test]
-    fn store_path_traversal_nunca_escreve_fora_da_raiz() {
+    fn store_path_traversal_never_writes_outside_the_root() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("root");
         let outside = tmp.path().join("delonix-store-test-VICTIM");
@@ -1238,20 +1239,20 @@ mod tests {
         // the file MUST stay inside `root` — never in `outside`.
         assert!(
             !outside.exists(),
-            "save com id malicioso escreveu FORA da raiz do Store"
+            "save with a malicious id wrote OUTSIDE the Store root"
         );
         let entries: Vec<_> = fs::read_dir(&root).unwrap().flatten().collect();
         assert_eq!(
             entries.len(),
             1,
-            "devia existir exactamente 1 ficheiro dentro da raiz sanitizada"
+            "there must be exactly 1 file inside the sanitized root"
         );
         assert!(
             entries[0]
                 .path()
                 .to_string_lossy()
                 .starts_with(root.to_string_lossy().as_ref()),
-            "ficheiro escrito fora da raiz esperada"
+            "file written outside the expected root"
         );
 
         // load/remove with the SAME malicious id still resolve to inside
@@ -1259,7 +1260,7 @@ mod tests {
         let loaded = store.load(&evil_id).unwrap();
         assert_eq!(
             loaded.id, evil_id,
-            "o conteúdo persistido continua correcto (só o PATH em disco é sanitizado)"
+            "the persisted content stays correct (only the on-disk PATH is sanitized)"
         );
         store.remove(&evil_id).unwrap();
         assert_eq!(fs::read_dir(&root).unwrap().flatten().count(), 0);
@@ -1310,13 +1311,13 @@ mod tests {
     }
 
     /// REGRESSION (concurrency): [`JsonStore::update`] (added to close the same
-    /// gap `delonix-vm`'s `status()` had — see `update_concorrente_nao_perde_
-    /// escritas` above for the `Store<Container>` sibling this mirrors) must
-    /// sequence read-modify-write between threads exactly the same way — N
-    /// concurrent increments through a bare `load`+mutate+`save` would lose
-    /// writes; through `update`, the final count must be exactly N.
+    /// gap `delonix-vm`'s `status()` had — see `update_concurrent_does_not_lose_writes`
+    /// above for the `Store<Container>` sibling this mirrors) must sequence
+    /// read-modify-write between threads exactly the same way — N concurrent
+    /// increments through a bare `load`+mutate+`save` would lose writes;
+    /// through `update`, the final count must be exactly N.
     #[test]
-    fn jsonstore_update_concorrente_nao_perde_escritas() {
+    fn jsonstore_update_concurrent_does_not_lose_writes() {
         let (_tmp, root) = tmp_dir();
         let store: JsonStore<u64> = JsonStore::open(&root).unwrap();
         store.save("counter", &0u64).unwrap();
@@ -1341,13 +1342,13 @@ mod tests {
         });
 
         let got = store.load("counter").unwrap();
-        assert_eq!(got, N as u64, "perderam-se escritas: {got} de {N}");
+        assert_eq!(got, N as u64, "lost writes: {got} of {N}");
     }
 
     /// `update` on a key that doesn't exist yet propagates `NotFound`
     /// (it re-reads under the lock via `load`, it doesn't create).
     #[test]
-    fn jsonstore_update_de_chave_inexistente_da_not_found() {
+    fn jsonstore_update_of_a_nonexistent_key_gives_not_found() {
         let (_tmp, root) = tmp_dir();
         let store: JsonStore<u64> = JsonStore::open(&root).unwrap();
         let err = store.update("ghost", |n| {
@@ -1360,7 +1361,7 @@ mod tests {
     /// `f` returning `false` aborts the write — the file on disk must stay
     /// untouched (same contract as `Store::update`).
     #[test]
-    fn jsonstore_update_aborta_sem_escrever_quando_f_devolve_false() {
+    fn jsonstore_update_aborts_without_writing_when_f_returns_false() {
         let (_tmp, root) = tmp_dir();
         let store: JsonStore<u64> = JsonStore::open(&root).unwrap();
         store.save("k", &10u64).unwrap();
@@ -1370,16 +1371,16 @@ mod tests {
                 false
             })
             .unwrap();
-        assert_eq!(v, 999, "o valor devolvido reflecte a mutação em memória");
+        assert_eq!(v, 999, "the returned value reflects the in-memory mutation");
         assert_eq!(
             store.load("k").unwrap(),
             10,
-            "mas nada foi persistido, porque f devolveu false"
+            "but nothing was persisted, because f returned false"
         );
     }
 
     #[test]
-    fn jsonstore_path_traversal_tambem_neutralizado() {
+    fn jsonstore_path_traversal_also_neutralized() {
         let (_tmp, root) = tmp_dir();
         let store: JsonStore<String> = JsonStore::open(&root).unwrap();
         let evil_key = "../../../tmp/pwned-jsonstore";
@@ -1389,7 +1390,7 @@ mod tests {
         assert_eq!(
             entries.len(),
             1,
-            "JsonStore também tem de manter tudo dentro da raiz"
+            "JsonStore must also keep everything inside the root"
         );
         assert!(store.load(evil_key).is_ok());
     }
@@ -1400,7 +1401,7 @@ mod tests {
     /// `apply` naming it — whichever was created last, i.e. silently pick a
     /// tenant. It must refuse and name both instead.
     #[test]
-    fn um_nome_em_duas_namespaces_e_recusado_nao_adivinhado() {
+    fn a_name_in_two_namespaces_is_refused_not_guessed() {
         let (_tmp, root) = tmp_dir();
         let store = Store::open(&root).unwrap();
         let mk = |id: &str, ns: &str| {
@@ -1433,7 +1434,7 @@ mod tests {
     /// The other half of the contract: a name that is unique on the node — every
     /// node not using namespaces — must resolve exactly as it always did.
     #[test]
-    fn um_nome_unico_continua_a_resolver_como_sempre() {
+    fn a_unique_name_still_resolves_as_always() {
         let (_tmp, root) = tmp_dir();
         let store = Store::open(&root).unwrap();
         let mut c = Container::new(
@@ -1454,7 +1455,7 @@ mod tests {
     /// threads. Without the `flock`, N concurrent increments are lost (lost
     /// update) and the final total comes out < N. With the lock, it must be exactly N.
     #[test]
-    fn update_concorrente_nao_perde_escritas() {
+    fn update_concurrent_does_not_lose_writes() {
         let (_tmp, root) = tmp_dir();
         let store = Store::open(&root).unwrap();
         let mut c = Container::new(
@@ -1494,7 +1495,7 @@ mod tests {
             .unwrap()
             .parse()
             .unwrap();
-        assert_eq!(got, N, "perderam-se escritas: {got} de {N}");
+        assert_eq!(got, N, "lost writes: {got} of {N}");
     }
 
     /// REGRESSION (P2-1): `claim_name` gives mutual exclusion on a container
@@ -1791,7 +1792,7 @@ mod tests {
     /// fixed name (`.<id>.tmp`), concurrent writes of the SAME container
     /// interleaved in the temp and the `rename` published corrupted JSON.
     #[test]
-    fn save_concorrente_nunca_publica_json_corrompido() {
+    fn save_concurrent_never_publishes_corrupted_json() {
         let (_tmp, root) = tmp_dir();
         let store = Store::open(&root).unwrap();
         let base = Container::new(
@@ -1810,7 +1811,7 @@ mod tests {
                     let st = Store::open(&root).unwrap();
                     let mut c = Container::new(
                         "race2".into(),
-                        format!("nome-{}", "a".repeat(i * 7)), // different sizes = visible interleaving
+                        format!("name-{}", "a".repeat(i * 7)), // different sizes = visible interleaving
                         "img".into(),
                         vec!["x".into()],
                         "max".into(),
@@ -1819,13 +1820,13 @@ mod tests {
                     st.save(&c).unwrap();
                     // Each read must ALWAYS see a valid JSON.
                     st.load("race2")
-                        .expect("JSON corrompido publicado pelo rename");
+                        .expect("corrupted JSON published by the rename");
                 });
             }
         });
 
         store
             .load("race2")
-            .expect("estado final tem de ser um JSON válido");
+            .expect("the final state must be valid JSON");
     }
 }

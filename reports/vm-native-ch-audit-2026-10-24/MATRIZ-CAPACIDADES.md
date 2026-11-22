@@ -1,75 +1,76 @@
-# Matriz de compatibilidade e capacidades — backend nativo Cloud Hypervisor
+# Compatibility and capability matrix — native Cloud Hypervisor backend
 
-Configuração de **referência** (única validada; não prometer para além dela).
-Dump bruto do discovery: `evidence/ch-capabilities-raw.txt`.
-Factos do host: `evidence/reference-config.txt`.
+**Reference** configuration (the only one validated; promise nothing beyond it).
+Raw discovery dump: `evidence/ch-capabilities-raw.txt`.
+Host facts: `evidence/reference-config.txt`.
 
-## Configuração de referência fixada
+## Pinned reference configuration
 
-| Eixo | Valor |
+| Axis | Value |
 |---|---|
 | CPU / arch | Intel Core i9-13900H, x86_64, flag `vmx`, nested=`Y` |
-| Kernel do host | 7.0.0-38-generic |
-| KVM | `/dev/kvm` presente, acesso por grupo `kvm` (rootless) |
+| Host kernel | 7.0.0-38-generic |
+| KVM | `/dev/kvm` present, access via group `kvm` (rootless) |
 | VMM | Cloud Hypervisor **v52.0** (`/usr/local/bin/cloud-hypervisor`) |
 | Firmware | EDK2 `CLOUDHV.fd` (4 MiB, `/usr/local/share/delonix/`) |
 | Delonix | 5.1.1 / commit `f49d3570c` |
 | Guest | Ubuntu 24.04 (`k8s-golden`), kernel 6.8.0-134, cloud-init |
-| Formato de imagem | qcow2 (overlay com backing file, `image_type=qcow2`) |
-| Rede | SDN rootless: netns de infra + `slirp4netns`, tap na bridge `ingress` |
-| Armazenamento | overlay qcow2 por-VM + seed ISO NoCloud |
-| Modo | **rootless** (sem root para o caminho provado) |
+| Image format | qcow2 (overlay with backing file, `image_type=qcow2`) |
+| Network | rootless SDN: infra netns + `slirp4netns`, tap on bridge `ingress` |
+| Storage | per-VM qcow2 overlay + NoCloud seed ISO |
+| Mode | **rootless** (no root for the proven path) |
 
-> Fora desta matriz nada é prometido. Arquitecturas não-x86, outras versões de
-> CH, boot por kernel directo, outros formatos (raw/vmdk/…) e hosts sem libvirt
-> instalado **não** foram validados nesta sessão.
+> Nothing outside this matrix is promised. Non-x86 architectures, other CH
+> versions, direct-kernel boot, other formats (raw/vmdk/…) and hosts without
+> libvirt installed were **not** validated in this session.
 
-## Capacidades vm-compute do backend CH (do discovery) e prova do harness
+## vm-compute capabilities of the CH backend (from discovery) and harness proof
 
-Legenda de estado = estado **declarado hoje** pelo catálogo. "Harness" = o que
-`harness-ch-lifecycle.sh` provou ao vivo nesta sessão (28/28).
+State legend = the state **declared today** by the catalogue. "Harness" = what
+`harness-ch-lifecycle.sh` proved live in this session (28/28).
 
-| Capacidade | Estado hoje | Harness provou | Acção proposta |
+| Capability | State today | Harness proved | Proposed action |
 |---|---|---|---|
 | vm.create | supported | ✔ A | — |
 | vm.start | supported | ✔ A/B | — |
 | vm.stop | supported | ✔ B | — |
-| vm.resume-same-identity | supported | ✔ B (machine-id estável) | — |
-| vm.disk.resize | supported | (coberto por testes do provider) | — |
-| vm.namespace-isolation | supported | (chaos existente) | — |
-| **vm.destroy** | partial | ✔ H (zero órfãos) | → graduar c/ `evidence:` |
-| **vm.restart** | partial | ✔ C (uptime reinicia) | → graduar |
-| **vm.pause** | partial | ✔ D | → graduar |
-| **vm.resume** | partial | ✔ D | → graduar |
-| **vm.resize.cold** | partial | ✔ E (guest vê 3 vCPUs) | → graduar |
-| **vm.cloud-init** | partial ("nunca faz login no guest") | ✔ A (hostname+chave, login real) | → graduar (prova de login) |
-| vm.hotplug.cpu.add | partial | não testado (precisa `--vcpus-max`) | manter partial; testar c/ headroom |
-| vm.hotplug.memory.add | partial | não testado (precisa `--memory-max`) | manter partial |
-| vm.cpu.pinning | partial | não bootado | manter partial |
-| vm.memory.hugepages | partial | só unit | manter partial |
-| vm.device.pci-passthrough | partial | sem IOMMU no host | manter partial |
-| vm.antispoof | partial | tabela `dlxspoof` existe; forja não testada | manter partial |
-| vm.clone / vm.template | not-implemented | — | não prometer |
-| vm.hotplug.{cpu.remove,memory.remove,disk.*,nic.*} | not-implemented | — | não prometer |
-| vm.disks.extra / vm.nics.extra | unsupported-by-provider | — | recusa correcta (1 disco+1 tap) |
-| vm.device.tpm / vm.cpu.model / vm.raw-definition | unsupported-by-provider | — | recusa correcta |
-| vm.restart-policy.native | unsupported-by-provider (supervisor do motor trata) | — | recusa correcta |
+| vm.resume-same-identity | supported | ✔ B (stable machine-id) | — |
+| vm.disk.resize | supported | (covered by provider tests) | — |
+| vm.namespace-isolation | supported | (existing chaos) | — |
+| **vm.destroy** | partial | ✔ H (zero orphans) | → graduate w/ `evidence:` |
+| **vm.restart** | partial | ✔ C (uptime resets) | → graduate |
+| **vm.pause** | partial | ✔ D | → graduate |
+| **vm.resume** | partial | ✔ D | → graduate |
+| **vm.resize.cold** | partial | ✔ E (guest sees 3 vCPUs) | → graduate |
+| **vm.cloud-init** | partial ("never logs into the guest") | ✔ A (hostname+key, real login) | → graduate (login proof) |
+| vm.hotplug.cpu.add | partial | not tested (needs `--vcpus-max`) | keep partial; test w/ headroom |
+| vm.hotplug.memory.add | partial | not tested (needs `--memory-max`) | keep partial |
+| vm.cpu.pinning | partial | not booted | keep partial |
+| vm.memory.hugepages | partial | unit only | keep partial |
+| vm.device.pci-passthrough | partial | no IOMMU on host | keep partial |
+| vm.antispoof | partial | `dlxspoof` table exists; forgery not tested | keep partial |
+| vm.clone / vm.template | not-implemented | — | do not promise |
+| vm.hotplug.{cpu.remove,memory.remove,disk.*,nic.*} | not-implemented | — | do not promise |
+| vm.disks.extra / vm.nics.extra | unsupported-by-provider | — | correct refusal (1 disk+1 tap) |
+| vm.device.tpm / vm.cpu.model / vm.raw-definition | unsupported-by-provider | — | correct refusal |
+| vm.restart-policy.native | unsupported-by-provider (engine supervisor handles it) | — | correct refusal |
 
-**Contagem vm-compute:** 6 supported · 12 partial · 8 not-implemented · 6
-unsupported-by-provider. O harness dá evidência viva a **6** das 12 `partial`;
-graduá-las (fila #2 da auditoria) move a maturidade do backend sem mentir.
+**vm-compute count:** 6 supported · 12 partial · 8 not-implemented · 6
+unsupported-by-provider. The harness gives live evidence for **6** of the 12
+`partial`; graduating them (audit queue #2) moves backend maturity forward
+without lying.
 
-## Snapshot (domínio Protection)
+## Snapshot (Protection domain)
 
-CH faz snapshot **apenas de VM parada** (o VMM a correr detém o disco em
-exclusivo; CH não tem API de snapshot de disco ao vivo) — documentado em
-`vm snapshot --help`. Harness: create+ls+rm de VM parada **passou**.
-Snapshot de VM a correr / com memória: **não suportado** por este backend
-(é de libvirt) — recusa com mensagem, não silêncio.
+CH snapshots **only a stopped VM** (the running VMM holds the disk
+exclusively; CH has no live-disk snapshot API) — documented in
+`vm snapshot --help`. Harness: create+ls+rm of a stopped VM **passed**.
+Snapshot of a running VM / with memory: **not supported** by this backend
+(that is a libvirt feature) — refuses with a message, not silence.
 
-## O que NÃO prometer (rejeitado com erro, ausente do discovery como "supported")
+## What NOT to promise (rejected with error, absent from discovery as "supported")
 
-live migration de VM, snapshot completo (memória) em CH, GPU passthrough sem
-IOMMU, hotplug de disco/nic, discos/nics extra, vTPM, selecção de modelo de CPU,
-definição raw. Todos aparecem como `not-implemented` ou `unsupported-by-provider`
-no discovery — nunca como `supported`.
+live VM migration, full snapshot (memory) in CH, GPU passthrough without
+IOMMU, disk/nic hotplug, extra disks/nics, vTPM, CPU-model selection,
+raw definition. All appear as `not-implemented` or `unsupported-by-provider`
+in discovery — never as `supported`.

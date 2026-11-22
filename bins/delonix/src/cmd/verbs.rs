@@ -343,7 +343,11 @@ pub(crate) fn get(
         // routes straight into the Kind's own listing.
         k if k == kinds::CONFIG => super::config_kind::cmd_ls(output),
         k if k == kinds::IMAGE => {
-            super::image::run(super::image::ImageCmd::Ls(super::image::LsArgs { output }))
+            super::image::run(super::image::ImageCmd::Ls(super::image::LsArgs {
+                all: false,
+                quiet: false,
+                output,
+            }))
         }
         k if k == kinds::CLUSTER => super::cluster::cmd_ls(true),
         k if k == kinds::GATEWAY => super::tunnel::cmd_ls(output),
@@ -376,6 +380,7 @@ pub(crate) fn get(
             ports: false,
             output,
             all: true,
+            quiet: false,
             namespace,
             credentials: false,
             reveal: false,

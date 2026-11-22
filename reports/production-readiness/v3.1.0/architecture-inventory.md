@@ -1,86 +1,86 @@
-# Inventário técnico — `fa8c6297`
+# Technical inventory — `fa8c6297`
 
-Fonte: leitura do código desta árvore (grep/wc/awk). Números de padrão são aproximados
-e o método está indicado. Nada aqui foi inferido de documentação.
+Source: reading the code of this tree (grep/wc/awk). Pattern-based numbers are approximate
+and the method is indicated. Nothing here was inferred from documentation.
 
 ## 1. Workspace
 
-15 crates, todas presentes no `Cargo.toml` raiz. **Nenhuma declara `[features]`.**
+15 crates, all present in the root `Cargo.toml`. **None declares `[features]`.**
 
-| Métrica | Valor | Método |
+| Metric | Value | Method |
 |---|---|---|
 | LOC `src/**/*.rs` | 156 185 | `wc -l` |
-| LOC `tests/*.rs` | 1 926 (11 ficheiros) | `wc -l` |
-| `#[test]` / `#[tokio::test]` | 1 598 / 24 | grep (não conta `proptest!`) |
-| `unsafe` em código | 291 | grep sem linhas de comentário |
+| LOC `tests/*.rs` | 1 926 (11 files) | `wc -l` |
+| `#[test]` / `#[tokio::test]` | 1 598 / 24 | grep (does not count `proptest!`) |
+| `unsafe` in code | 291 | grep without comment lines |
 | `#![forbid(unsafe_code)]` | 0 crates | grep |
-| `pub fn` / `pub struct` / `pub enum` | 1 349 / 242 / 93 | grep (inclui `pub(crate)`) |
+| `pub fn` / `pub struct` / `pub enum` | 1 349 / 242 / 93 | grep (includes `pub(crate)`) |
 
-| crate | LOC | unsafe | #[test] | deps internas | privilégio / comandos externos |
+| crate | LOC | unsafe | #[test] | internal deps | privilege / external commands |
 |---|---|---|---|---|---|
 | runtime-core | 5 287 | 11 | 71 | — | flock, `kill(pid,0)`, SO_PEERCRED |
 | **runtime** | 11 742 | **150** | 95 | core | clone, pivot_root, ~36 mount/umount, setns, unshare, seccomp, cgroup v2, `newuidmap/newgidmap`, `ldconfig`, `iptables-nft` |
-| runtime-bin | 90 618 (58%) | 57 | 866 | 13 crates | ~22 programas externos (virsh, qemu-img, ssh, systemctl, tcpdump, …) |
-| image | 6 487 | 0 | 81 | core | overlay mount; reqwest; assinatura |
+| runtime-bin | 90 618 (58%) | 57 | 866 | 13 crates | ~22 external programs (virsh, qemu-img, ssh, systemctl, tcpdump, …) |
+| image | 6 487 | 0 | 81 | core | overlay mount; reqwest; signature |
 | net | 15 434 | 44 | 191 | net-rules, core | `ip`, `nft`, `nsenter`, `unshare`, `slirp4netns`, `wg`, `tc`, `bpftool`, CNI |
-| net-rules | 607 | 0 | 15 | — | puro, zero deps |
+| net-rules | 607 | 0 | 15 | — | pure, zero deps |
 | vm | 7 307 | 5 | 96 | core, net | `virsh`, `qemu-img`, `cloud-localds` |
 | volume | 1 894 | 0 | 25 | core | `mount`, `losetup`, `mkfs.ext4`, `resize2fs` |
-| cri | 6 331 | 21 | 40+2 | core, runtime, image, net | setns(net) no port-forward; re-exec do `delonix` |
-| mgmt | 3 094 | 1 | 11+18 | 6 crates | re-exec do `delonix` |
+| cri | 6 331 | 21 | 40+2 | core, runtime, image, net | setns(net) in port-forward; re-exec of `delonix` |
+| mgmt | 3 094 | 1 | 11+18 | 6 crates | re-exec of `delonix` |
 | scan | 939 | 0 | 12 | core, image | — |
-| security-runtime | 2 369 | 0 | 55 | core | nenhuma I/O |
+| security-runtime | 2 369 | 0 | 55 | core | no I/O |
 | truenas | 843 | 0 | 8 | core | HTTP |
 | proxmox | 1 897 | 0 | 22 | core, vm | HTTP |
-| mcp | 1 336 | 2 | 10+4 | 6 crates | re-exec do `delonix`, stdio |
+| mcp | 1 336 | 2 | 10+4 | 6 crates | re-exec of `delonix`, stdio |
 
-Funções > 300 linhas no caminho privilegiado: `spawn` (607, `delonix-runtime/src/lib.rs:5197`),
-`exec_with` (349, `:6155`), `container_init` (334, `:2850`); na CLI `cmd_run` (1 042,
+Functions > 300 lines on the privileged path: `spawn` (607, `delonix-runtime/src/lib.rs:5197`),
+`exec_with` (349, `:6155`), `container_init` (334, `:2850`); in the CLI `cmd_run` (1 042,
 `cmd/container.rs:2955`).
 
-## 2. Superfícies públicas
+## 2. Public surfaces
 
-| Superfície | Medido |
+| Surface | Measured |
 |---|---|
-| CLI | 245 folhas (`scripts/cli_baseline.tsv`), 34 grupos de topo |
-| Docker Engine API | anuncia 1.43 (min 1.24); **14 rotas servidas**, **12 recusadas com razão** (`exec`, `attach`, `logs`, `events`, `build`, `networks`×3, `images/create`, `images/{n}/json`, `stats`, `volumes`) |
-| CRI RuntimeService | implementado salvo `UpdateContainerResources`, `CheckpointContainer`, `GetContainerEvents` (Unimplemented); `Attach` só saída; `UpdateRuntimeConfig` só regista |
-| CRI ImageService | 5/5 implementados |
-| Kinds | 19 (todos `*.delonix.io/v1alpha1`); 13 convergem |
-| Compose | allowlist a 1 nível (7 topo, 28 serviço); **sub-chaves aninhadas não verificadas** (ver gaps) |
-| Management API | unix socket, 32 caminhos / 40 pares método+caminho, SO_PEERCRED mesmo euid |
-| MCP | stdio apenas; 12 READ, 1 SAFE_WRITE, 1 DISRUPTIVE |
-| Env vars | ~60 `DELONIX_*` de runtime (lista em §8 do inventário bruto) |
+| CLI | 245 leaves (`scripts/cli_baseline.tsv`), 34 top-level groups |
+| Docker Engine API | announces 1.43 (min 1.24); **14 routes served**, **12 refused with a reason** (`exec`, `attach`, `logs`, `events`, `build`, `networks`×3, `images/create`, `images/{n}/json`, `stats`, `volumes`) |
+| CRI RuntimeService | implemented except `UpdateContainerResources`, `CheckpointContainer`, `GetContainerEvents` (Unimplemented); `Attach` output only; `UpdateRuntimeConfig` only logs |
+| CRI ImageService | 5/5 implemented |
+| Kinds | 19 (all `*.delonix.io/v1alpha1`); 13 converge |
+| Compose | 1-level allowlist (7 top, 28 service); **nested sub-keys not checked** (see gaps) |
+| Management API | unix socket, 32 paths / 40 method+path pairs, SO_PEERCRED same euid |
+| MCP | stdio only; 12 READ, 1 SAFE_WRITE, 1 DISRUPTIVE |
+| Env vars | ~60 runtime `DELONIX_*` (list in §8 of the raw inventory) |
 
-## 3. Fronteiras de privilégio
+## 3. Privilege boundaries
 
-| Processo | Namespaces / privilégio |
+| Process | Namespaces / privilege |
 |---|---|
-| CLI | namespaces do host, uid real |
-| container init | mnt+pid+uts+ipc+net+user (rootless); 14 caps por omissão; `--privileged` = todas + sem seccomp; `no_new_privs` por omissão |
-| netns pin | `unshare --user --map-root-user --net --mount`; caps plenas só no seu userns |
-| netns control | `nsenter` para o pin; socket de controlo, DNS, DHCP, nft |
-| slirp4netns | host, uid do motor |
-| supervisor / `--rm` watcher / log shim | `fork`+`setsid` no host |
-| re-execs mapeados (`__rmtree`, `__ovlhold`, …) | userns novo com o mapa subuid completo |
-| CRI / mgmt / MCP | mesmo uid; mutações por re-exec da CLI |
-| `vm bridge` | exige root real; **sem verificação de uid no código** (`cmd/vmbridge.rs:275`) |
+| CLI | host namespaces, real uid |
+| container init | mnt+pid+uts+ipc+net+user (rootless); 14 caps by default; `--privileged` = all + no seccomp; `no_new_privs` by default |
+| netns pin | `unshare --user --map-root-user --net --mount`; full caps only in its own userns |
+| netns control | `nsenter` into the pin; control socket, DNS, DHCP, nft |
+| slirp4netns | host, engine uid |
+| supervisor / `--rm` watcher / log shim | `fork`+`setsid` on the host |
+| mapped re-execs (`__rmtree`, `__ovlhold`, …) | new userns with the full subuid map |
+| CRI / mgmt / MCP | same uid; mutations via re-exec of the CLI |
+| `vm bridge` | requires real root; **no uid check in the code** (`cmd/vmbridge.rs:275`) |
 
-| Socket | Modo | Verificação |
+| Socket | Mode | Check |
 |---|---|---|
-| CRI `/run/delonix-cri.sock` | 0600 **após** bind, erro do chmod ignorado | SO_PEERCRED euid |
-| mgmt / docker-api | idem | SO_PEERCRED euid |
+| CRI `/run/delonix-cri.sock` | 0600 **after** bind, chmod error ignored | SO_PEERCRED euid |
+| mgmt / docker-api | same | SO_PEERCRED euid |
 | holder `control.sock` | 0600, dir 0700 | SO_PEERCRED euid |
-| slirp por container `/tmp/delonix-slirp-<pid>.sock` | **medido `srwxr-xr-x` com umask 022**, caminho previsível em `/tmp` partilhado | nenhuma |
+| per-container slirp `/tmp/delonix-slirp-<pid>.sock` | **measured `srwxr-xr-x` with umask 022**, predictable path in shared `/tmp` | none |
 
-## 4. Suporte OCI Runtime relevante
+## 4. Relevant OCI Runtime support
 
-| Requisito | Estado lido no código |
+| Requirement | State read in the code |
 |---|---|
-| hooks OCI | **não executados** (hooks CDI são lidos e ignorados com aviso) |
-| seccomp de ficheiro | suportado; falha de parse → exit 126 |
-| AppArmor | suportado; perfil não carregado é recusado |
-| masked/readonly paths | aplicados; **falha de mount só avisa** |
-| rlimits | 8 nomes; **nome desconhecido e erro de `setrlimit` ignorados** |
-| mount propagation | rslave/rshared/private por mount |
-| read-only recursivo (rro) | **não suportado** no caminho de criação; o `recursive_read_only` do CRI não é lido |
+| OCI hooks | **not executed** (CDI hooks are read and ignored with a warning) |
+| seccomp from file | supported; parse failure → exit 126 |
+| AppArmor | supported; an unloaded profile is refused |
+| masked/readonly paths | applied; **mount failure only warns** |
+| rlimits | 8 names; **unknown name and `setrlimit` error ignored** |
+| mount propagation | rslave/rshared/private per mount |
+| recursive read-only (rro) | **not supported** on the creation path; the CRI `recursive_read_only` is not read |

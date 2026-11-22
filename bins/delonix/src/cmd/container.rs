@@ -217,7 +217,7 @@ pub(crate) const RECONCILED_CONTAINER_FIELDS: &[&str] = &[
     // the key, the two `converge` arms were unreachable, and changing `netBps`
     // in an applied manifest was a no-op that `stack plan` reported as «no
     // changes» with `--detailed-exitcode` 0. A drift gate in CI passed over real
-    // drift. Found in adversarial review; `hot_fields_sao_um_subconjunto_dos_comparados`
+    // drift. Found in adversarial review; `hot_fields_are_a_subset_of_the_compared`
     // now makes the three lists impossible to leave disagreeing.
     "netBps",
     "netBurst",
@@ -226,29 +226,29 @@ pub(crate) const RECONCILED_CONTAINER_FIELDS: &[&str] = &[
     "credentials",
 ];
 
-/// Os campos que o manifesto declara e o reconciliador NÃO compara — nomeados,
-/// num container que já existe, em vez de descartados em silêncio.
+/// The fields the manifest declares and the reconciler does NOT compare — named,
+/// on a container that already exists, instead of silently discarded.
 ///
-/// **O irmão do `vm::unconverged_fields_condition`, e a mesma medição por trás.**
-/// Um `kind: Container` aceita 43 campos de spec e o `RECONCILED_CONTAINER_FIELDS`
-/// tem onze. Num container que ainda não existe isso é inofensivo — a criação
-/// aplica o spec inteiro. Num container que JÁ CORRE era um descarte mudo: mudar
-/// `env`, `user`, `capAdd`, `readOnly`, `securityOpt`, `sysctl`, `devices` ou
-/// `command` num manifesto aplicado dava `Summary: no changes` e
-/// `--detailed-exitcode` **0**, ou seja um gate de deriva em CI verde por cima de
-/// deriva verdadeira. É o defeito estrutural que a v0.47.0 existiu para fechar,
-/// ainda vivo no Kind mais usado — e o comentário do `netBps`/`netBurst` acima
-/// mostra que a casa já pagou esta classe uma vez.
+/// **The sibling of `vm::unconverged_fields_condition`, with the same measurement
+/// behind it.** A `kind: Container` accepts 43 spec fields and
+/// `RECONCILED_CONTAINER_FIELDS` has eleven. On a container that does not yet
+/// exist that is harmless — creation applies the whole spec. On a container that
+/// IS RUNNING it was a mute discard: changing `env`, `user`, `capAdd`, `readOnly`,
+/// `securityOpt`, `sysctl`, `devices` or `command` in an applied manifest gave
+/// `Summary: no changes` and `--detailed-exitcode` **0**, i.e. a drift gate green
+/// in CI over real drift. It is the structural defect that v0.47.0 existed to
+/// close, still alive in the most-used Kind — and the `netBps`/`netBurst` comment
+/// above shows the house has already paid this class once.
 ///
-/// **Nomear não é convergir, e a diferença é deliberada.** Convergir `capAdd` ou
-/// `readOnly` obriga a recriar o container, que é uma capacidade com o seu próprio
-/// desenho (e o `-/+` é fail-closed, exige `--replace`); dizer que não se converge
-/// custa uma frase. O motor entrega primeiro a honestidade — a mesma ordem que o
-/// `Vm` seguiu.
+/// **Naming is not converging, and the difference is deliberate.** Converging
+/// `capAdd` or `readOnly` forces recreating the container, which is a capability
+/// with its own design (and the `-/+` is fail-closed, requires `--replace`);
+/// saying it is not converged costs one sentence. The engine delivers honesty
+/// first — the same order the `Vm` followed.
 ///
-/// **Derivado do `RECONCILED_CONTAINER_FIELDS`, nunca uma segunda lista.** Um
-/// campo acrescentado ao conjunto comparado sai deste aviso sozinho. Duas listas
-/// que têm de concordar é como este repo já partiu o `CONVERGING_KINDS` uma vez.
+/// **Derived from `RECONCILED_CONTAINER_FIELDS`, never a second list.** A field
+/// added to the compared set leaves this warning on its own. Two lists that have
+/// to agree is how this repo already broke `CONVERGING_KINDS` once.
 ///
 /// **Compared against what was declared at creation, not just listed.** Listing
 /// every declared field on every existing container said «NOT applied» right
@@ -737,7 +737,7 @@ pub(crate) fn actual() -> Result<Vec<super::reconcile::Actual>> {
 
 /// Names accepted in the `spec` of `kind: Container` (canonical + aliases), for the
 /// unknown-fields warning. Kept aligned with `ContainerSpec` by the test
-/// `manifest::tests::examples_nao_tem_campos_desconhecidos`.
+/// `manifest::tests::examples_have_no_unknown_fields`.
 pub(crate) const CONTAINER_SPEC_FIELDS: &[&str] = &[
     "image",
     "detach",
@@ -890,7 +890,7 @@ const CONTAINER_ENV_KEYS: &[&str] = &["vars", "files", "secrets", "secretFiles"]
 /// throws away.
 ///
 /// Pure, and reading the spec BEFORE `normalize_container_spec` touches it.
-/// Returns dotted paths (`resources.memoria`) so the message names the exact
+/// Returns dotted paths (`resources.memory`) so the message names the exact
 /// line to fix.
 ///
 /// Two shapes are deliberately NOT checked, because in them every key is the
@@ -1023,23 +1023,24 @@ fn hoist(m: &mut serde_yaml::Mapping, group: &serde_yaml::Mapping, from: &str, t
 use delonix_compute::pod::{default_net, default_restart, default_true};
 /// `host`/`none` are the two built-in networks (no user bridge); anything else
 /// is the name of a custom `delonix network` to attach to.
-/// Como mostrar o modo de rede, cruzando a INTENÇÃO com o RESULTADO.
+/// How to show the network mode, crossing the INTENT with the RESULT.
 ///
-/// Puro e testado de propósito: é a única coisa que separa uma degradação de
-/// uma escolha deliberada, e uma regressão aqui volta a torná-la invisível.
+/// Pure and tested on purpose: it is the only thing that separates a degradation
+/// from a deliberate choice, and a regression here makes it invisible again.
 pub(crate) fn net_mode_display(c: &delonix_compute::Container) -> String {
     match (c.net_mode.as_deref(), c.network.as_deref()) {
-        // Partilha a netns de outro container (`--net container:<nome>`): mostra a
-        // INTENÇÃO, nunca uma rede — não há `network` próprio a reportar aqui.
+        // Shares another container's netns (`--net container:<name>`): shows the
+        // INTENT, never a network — there is no own `network` to report here.
         (Some(asked), _) if asked.starts_with("container:") => asked.to_string(),
-        // Ligado à rede que pediu — o caso normal.
+        // Attached to the network it asked for — the normal case.
         (_, Some(net)) => net.to_string(),
-        // Pediu explicitamente host/none: não há nada de errado.
+        // Explicitly asked for host/none, or the default private uplink: nothing wrong.
         (Some("host"), None) => "host".to_string(),
         (Some("none"), None) => "none".to_string(),
-        // Pediu uma REDE e não a tem. É o caso que estava mudo.
+        (Some("private"), None) => "private".to_string(),
+        // Asked for a NETWORK and does not have it. This is the case that was mute.
         (Some(asked), None) => format!("host (degraded: asked for '{asked}')"),
-        // Registo anterior a este campo: não se inventa intenção.
+        // Record predating this field: we do not invent intent.
         (None, None) => "host".to_string(),
     }
 }
@@ -1156,14 +1157,18 @@ pub struct RunArgs {
     /// `--user`). Names are resolved in the image's `/etc/passwd`/`/etc/group`.
     #[arg(short = 'u', long)]
     user: Option<String>,
-    /// Network: `host` (shares the host's, default), `none` (isolated netns with
-    /// no connectivity), `container:<name>` (shares an already-running container's
-    /// netns — same IP and ports, Docker/Podman parity), or the NAME of a network
-    /// created with `delonix network create`.
+    /// Network: `private` (default, rootless) — the container's own netns with a
+    /// slirp4netns outbound uplink, like Podman rootless; `host` (shares the
+    /// host's netns); `none` (isolated netns with no connectivity);
+    /// `container:<name>` (shares an already-running container's netns — same IP
+    /// and ports, Docker/Podman parity); or the NAME of a network created with
+    /// `delonix network create`.
     // `--network` is Docker/Podman's spelling for the same selection; a
     // `visible_alias` makes `docker run --network mynet` work verbatim without a
-    // second arg or a new help string to translate.
-    #[arg(long, visible_alias = "network", default_value = "host", add = ArgValueCandidates::new(super::complete::networks))]
+    // second arg or a new help string to translate. The default is `private` so a
+    // bare `delonix run` isolates the container's network (rootless) instead of
+    // sharing the host's; rootful treats `private` as host-shared for now.
+    #[arg(long, visible_alias = "network", default_value = "private", add = ArgValueCandidates::new(super::complete::networks))]
     net: String,
     /// Logical ISOLATION namespace (default `default`). Containers in different
     /// namespaces cannot reach each other (even on the same network); only a
@@ -1510,7 +1515,10 @@ pub struct RunArgs {
     /// The container resolves NO other container by name.
     #[arg(long = "knows-none")]
     knows_none: bool,
-    /// Join a pod's netns (`--net <network>`), sharing IP/ports.
+    /// Join an existing pod's shared netns (Podman `run --pod`): the container
+    /// gets the pod's IP and ports and reaches its peers on `127.0.0.1`. The pod
+    /// (declared with `kind: Pod`) defines the network, so do NOT combine with
+    /// `--net <network>`.
     #[arg(long, add = ArgValueCandidates::new(super::complete::pods))]
     pod: Option<String>,
     /// (internal) init PID of the pod's infra container — join its IPC/UTS
@@ -1540,12 +1548,124 @@ pub struct RunArgs {
     /// Write the created container's id to this file (Docker/Podman `--cidfile`); refused if the file already exists.
     #[arg(long = "cidfile", value_hint = clap::ValueHint::FilePath)]
     cidfile: Option<String>,
-    /// Image (e.g. `alpine:3.19`).
-    #[arg(add = ArgValueCandidates::new(super::complete::images))]
-    image: String,
-    /// Command + arguments (default: the image's ENTRYPOINT/CMD).
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-    command: Vec<String>,
+    /// Image (e.g. `alpine:3.19`), then the command + arguments (default: the
+    /// image's ENTRYPOINT/CMD).
+    // Captured as ONE trailing list and split in code (first = image, rest =
+    // command, via `split_image_command`) so that — exactly like `docker
+    // run`/`podman run`, which stop parsing flags at the first positional —
+    // every token after the image is the container's command even when it
+    // begins with `-` and would otherwise collide with a `run` flag (e.g. the
+    // container's own `--config`). Flags for `run`/`create` itself therefore go
+    // BEFORE the image, as in Docker. `value_name` stays "IMAGE" (not "IMAGE
+    // [COMMAND...]") so the generated SYNOPSIS reads `<IMAGE>...`.
+    #[arg(
+        trailing_var_arg = true,
+        allow_hyphen_values = true,
+        required = true,
+        value_name = "IMAGE",
+        add = ArgValueCandidates::new(super::complete::images)
+    )]
+    image_command: Vec<String>,
+}
+
+impl RunArgs {
+    /// The image reference: the first element of `image_command`. `required =
+    /// true` on the field means a successfully-parsed `RunArgs` always has at
+    /// least one element, so this does not panic on a parsed value.
+    fn image(&self) -> &str {
+        &self.image_command[0]
+    }
+
+    /// Splits `image_command` into owned `(image, command)`. Same invariant as
+    /// [`RunArgs::image`]: the first element is always present post-parse.
+    ///
+    /// Refuses an image that begins with `-` — see
+    /// [`refuse_leading_dash_operand`] for why that check belongs here and not
+    /// in the parser.
+    fn split_image_command(image_command: Vec<String>) -> Result<(String, Vec<String>)> {
+        let mut it = image_command.into_iter();
+        let image = it
+            .next()
+            .expect("RunArgs.image_command is `required = true`; clap guarantees >= 1 element");
+        refuse_leading_dash_operand(Operand::Image, &image)?;
+        Ok((image, strip_leading_separator(it.collect())))
+    }
+}
+
+/// Refuses a first trailing operand that begins with `-`.
+///
+/// `image_command` and `id_command` carry `allow_hyphen_values` so that every
+/// token AFTER the operand reaches the container even when it looks like a flag
+/// (`run <img> echo --config`) — the Docker/Podman grammar, and the whole reason
+/// the attribute is there. The side effect was that it also made the FIRST token
+/// eligible as the operand, so a mistyped flag became the image or the container
+/// name. Measured on 0.1.2, before this guard:
+///
+/// ```text
+/// $ delonix run --no-such-flag
+/// pulling --no-such-flag…
+/// INFO delonix_oci::registry: pulling library/--no-such-flag:latest
+///      from registry-1.docker.io
+/// error[DX-4401] no such image library/--no-such-flag:latest
+/// ```
+///
+/// That is: a typo left the machine for a public registry, cost a network round
+/// trip, and the diagnosis named an IMAGE when what was misspelled was a flag.
+/// `exec` had the same shape with `no such container: --flag-…`. Docker 29.9.3
+/// and Podman 4.9.3 both answer `unknown flag` with rc=125 and touch no network.
+///
+/// Neither an OCI reference nor a container name may begin with `-`, so the
+/// refusal costs no legitimate input.
+///
+/// **Why the message names two readings.** By this point clap has already
+/// consumed any `--` separator, so this code cannot tell `run --x` from
+/// `run -- --x`. Docker can, and answers differently for each (`unknown flag`
+/// vs `invalid reference format`, both measured). Rather than guess, the message
+/// states the likely reading first and the other second.
+/// **Why there are TWO messages and not one with a `{what}` placeholder.** The
+/// shared form was written first and is wrong for the catalogue: the two
+/// operand nouns have different grammatical genders in the target language, so
+/// a single `msgstr` cannot agree with both — the article and the adjective
+/// would be wrong for one of them. It is the trap AGENTS.md records under the
+/// language section: never share a `msgid` whose translation depends on the
+/// subject's gender.
+fn refuse_leading_dash_operand(what: Operand, token: &str) -> Result<()> {
+    if !token.starts_with('-') {
+        return Ok(());
+    }
+    let template = match what {
+        Operand::Image => {
+            "'{token}' begins with `-`, so it is not a valid image reference. If you meant a \
+             flag, it is not one this command has — and flags go BEFORE the image. If you \
+             meant a literal image, a reference cannot begin with `-`."
+        }
+        Operand::Container => {
+            "'{token}' begins with `-`, so it is not a valid container name. If you meant a \
+             flag, it is not one this command has — and flags go BEFORE the container. If \
+             you meant a literal container, a name cannot begin with `-`."
+        }
+    };
+    Err(Error::Invalid(super::po::tf(template, &[("token", token)])))
+}
+
+/// Which trailing operand [`refuse_leading_dash_operand`] is guarding.
+enum Operand {
+    Image,
+    Container,
+}
+
+/// Drops a single leading `--` from a captured command. With `trailing_var_arg`
+/// the image/container already "armed" the trailing list, so a subsequent `--`
+/// is taken LITERALLY instead of being consumed as the end-of-options marker —
+/// yet Docker/Podman (and callers that defensively insert it, e.g. the CRI's
+/// `exec <id> -- <cmd>`) mean it as the separator. Strip exactly one so the
+/// command is `<cmd>`, not `-- <cmd>`, matching Docker; a second `--` (a genuine
+/// command argument) survives.
+fn strip_leading_separator(mut command: Vec<String>) -> Vec<String> {
+    if command.first().map(String::as_str) == Some("--") {
+        command.remove(0);
+    }
+    command
 }
 
 #[derive(clap::Args)]
@@ -1621,6 +1741,9 @@ pub struct RmArgs {
 
 #[derive(clap::Args)]
 pub struct ExecArgs {
+    /// Run the command in the background and return immediately.
+    #[arg(short = 'd', long, conflicts_with_all = ["interactive", "tty"])]
+    detach: bool,
     /// Interactive (attaches stdin).
     #[arg(short = 'i', long)]
     interactive: bool,
@@ -1631,6 +1754,9 @@ pub struct ExecArgs {
     /// the container's own env. Repeatable.
     #[arg(short = 'e', long = "env")]
     pub(crate) env: Vec<String>,
+    /// Load variables from a `.env` file (`KEY=VAL` per line). Repeatable.
+    #[arg(long = "env-file")]
+    pub(crate) env_file: Vec<String>,
     /// Working directory for this call only (default: the container's own
     /// configured `workdir`, or `/`).
     #[arg(short = 'w', long = "workdir")]
@@ -1640,11 +1766,41 @@ pub struct ExecArgs {
     /// Default: the container's own configured user.
     #[arg(short = 'u', long = "user")]
     pub(crate) user: Option<String>,
-    #[arg(add = ArgValueCandidates::new(super::complete::containers))]
-    id: String,
-    /// Command + arguments. Omit it for the bash/sh fallback shell.
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-    pub(crate) command: Vec<String>,
+    /// Run this command with full capabilities (seccomp/AppArmor off) for this
+    /// call only — does not change the container or other execs.
+    #[arg(long)]
+    privileged: bool,
+    /// Container, then the command + arguments (omit the command for the
+    /// bash/sh fallback shell).
+    // Captured as ONE trailing list and split in code (first = container, rest =
+    // command, via `split_id_command`) so that — like `docker exec`, which stops
+    // parsing flags at the container — every token after the container is the
+    // command even when it begins with `-` and would collide with an `exec` flag
+    // (`-w`, `-u`, `-e`). Flags for `exec` itself therefore go BEFORE the
+    // container, as in Docker.
+    #[arg(
+        trailing_var_arg = true,
+        allow_hyphen_values = true,
+        required = true,
+        value_name = "CONTAINER",
+        add = ArgValueCandidates::new(super::complete::containers)
+    )]
+    pub(crate) id_command: Vec<String>,
+}
+
+impl ExecArgs {
+    /// Splits `id_command` into owned `(container, command)`. `required = true`
+    /// on the field guarantees the container is present post-parse.
+    /// Refuses a container that begins with `-` — same reasoning as
+    /// [`RunArgs::split_image_command`], see [`refuse_leading_dash_operand`].
+    pub(crate) fn split_id_command(id_command: Vec<String>) -> Result<(String, Vec<String>)> {
+        let mut it = id_command.into_iter();
+        let id = it
+            .next()
+            .expect("ExecArgs.id_command is `required = true`; clap guarantees >= 1 element");
+        refuse_leading_dash_operand(Operand::Container, &id)?;
+        Ok((id, strip_leading_separator(it.collect())))
+    }
 }
 
 #[derive(clap::Args)]
@@ -2224,11 +2380,44 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         log_cri,
         cidfile,
         shm_size,
-        image,
-        command,
+        image_command,
         namespace,
         expose,
     } = args;
+    // First element is the image, the rest is the container command — the Docker
+    // split that lets a container flag (`--config`, ...) ride after the image
+    // without `run` stealing it. See the `image_command` field doc.
+    let (image, command) = RunArgs::split_image_command(image_command)?;
+    // `--pod <name>` (imperative join, Podman parity). The flag carries the POD
+    // NAME, but every downstream user — `cmd_run`'s netns re-exec, the persisted
+    // record, `start` — treats the `pod` field as the pod's NETNS name, which is
+    // what `create_pod` stores (`pod_member_run_opts`). Translate once HERE, the
+    // only CLI entry point into `RunOpts` (`create_pod` builds its members
+    // through the domain helper, never this function), so the two paths agree.
+    // Before this, the join opened a netns named after the pod (`wp`) instead of
+    // the real one (`pod-wp`) and died with "Cannot open network namespace".
+    //
+    // A pod already defines its own network (`spec.network`), so `--pod` with an
+    // explicit `--net <network>` is a contradiction, not a combination: refuse it
+    // (Podman does the same) rather than let `--net` silently win — which it did,
+    // in the `custom_net` branch of `cmd_run` that returns BEFORE the pod branch,
+    // leaving the container on its own IP, never joined to the pod. `private`
+    // (the default) and `host` are the modes a lone `--pod` carries (the member
+    // joins the pod's netns either way), so only a NON-default `--net` — a custom
+    // network, `none`, or `container:` — trips this.
+    let pod = match pod {
+        Some(name) => {
+            if net != "host" && net != "private" {
+                return Err(Error::Invalid(format!(
+                    "--pod and --net '{net}' are mutually exclusive: a pod already defines its \
+                     network (its `spec.network`). Run `--pod {name}` on its own — the container \
+                     joins the pod's shared netns, with the pod's IP and ports."
+                )));
+            }
+            Some(super::pod::pod_netns_name(&name))
+        }
+        None => None,
+    };
     // `-i` is accepted for Docker/Podman parity. A daemonless foreground `run`
     // INHERITS the operator's stdin, so keeping it open is already what the flag
     // asks — it records intent rather than switching a code path, the same
@@ -2353,8 +2542,8 @@ fn run_opts_from_args(args: RunArgs, no_start: bool) -> Result<RunOpts> {
         cpus,
         cpu_weight,
         cpuset,
-        // Sem flag de CLI: o nível de grupo entra pelo MANIFESTO
-        // (`cgroupParent`), que é quem sabe agrupar cargas.
+        // No CLI flag: the group level comes in through the MANIFEST
+        // (`cgroupParent`), which is what knows how to group workloads.
         cgroup_parent: None,
         kube_cgroup_parent,
         oom_score_adj,
@@ -2469,11 +2658,11 @@ pub fn run(action: ContainerCmd) -> Result<()> {
         // difference is `no_start` — `create` persists the record in `Created`
         // state and stops, `run` goes on to launch. See `run_opts_from_args`.
         ContainerCmd::Run(args) => {
-            apply_pull_policy(&images, &args.image, &args.pull, args.platform.as_deref())?;
+            apply_pull_policy(&images, args.image(), &args.pull, args.platform.as_deref())?;
             cmd_run(&images, &store, run_opts_from_args(args, false)?)
         }
         ContainerCmd::Create(args) => {
-            apply_pull_policy(&images, &args.image, &args.pull, args.platform.as_deref())?;
+            apply_pull_policy(&images, args.image(), &args.pull, args.platform.as_deref())?;
             cmd_run(&images, &store, run_opts_from_args(args, true)?)
         }
         ContainerCmd::Ps(PsArgs {
@@ -2526,24 +2715,32 @@ pub fn run(action: ContainerCmd) -> Result<()> {
         }),
         ContainerCmd::Prune { force } => cmd_prune(&images, &store, force),
         ContainerCmd::Exec(ExecArgs {
+            detach,
             interactive,
             tty,
             env,
+            env_file,
             workdir,
             user,
-            id,
-            command,
-        }) => cmd_exec(
-            &images,
-            &store,
-            &id,
-            interactive,
-            tty,
-            &env,
-            workdir.as_deref(),
-            user.as_deref(),
-            &command,
-        ),
+            privileged,
+            id_command,
+        }) => {
+            let (id, command) = ExecArgs::split_id_command(id_command)?;
+            cmd_exec(
+                &images,
+                &store,
+                &id,
+                detach,
+                interactive,
+                tty,
+                &env,
+                &env_file,
+                workdir.as_deref(),
+                user.as_deref(),
+                privileged,
+                &command,
+            )
+        }
         ContainerCmd::Pause { ids } => for_each_id(&ids, |id| cmd_freeze(&store, id, true)),
         ContainerCmd::Unpause { ids } => for_each_id(&ids, |id| cmd_freeze(&store, id, false)),
         ContainerCmd::Commit { id, tag } => cmd_commit(&images, &store, &id, &tag),
@@ -2630,9 +2827,36 @@ pub fn apply(docs: &[ManifestDoc]) -> Result<()> {
         // runs in `manifest::load` — which every path arrives at, including this
         // one — so it keeps that property AND gains `validate`/`plan`, which it
         // never had. See `manifest::spec_fields_for`.
-        if store.list()?.iter().any(|c| &c.name == name) {
+        // A container name is unique on the node (like a pod's — see
+        // `pod::check_pod_namespace`): re-applying in the SAME namespace is
+        // idempotent, but the same name in ANOTHER namespace is a conflict, not
+        // «already exists». Comparing only `c.name` made `kk@default` and
+        // `kk@other` collide and apply rc 0 while the plan showed `+` (#824).
+        let want_ns = doc.metadata.namespace.as_deref().unwrap_or("default");
+        let ns_of = |c: &&delonix_compute::Container| -> String {
+            if c.namespace.is_empty() {
+                "default".into()
+            } else {
+                c.namespace.clone()
+            }
+        };
+        let same_name: Vec<_> = store
+            .list()?
+            .into_iter()
+            .filter(|c| &c.name == name)
+            .collect();
+        if same_name
+            .iter()
+            .any(|c| ns_of(&c).eq_ignore_ascii_case(want_ns))
+        {
             println!("container/{name}: already exists, nothing to do");
             continue;
+        }
+        if let Some(other) = same_name.first() {
+            return Err(Error::Conflict(format!(
+                "container '{name}' already exists in namespace '{}'; a container name is unique on the node, so '{want_ns}' cannot reuse it",
+                ns_of(&other)
+            )));
         }
         let mut opts = doc_run_opts(doc)?;
         opts.policy_hold = hold;
@@ -3295,18 +3519,18 @@ mod resource_limits_preflight_tests {
     use super::resource_limits_decision;
 
     #[test]
-    fn nada_pedido_nunca_recusa_seja_qual_for_a_delegacao() {
+    fn nothing_requested_never_refuses_whatever_the_delegation() {
         assert!(resource_limits_decision(false, false, false).is_ok());
         assert!(resource_limits_decision(false, true, false).is_ok());
     }
 
     #[test]
-    fn pedido_e_delegado_segue_sem_aviso_nenhum() {
+    fn requested_and_delegated_proceeds_with_no_warning() {
         assert!(resource_limits_decision(true, true, false).is_ok());
     }
 
     #[test]
-    fn pedido_sem_delegacao_e_sem_escape_hatch_recusa() {
+    fn requested_without_delegation_and_without_escape_hatch_refuses() {
         let err = resource_limits_decision(true, false, false).unwrap_err();
         assert_eq!(
             crate::cmd::exitcode::for_error(&err),
@@ -3315,7 +3539,7 @@ mod resource_limits_preflight_tests {
     }
 
     #[test]
-    fn pedido_sem_delegacao_com_escape_hatch_segue() {
+    fn requested_without_delegation_with_escape_hatch_proceeds() {
         assert!(resource_limits_decision(true, false, true).is_ok());
     }
 }
@@ -3337,7 +3561,18 @@ pub(crate) fn with_host_workload<R>(
         delonix_sdn::slirp_attach(pid, ports)
             .map_err(|e| delonix_linux::Error::Engine(delonix_model::Error::from(e)))
     };
-    let detach_slirp = |c: &Container, pid: i32| delonix_sdn::run_network::reap_own_slirp(c, pid);
+    // The rootful twin of `attach_slirp`: wires veth+bridge+NAT for the default
+    // `--net private` uplink when the engine runs with privilege (slirp is
+    // rootless-only). The launch flag picks which of the two runs.
+    let attach_uplink = |pid: i32, ip: &str| -> delonix_linux::Result<()> {
+        delonix_sdn::uplink::rootful_uplink_attach(pid, ip)
+            .map_err(|e| delonix_linux::Error::Engine(delonix_model::Error::from(e)))
+    };
+    let detach_slirp = |c: &Container, pid: i32| {
+        delonix_sdn::run_network::reap_own_slirp(c, pid);
+        // The host-side veth dies with the netns; this only returns the lease.
+        delonix_sdn::uplink::reap_own_uplink(c);
+    };
     let on_first_start = |c: &Container| {
         if let Some(cfg) = c.health.clone() {
             spawn_health_monitor(c.id.clone(), cfg);
@@ -3351,6 +3586,7 @@ pub(crate) fn with_host_workload<R>(
         state_root: &state_root,
         addresses: &addresses,
         attach_slirp: &attach_slirp,
+        attach_uplink: &attach_uplink,
         detach_slirp: &detach_slirp,
         on_first_start: &on_first_start,
         silent_death: super::po::t(
@@ -3382,6 +3618,10 @@ fn ephemeral_host_port(proto: delonix_sdn::Proto) -> Option<u16> {
 }
 
 pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> Result<()> {
+    // Pre_spawn phase profiler (ADR-0095) — a strict no-op unless
+    // `DELONIX_PROFILE_SPAWN` is set; measures the parent's work upstream of
+    // `spawn` so the warm plane can be aimed. See `super::prespawn`.
+    super::prespawn::begin();
     // Imperative pod join (Podman `run --pod <name>`): a CLI caller sets `pod`
     // but never the hidden `pod_infra_pid`. Resolve it from the pod's existing
     // first member, so the SECOND and later `run --pod` into the SAME pod join
@@ -3390,8 +3630,12 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
     // the imperative path leaves: None + no members yet → this member becomes
     // the holder; None + a member exists → it finds and joins it.
     if opts.pod_infra_pid.is_none() {
-        if let Some(pn) = opts.pod.clone() {
-            opts.pod_infra_pid = super::pod::infra_pid_of(store, &pn);
+        if let Some(netns) = opts.pod.clone() {
+            // `opts.pod` is the pod's NETNS name (`pod-<name>`, normalized in
+            // `run_opts_from_args`); the membership lookup wants the pod NAME.
+            // Derive it back off the known prefix.
+            let pod_name = netns.strip_prefix("pod-").unwrap_or(&netns);
+            opts.pod_infra_pid = super::pod::infra_pid_of(store, pod_name);
         }
     }
     // The node's runtime policy, BEFORE anything is created or pulled. Same
@@ -3463,6 +3707,7 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
     // side effect — see `delonix_compute::preflight` for the two that used to be
     // checked only after the workload had run, or never.
     delonix_compute::preflight::check_run_opts(&opts)?;
+    super::prespawn::mark("policy_preflight");
     // `--publish-all`/`-P`: read the image's EXPOSEd ports and fold one publish
     // entry per port into `opts.ports`, so the rest of the function (ownership,
     // slirp attach, the stored `ports`, the re-exec spec) handles them exactly
@@ -3780,6 +4025,7 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
     // image is not local yet — the same renderer `image pull` draws with.
     // BUG FOUND live: this path printed «pulling nginx…» and then went mute
     // for the whole download.
+    super::prespawn::mark("claims");
     let pull_renderer = super::output::PullRenderer::new();
     let on_pull_event = |ev: delonix_oci::registry::PullEvent<'_>| pull_renderer.handle(ev);
     let resolved = delonix_compute::run::resolve_run(
@@ -3809,6 +4055,7 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
     // unpacking line BELOW the block by the time this returns — a cursor-up
     // redraw now would overwrite it (seen live: the block stamped over the
     // «unpacking the image» line).
+    super::prespawn::mark("resolve_rootfs");
     print_notices(&resolved.notices);
     let rootfs = resolved.rootfs;
     let mut mounts = resolved.mounts;
@@ -4019,12 +4266,16 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
             // lands here: its netns is already up, so the join succeeds. A pod
             // that HAS members but still failed keeps the real error (it is a
             // genuine fault, not a typo'd name).
-            if joined.is_err() && !super::pod::exists(store, pn) {
+            // `pn` is the NETNS name (`pod-<name>`); the pod membership lookup
+            // and the message the operator reads both want the pod NAME they
+            // typed, so derive it back off the known prefix.
+            let pod_name = pn.strip_prefix("pod-").unwrap_or(pn);
+            if joined.is_err() && !super::pod::exists(store, pod_name) {
                 return Err(Error::Invalid(format!(
-                    "pod '{pn}' does not exist — nothing to join. Delonix pods are DECLARATIVE: \
+                    "pod '{pod_name}' does not exist — nothing to join. Delonix pods are DECLARATIVE: \
                      there is no `pod create --name`, and `run --pod` only JOINS an existing pod. \
                      Declare the pod and all its members in a `kind: Pod` manifest and create it \
-                     with `delonix pod create -f <file>`, then `run --pod {pn}` joins it \
+                     with `delonix pod create -f <file>`, then `run --pod {pod_name}` joins it \
                      (`delonix get pods` lists them)."
                 )));
             }
@@ -4046,16 +4297,44 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
     print_notices(&notices);
     wired?;
 
-    // `-p` without a custom network (`--net host`, the default): the container
-    // stops sharing the host's network and gets its own netns with slirp4netns +
-    // the requested hostfwds — the behavior of `docker run -p` (NAT network by
-    // default), in podman's rootless model. The slirp dies with the netns.
+    // DEFAULT rootless network (`--net private`, the unset default): the container
+    // gets its own netns with a slirp4netns OUTBOUND uplink even with no published
+    // ports — the Podman-rootless model, replacing the old `--net host` default.
+    // `--net host` opts back into sharing the host netns; `-p` adds hostfwds on top
+    // of the same slirp. On rootful this stays false (that path shares the host
+    // netns as before and is governed separately). The slirp dies with the netns.
+    let rootless_uplink = !reexec
+        && net == "private"
+        && custom_net.is_none()
+        && pod.is_none()
+        && runtime::is_rootless();
+    // The ROOTFUL twin of the default `--net private`: with real privilege the
+    // container gets its own netns wired to a host bridge with NAT egress (veth +
+    // `dlxnat0` + MASQUERADE), the Podman-rootful model — slirp does not serve
+    // rootful. Same gate as `rootless_uplink` but `!is_rootless()`; the two are
+    // mutually exclusive. The bridge address is leased now so it persists in the
+    // record and the `start` of a stopped container comes back on the same one.
+    let rootful_uplink = !reexec
+        && net == "private"
+        && custom_net.is_none()
+        && pod.is_none()
+        && !runtime::is_rootless();
+    let uplink_ip = if rootful_uplink {
+        let ip = delonix_sdn::ipam::allocate(delonix_sdn::uplink::UPLINK_PREFIX, &id)?;
+        c.ip = Some(ip.clone());
+        Some(ip)
+    } else {
+        None
+    };
     let launch = delonix_compute::launch::Launch {
         slirp_ports: delonix_compute::launch::slirp_ports(
             custom_net.is_some(),
             pod.is_some(),
             &ports,
         ),
+        rootless_uplink,
+        rootful_uplink,
+        uplink_ip,
         rootfs,
         mounts,
         detach,
@@ -4085,6 +4364,10 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
     // A detached start gets a SUPERVISOR that becomes the container's parent, so the
     // exit code is not lost; see `delonix_compute::launch::start`.
     unstarted.armed = false;
+    // End of the parent pre_spawn region: `launch::start` hands off to `spawn`
+    // (profiled separately by `delonix-linux::spawn_profile`). ADR-0095.
+    super::prespawn::mark("record_net");
+    super::prespawn::flush(&c.id);
     let final_status = match with_host_workload(images, store, |w| {
         delonix_compute::launch::start(&opts_copy, &mut c, &launch, w)
     })? {
@@ -4163,17 +4446,17 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
                     "container '{name}' exited immediately — see `delonix container logs {name}`",
                     &[("name", &cur.name)],
                 ));
-                if runtime::is_rootless() && custom_net.is_none() && ports.is_empty() {
+                if runtime::is_rootless() && net == "host" {
                     super::output::warn(super::po::t(
-                        "rootless with the default `--net host` cannot bind ports below 1024 — if the image binds one (nginx, httpd, ...), publish it (`-p 8080:80`) or use `--net <network>`",
+                        "rootless `--net host` shares the host netns and cannot bind ports below 1024 — if the image binds one (nginx, httpd, ...), drop `--net host` (the default `--net private` gives the container its own netns) or publish it (`-p 8080:80`)",
                     ));
                 }
             }
         }
     }
-    // `--wait`: só depois de o container estar registado e a correr — e depois
-    // da guarda de morte-ao-nascer acima, para não esperar 60s por algo que já
-    // morreu.
+    // `--wait`: only after the container is registered and running — and after
+    // the death-at-birth guard above, so as not to wait 60s for something that
+    // has already died.
     if wait_healthy {
         wait_until_healthy(images, store, &id, wait_timeout)?;
     }
@@ -4183,17 +4466,17 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
     Ok(())
 }
 
-/// Bloqueia até o `HEALTHCHECK` da imagem passar, ou até ao tempo limite.
+/// Blocks until the image's `HEALTHCHECK` passes, or until the time limit.
 ///
-/// Existe porque toda a gente acaba por escrever `until curl ...; do sleep 2;
-/// done` à volta de um `run -d` — e escreve-o mal (sem limite, ou a sondar uma
-/// coisa que não é a saúde real do serviço). A resolução do comando é a MESMA
-/// que o `depends_on: service_healthy` do compose usa (`image_health_argv`),
-/// para os dois não poderem divergir.
+/// Exists because everyone ends up writing `until curl ...; do sleep 2; done`
+/// around a `run -d` — and writes it wrong (no limit, or probing something that
+/// is not the service's real health). The command resolution is the SAME one
+/// compose's `depends_on: service_healthy` uses (`image_health_argv`), so the
+/// two cannot diverge.
 ///
-/// Sem `HEALTHCHECK` na imagem é ERRO, não um retorno instantâneo: quem pede
-/// `--wait` está a dizer "não continues até isto servir", e devolver de
-/// imediato seria responder à pergunta errada em silêncio.
+/// With no `HEALTHCHECK` in the image it is an ERROR, not an instant return:
+/// whoever asks for `--wait` is saying "do not continue until this serves", and
+/// returning immediately would silently answer the wrong question.
 fn wait_until_healthy(
     images: &ImageStore,
     store: &Store,
@@ -4209,43 +4492,71 @@ fn wait_until_healthy(
             c.name
         )));
     }
-    let Some(argv) = super::compose::image_health_argv(images, &c.image) else {
-        return Err(Error::Invalid(format!(
-            "--wait: image '{}' declares no HEALTHCHECK — nothing to wait for \
-             (add one to the image, or drop --wait)",
-            c.image
-        )));
+    // Where "healthy" comes from. A `--health-cmd`/`--health-http`/`--health-tcp`
+    // (or a `--health-interval` over an image HEALTHCHECK) built `c.health`, and a
+    // continuous monitor drives it, writing `health_state` — so watch THAT. An
+    // image HEALTHCHECK with no `--health-*` has no monitor, so probe it directly
+    // (the original behaviour). Neither source: there is nothing to wait for.
+    //
+    // THE BUG this fixes: `--wait` used to consult ONLY the image's HEALTHCHECK,
+    // so pairing it with a CLI `--health-*` was refused as "image declares no
+    // HEALTHCHECK" — even though that probe works and reaches `healthy`; it just
+    // lives on the monitor's `health_state`, not on the image.
+    enum WaitProbe {
+        Monitor,
+        Image(ProbeKind),
+    }
+    let source = if c.health.is_some() {
+        WaitProbe::Monitor
+    } else {
+        let Some(argv) = super::compose::image_health_argv(images, &c.image) else {
+            return Err(Error::Invalid(format!(
+                "--wait: '{}' has no health check — give one with --health-cmd, \
+                 --health-http or --health-tcp, or use an image that declares a \
+                 HEALTHCHECK (or drop --wait)",
+                c.name
+            )));
+        };
+        // Same self-limiting probe the monitor uses: one that hangs would
+        // otherwise pin `--wait` past its own deadline, the one thing the flag
+        // exists to prevent. The exec form (image `HEALTHCHECK ["CMD", …]`) runs
+        // with NO `/bin/sh` — joining it into a shell string lost its argv.
+        WaitProbe::Image(
+            if argv.len() == 3 && argv[0] == "/bin/sh" && argv[1] == "-c" {
+                ProbeKind::Shell(argv[2].clone())
+            } else {
+                ProbeKind::Exec(argv)
+            },
+        )
     };
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
     let mut attempt: u32 = 0;
-    // Same self-limiting probe the monitor uses: one that hangs would otherwise
-    // pin `--wait` past its own deadline, the one thing the flag exists to
-    // prevent. The exec form (image `HEALTHCHECK ["CMD", …]`) now runs with NO
-    // `/bin/sh` — it used to be joined into a shell string and lost its argv.
-    let probe = if argv.len() == 3 && argv[0] == "/bin/sh" && argv[1] == "-c" {
-        ProbeKind::Shell(argv[2].clone())
-    } else {
-        ProbeKind::Exec(argv)
-    };
     loop {
-        if run_probe(&c, &probe, 30) == 0 {
+        // Reload each round: the monitor writes `health_state` onto this record,
+        // and the liveness check below needs the current pid.
+        let cur = find(store, id)?;
+        let healthy = match &source {
+            WaitProbe::Monitor => {
+                cur.health_state.as_ref().map(|s| s.health) == Some(Health::Healthy)
+            }
+            WaitProbe::Image(probe) => run_probe(&cur, probe, 30) == 0,
+        };
+        if healthy {
             return Ok(());
         }
-        // Morreu enquanto esperávamos: dizer "não ficou saudável em 60s" seria
-        // esconder a causa real, que está nos logs.
-        if let Ok(cur) = find(store, id) {
-            let dead = match cur.pid {
-                // SAFETY: kill(pid, 0) sends no signal — it only tests existence.
-                Some(p) => (unsafe { libc::kill(p, 0) } != 0),
-                None => true,
-            };
-            if dead {
-                return Err(Error::Invalid(format!(
-                    "--wait: container '{}' exited while waiting to become healthy \
-                     — see `delonix container logs {}`",
-                    cur.name, cur.name
-                )));
-            }
+        // It died while we waited: saying "did not become healthy in 60s" would
+        // hide the real cause, which is in the logs.
+        let dead = match cur.pid {
+            // SAFETY: kill(pid, 0) sends no signal — it only tests existence.
+            Some(p) => (unsafe { libc::kill(p, 0) } != 0),
+            None => true,
+        };
+        if dead {
+            return Err(Error::Invalid(format!(
+                "--wait: container '{}' exited while waiting to become healthy \
+                 — see `delonix container logs {}`",
+                cur.name, cur.name
+            )));
         }
         if std::time::Instant::now() >= deadline {
             return Err(Error::Invalid(format!(
@@ -5396,6 +5707,69 @@ pub(crate) fn run_from_spec(path: &std::path::Path) -> Result<()> {
     cmd_run(&images, &store, opts)
 }
 
+/// The warm-plane's SECOND pass, run IN-PROCESS by a pooled runner already parked
+/// inside the holder (ADR-0095, `delonix-warm`). The cold custom-network path
+/// re-execs a fresh `nsenter … ip netns exec <netns> -- delonix netns run <spec>`
+/// child and re-pays the whole binary load + store open + image resolve — the
+/// +322 ms the isolated profile measured. The warm path pays none of it: the host
+/// side has already run `attach_container` (veth wired, IP leased, the named netns
+/// created), the runner is already resident inside the holder's userns+mountns
+/// (its `nsenter` launch prefix), and here we only
+///   1. `setns` into the holder-built `/run/netns/<netns>` (visible and enterable
+///      from inside the holder's userns+mountns),
+///   2. announce the id+IP through the SAME `DELONIX_REEXEC_*` env the cold
+///      re-exec sets, and
+///   3. call [`cmd_run`] with the runner's RESIDENT stores — its `reexec == true`
+///      branch then skips the attach and the re-exec and launches straight into
+///      this netns.
+///
+/// `/sys` staleness in THIS process is irrelevant: the container child clones a
+/// fresh mount namespace and mounts its own `/sys`/`/proc`/`/dev` after it is in
+/// the netns (the `mounts` spawn phase), exactly as the cold 2nd pass does.
+///
+/// Called only from `__poolrunner` on an isolated request, before any thread is
+/// spawned, so `setns` and the later `fork` both act on a single-threaded process.
+pub(crate) fn run_spec_resident_isolated(
+    images: &ImageStore,
+    store: &Store,
+    spec: &std::path::Path,
+    id: &str,
+    netns: &str,
+    ip: &str,
+) -> Result<()> {
+    enter_named_netns(netns)?;
+    // The same two variables the cold re-exec carries (`reexec_env`): the id
+    // becomes the record's id and flips `cmd_run` onto its second-pass branch;
+    // the IP is what that branch reads instead of re-attaching.
+    std::env::set_var("DELONIX_REEXEC_ID", id);
+    std::env::set_var("DELONIX_REEXEC_IP", ip);
+    let data = std::fs::read(spec)?;
+    let opts: RunOpts = serde_json::from_slice(&data).map_err(|e| Error::Invalid(e.to_string()))?;
+    cmd_run(images, store, opts)
+}
+
+/// `setns(2)` this (single-threaded) process into the holder's named netns at
+/// `/run/netns/<netns>`. The caller is already in the holder's userns (so it has
+/// the capability over a netns that userns owns) and mountns (so the path
+/// resolves to the holder's `/run` tmpfs where `ip netns add` pinned it).
+fn enter_named_netns(netns: &str) -> Result<()> {
+    use std::os::unix::io::AsRawFd;
+    let path = format!("/run/netns/{netns}");
+    let f = std::fs::File::open(&path).map_err(|e| Error::Runtime {
+        context: "open netns",
+        message: format!("{path}: {e}"),
+    })?;
+    // SAFETY: `f` is an open fd to a netns file we own; `setns` reads only the fd
+    // and the namespace-type flag, and the process is single-threaded here.
+    if unsafe { libc::setns(f.as_raw_fd(), libc::CLONE_NEWNET) } != 0 {
+        return Err(Error::Runtime {
+            context: "setns netns",
+            message: std::io::Error::last_os_error().to_string(),
+        });
+    }
+    Ok(())
+}
+
 /// EVERY IP a container holds on the SDN: the primary first, then one per additional
 /// network (multi-homing). This is what the firewall has to be keyed on — keying it on
 /// `c.ip` alone left every extra network ungoverned, so `ingress policy deny` blocked the
@@ -5820,12 +6194,39 @@ fn start_container(images: &ImageStore, store: &Store, id: &str) -> Result<()> {
         .join("log")
         .to_string_lossy()
         .into_owned();
+    // Reconstruct the ROOTFUL default uplink from the record, the privileged twin
+    // of `rootless_uplink` below: a `--net private` container started with real
+    // privilege comes back on its own netns + veth bridge. The bridge address is
+    // the one leased at `run` and persisted as `c.ip`; a record from before this
+    // field (no `c.ip`) gets the same deterministic lease back.
+    let rootful_uplink = !reexec
+        && c.net_mode.as_deref() == Some("private")
+        && c.network.is_none()
+        && c.pod.is_none()
+        && !runtime::is_rootless();
+    let uplink_ip = if rootful_uplink {
+        c.ip.clone()
+            .or_else(|| delonix_sdn::ipam::allocate(delonix_sdn::uplink::UPLINK_PREFIX, &c.id).ok())
+    } else {
+        None
+    };
     let launch = delonix_compute::launch::Launch {
         slirp_ports: delonix_compute::launch::slirp_ports(
             c.network.is_some(),
             c.pod.is_some(),
             &c.ports,
         ),
+        // Reconstruct the default rootless uplink from the record: a container
+        // created with `--net private` (the default) keeps its own netns + slirp
+        // across `start`. Records predating this field (net_mode None/"host") stay
+        // on the host netns, as they were created.
+        rootless_uplink: !reexec
+            && c.net_mode.as_deref() == Some("private")
+            && c.network.is_none()
+            && c.pod.is_none()
+            && runtime::is_rootless(),
+        rootful_uplink,
+        uplink_ip,
         rootfs,
         mounts: c.mounts.clone(),
         detach: true,
@@ -6187,10 +6588,10 @@ pub(crate) fn cmd_port(store: &Store, id: &str) -> Result<()> {
         return Ok(()); // docker prints nothing for a container with no published ports
     }
     for spec in &c.ports {
-        // Mesma correcção do `fmt_ports`, e aqui a saída antiga era absurda em vez
-        // de só enganadora: com `127.0.0.1:19555:80` o `split_once(':')` dava
-        // `host_part = "127.0.0.1"` e imprimia-se **`19555:80/tcp -> 0.0.0.0:127.0.0.1`**
-        // — um endereço que não existe, sobre um serviço restrito a loopback.
+        // Same fix as `fmt_ports`, and here the old output was absurd rather than
+        // just misleading: with `127.0.0.1:19555:80` the `split_once(':')` gave
+        // `host_part = "127.0.0.1"` and printed **`19555:80/tcp -> 0.0.0.0:127.0.0.1`**
+        // — an address that does not exist, for a service restricted to loopback.
         if let Ok((addr, hp, cp, proto)) = delonix_sdn::parse_publish_addr(spec) {
             println!("{cp}/{proto} -> {}:{hp}", published_addr_for_display(addr));
         } else {
@@ -6395,11 +6796,14 @@ pub(crate) fn cmd_exec(
     images: &ImageStore,
     store: &Store,
     id: &str,
+    detach: bool,
     interactive: bool,
     tty: bool,
     env: &[String],
+    env_file: &[String],
     workdir: Option<&str>,
     user: Option<&str>,
+    privileged: bool,
     command: &[String],
 ) -> Result<()> {
     let c = find(store, id)?;
@@ -6432,13 +6836,19 @@ pub(crate) fn cmd_exec(
                          // container itself sees it, which is the only view that works whether the
                          // rootfs is an overlay or the legacy flat copy. A numeric `-u` never reaches
                          // this at all.
-    let user_override = match user {
+                         // `-u` resolves BOTH the uid/gid and the supplementary groups the image's
+                         // `/etc/group` grants that user (getgrouplist), so `exec -u` matches
+                         // docker/podman — which list a dozen groups for `exec -u 0` where delonix
+                         // showed none. The rootfs is read once (it is the same `/proc/<pid>/root`).
+    let (user_override, user_groups) = match user {
         Some(u) => {
             let root = container_fs_root(images, &c)?;
-            let resolved = resolve_run_user(&root.path().to_string_lossy(), u)?;
-            Some(resolved)
+            let rootfs = root.path();
+            let resolved = resolve_run_user(&rootfs.to_string_lossy(), u)?;
+            let groups = delonix_oci::rootfs_user::supplementary_groups(rootfs, u);
+            (Some(resolved), groups)
         }
-        None => None,
+        None => (None, Vec::new()),
     };
     // `--secret` (env mode) values are no longer baked into `c.env` — they are
     // resolved from the vault at spawn time and live only in the init process's
@@ -6462,13 +6872,34 @@ pub(crate) fn cmd_exec(
             extra_env.extend(cs.resolve_env(&c.configs));
         }
     }
+    // `--env-file` (docker `exec --env-file`): each file's `KEY=VAL` lines, in the
+    // order the files were given, applied BEFORE the explicit `-e` below so a `-e`
+    // on the same key still wins — the same precedence `run --env-file` has, and
+    // the SAME parser (`delonix_model::secret::parse_env_file`, via
+    // `secret::load_env_file`, which also accepts `-` for stdin and resolves a
+    // relative path against the current directory).
+    for f in env_file {
+        let map = super::secret::load_env_file(std::path::Path::new("."), std::path::Path::new(f))?;
+        for (k, v) in map {
+            extra_env.push(format!("{k}={v}"));
+        }
+    }
     extra_env.extend(env.iter().cloned());
     let overrides = runtime::ExecOverrides {
         extra_env: &extra_env,
         workdir,
         user: user_override,
+        supplementary_groups: &user_groups,
         // An interactive `exec` runs for as long as the user wants it to.
         timeout_secs: None,
+        // `exec -d`: the grandchild daemonizes inside the container and the CLI
+        // returns right after launching it (docker `exec -d`). Mutually
+        // exclusive with `-i`/`-t`, enforced by clap at parse time.
+        detach,
+        // `exec --privileged`: elevate THIS call's caps/seccomp/AppArmor only;
+        // OR-ed with the container's own `privileged`, never weakening the
+        // default (docker `exec --privileged`).
+        privileged,
     };
     let code = runtime::exec_with(&c, command, tty, &overrides)?;
     std::process::exit(code);
@@ -6550,8 +6981,8 @@ fn cmd_commit(images: &ImageStore, store: &Store, id: &str, tag: &str) -> Result
             base.config.user.clone(),
             tag,
             &base.config.architecture,
-            // `container commit` herda o health check da base, tal como o
-            // caminho overlay (`commit_container`) já fazia.
+            // `container commit` inherits the base's health check, the same way
+            // the overlay path (`commit_container`) already did.
             base.config.healthcheck.clone(),
             // A committed image inherits the base's EXPOSEd ports, the same way
             // the overlay `commit_container` path does.
@@ -7163,10 +7594,11 @@ fn describe_one(c: &Container) {
     d.sub_opt("Nice", c.nice.map(|n| n.to_string()));
 
     d.section(k::NETWORK);
-    // Diz a VERDADE sobre os três casos que `network: None` esconde: pedi
-    // host, pedi none, ou pedi uma rede e fiquei sem ela. O terceiro é o que
-    // interessa — um contentor assim está vivo, sem resolução de nomes e sem
-    // rota para os pares, e antes disto aparecia aqui como um `host` normal.
+    // Tells the TRUTH about the three cases `network: None` hides: I asked for
+    // host, I asked for none, or I asked for a network and ended up without it.
+    // The third is the one that matters — a container like that is alive, with no
+    // name resolution and no route to peers, and before this it appeared here as a
+    // normal `host`.
     d.sub("Mode", net_mode_display(c));
     d.sub("IP", c.ip.as_deref().unwrap_or("<none>"));
     let svc = super::svc::SvcIndex::load().rows(&c.name, &c.namespace, c.ip.as_deref());
@@ -7186,8 +7618,8 @@ fn describe_one(c: &Container) {
     if !c.net_aliases.is_empty() {
         d.sub("Aliases", c.net_aliases.join(", "));
     }
-    // Sendo a persistência o ponto desta funcionalidade, tem de haver forma de
-    // confirmar o que ficou gravado sem ler o JSON à mão.
+    // Persistence being the point of this feature, there has to be a way to
+    // confirm what got saved without reading the JSON by hand.
     if let Some(hc) = &c.health {
         let probe = if hc.cmd.is_empty() {
             "<image HEALTHCHECK>".to_string()
@@ -7672,7 +8104,7 @@ fn cmd_update(store: &Store, id: &str, o: UpdateOpts) -> Result<()> {
 
     // --- memory/CPU limits ---
     if o.memory.is_some() || o.cpus.is_some() {
-        let aplicado = runtime::update_limits(&c, o.memory.as_deref(), o.cpus.as_deref())?;
+        let applied = runtime::update_limits(&c, o.memory.as_deref(), o.cpus.as_deref())?;
         let (m, cp) = (o.memory.clone(), o.cpus.clone());
         store.update(&c.id, |cur| {
             if let Some(m) = &m {
@@ -7683,15 +8115,15 @@ fn cmd_update(store: &Store, id: &str, o: UpdateOpts) -> Result<()> {
             }
             true
         })?;
-        // **Os três casos dizem três coisas diferentes.** Antes diziam a mesma, e a
-        // pior delas: «updated» sobre um container a correr onde nada foi escrito,
-        // com o registo já persistido — logo o `describe` a seguir confirmava um
-        // limite que o kernel não conhece.
+        // **The three cases say three different things.** They used to say the
+        // same one, and the worst of them: «updated» over a running container
+        // where nothing was written, with the record already persisted — so the
+        // following `describe` confirmed a limit the kernel does not know.
         let (memory, cpus) = (
             o.memory.as_deref().unwrap_or("unchanged"),
             o.cpus.as_deref().unwrap_or("unchanged"),
         );
-        match aplicado {
+        match applied {
             runtime::LimitUpdate::Applied => println!(
                 "{}",
                 super::po::tf(
@@ -7707,25 +8139,25 @@ fn cmd_update(store: &Store, id: &str, o: UpdateOpts) -> Result<()> {
                     &[("name", &c.name), ("memory", memory), ("cpus", cpus)],
                 )
             ),
-            // Não é erro — o registo FOI actualizado e o próximo `start` aplica-o.
-            // Mas não se chama «updated» a isto. E a mensagem NÃO nomeia uma causa:
-            // a hipótese óbvia (falta de delegação) foi medida e está errada — sem
-            // delegação a escrita é tentada e falha com `Permission denied`, que já
-            // é honesto. Aqui o cgroup não existe de todo, tipicamente porque o
-            // container está a morrer. Afirmar «configura a delegação» mandaria o
-            // utilizador arranjar o que não está partido.
-            // **Devolve ERRO, e a razão é o `converge`.** A primeira versão só
-            // imprimia para stderr e devolvia `Ok(())` — mas o `store.update` acima
-            // já persistiu o valor, e o `container::converge` do `stack apply`
-            // delega neste mesmo caminho. Resultado: o apply carimbava o
-            // `last-applied`, o `stack plan --detailed-exitcode` seguinte
-            // respondia 0, e o gate de deriva do CI ficava verde por cima de uma
-            // barreira de contenção que o kernel não conhece. Apanhado na
-            // passagem `delonix-runtime-sec` a esta série.
+            // Not an error — the record WAS updated and the next `start` applies
+            // it. But this is not called «updated». And the message does NOT name
+            // a cause: the obvious hypothesis (missing delegation) was measured and
+            // is wrong — without delegation the write is attempted and fails with
+            // `Permission denied`, which is already honest. Here the cgroup does
+            // not exist at all, typically because the container is dying. Asserting
+            // «configure delegation» would send the user to fix what is not broken.
+            // **Returns an ERROR, and the reason is `converge`.** The first version
+            // only printed to stderr and returned `Ok(())` — but the `store.update`
+            // above already persisted the value, and `stack apply`'s
+            // `container::converge` delegates to this same path. Result: the apply
+            // stamped `last-applied`, the following `stack plan --detailed-exitcode`
+            // answered 0, and the CI drift gate stayed green over a containment
+            // barrier the kernel does not know. Caught on the `delonix-runtime-sec`
+            // pass over this series.
             //
-            // O registo FICA actualizado de propósito (o próximo `start`
-            // reconstrói o cgroup a partir dele e aí o limite passa a valer); o
-            // que não pode acontecer é o comando dizer que está feito.
+            // The record STAYS updated on purpose (the next `start` rebuilds the
+            // cgroup from it and the limit then takes effect); what cannot happen
+            // is the command claiming it is done.
             runtime::LimitUpdate::NotEnforced => {
                 return Err(delonix_model::Error::Invalid(super::po::tf(
                     "{name}: recorded (memory={memory}, cpus={cpus}) but NOT enforced — \
@@ -8207,7 +8639,7 @@ fn cmd_init(
     )
 }
 
-// ============================ health check contínuo ============================
+// =========================== continuous health check ===========================
 
 /// Builds the [`HealthConfig`] from the `--health-*` flags, or `None` when the
 /// user asked for no monitoring at all.
@@ -8799,17 +9231,17 @@ fn health_monitor_loop(id: String, cfg: HealthConfig) {
 
 #[cfg(test)]
 mod fmt_ports_tests {
-    /// Uma spec com endereço de host tem DOIS dois-pontos, e cortar no primeiro
-    /// troca as duas portas de sítio.
+    /// A spec with a host address has TWO colons, and cutting at the first
+    /// swaps the two ports around.
     ///
-    /// Medido ao vivo antes da correcção, sobre um serviço publicado por compose
-    /// em `127.0.0.1:19555:80`: a coluna PORTS dizia `127.0.0.1->19555:80/tcp` e
-    /// o `container port` dizia **`19555:80/tcp -> 0.0.0.0:127.0.0.1`** — um
-    /// endereço que não existe, na saída que se lê para decidir se um serviço
-    /// está exposto. O bug era alcançável pelo CLI desde que o `-p` passou a
-    /// aceitar host-IP; ficou visível quando o compose deixou de os recusar.
+    /// Measured live before the fix, on a service published by compose at
+    /// `127.0.0.1:19555:80`: the PORTS column said `127.0.0.1->19555:80/tcp` and
+    /// `container port` said **`19555:80/tcp -> 0.0.0.0:127.0.0.1`** — an address
+    /// that does not exist, in the output you read to decide whether a service is
+    /// exposed. The bug was reachable from the CLI ever since `-p` started
+    /// accepting a host-IP; it became visible when compose stopped refusing them.
     #[test]
-    fn uma_spec_com_endereco_de_host_nao_troca_as_portas() {
+    fn a_spec_with_a_host_address_does_not_swap_the_ports() {
         assert_eq!(
             super::fmt_ports(&["127.0.0.1:19555:80".to_string()]),
             "127.0.0.1:19555->80/tcp"
@@ -8844,11 +9276,11 @@ mod fmt_ports_tests {
         );
     }
 
-    /// As formas SEM endereço mantêm-se byte a byte — incluindo a omissão
-    /// deliberada do `0.0.0.0`, que existe para não afirmar uma exposição que
-    /// depende do caminho de publicação e do `DELONIX_PUBLISH_ADDR`.
+    /// The forms WITHOUT an address stay byte for byte — including the deliberate
+    /// omission of `0.0.0.0`, which exists so as not to assert an exposure that
+    /// depends on the publish path and on `DELONIX_PUBLISH_ADDR`.
     #[test]
-    fn as_formas_sem_endereco_ficam_como_estavam() {
+    fn the_forms_without_an_address_stay_as_they_were() {
         assert_eq!(super::fmt_ports(&["8080:80".to_string()]), "8080->80/tcp");
         assert_eq!(
             super::fmt_ports(&["8080:80/udp".to_string()]),
@@ -8876,30 +9308,30 @@ mod unconverged_container_tests {
         }
     }
 
-    /// O aviso tem de NOMEAR o que não é comparado — é a diferença entre um plano
-    /// honesto e um que diz «no changes» sobre um `env` mudado à mão.
+    /// The warning has to NAME what is not compared — it is the difference between
+    /// an honest plan and one that says «no changes» over an `env` changed by hand.
     #[test]
-    fn nomeia_os_campos_declarados_que_nao_sao_comparados() {
+    fn names_the_declared_fields_that_are_not_compared() {
         let c = unconverged_fields_condition(
             &doc("image: alpine\nenv: [A=1]\nuser: '1000'\ncapAdd: [NET_ADMIN]\n"),
             None,
         )
-        .expect("um manifesto com env/user/capAdd tem de avisar");
-        for esperado in ["env", "user", "capAdd"] {
+        .expect("a manifest with env/user/capAdd must warn");
+        for expected in ["env", "user", "capAdd"] {
             assert!(
-                c.message.contains(esperado),
-                "'{esperado}' não foi nomeado: {}",
+                c.message.contains(expected),
+                "'{expected}' was not named: {}",
                 c.message
             );
         }
     }
 
-    /// **Nenhum campo COMPARADO pode aparecer na lista** — senão o aviso diz que
-    /// algo não é aplicado quando é, e mandava recriar um container à toa. É o
-    /// mesmo par de asserções que o `Vm` tem, e é o que torna a derivação da
-    /// constante uma garantia em vez de uma intenção.
+    /// **No COMPARED field may appear in the list** — otherwise the warning says
+    /// something is not applied when it is, and would recreate a container for
+    /// nothing. It is the same pair of assertions the `Vm` has, and it is what
+    /// makes deriving the constant a guarantee instead of an intention.
     #[test]
-    fn nunca_lista_um_campo_que_e_comparado() {
+    fn never_lists_a_field_that_is_compared() {
         let spec = format!(
             "{}\nenv: [A=1]\n",
             RECONCILED_CONTAINER_FIELDS
@@ -8908,30 +9340,30 @@ mod unconverged_container_tests {
                 .collect::<Vec<_>>()
                 .join("\n")
         );
-        let c = unconverged_fields_condition(&doc(&spec), None).expect("o env tem de avisar");
-        // Só a PRIMEIRA lista (a dos não-aplicados). A mensagem traz as duas de
-        // propósito — a segunda diz o que É comparado — e olhar para a frase
-        // inteira faria este teste falhar sobre o texto que existe para ajudar.
-        let listados = c
+        let c = unconverged_fields_condition(&doc(&spec), None).expect("the env must warn");
+        // Only the FIRST list (the not-applied one). The message carries both on
+        // purpose — the second says what IS compared — and looking at the whole
+        // sentence would make this test fail over the text that exists to help.
+        let listed = c
             .message
             .split("container: ")
             .nth(1)
             .and_then(|s| s.split(" — ").next())
-            .expect("a mensagem tem de trazer a lista antes do travessão");
-        for comparado in RECONCILED_CONTAINER_FIELDS {
+            .expect("the message must carry the list before the dash");
+        for compared in RECONCILED_CONTAINER_FIELDS {
             assert!(
-                !listados.split(", ").any(|f| f == *comparado),
-                "'{comparado}' é comparado e não devia estar na lista: {listados}"
+                !listed.split(", ").any(|f| f == *compared),
+                "'{compared}' is compared and should not be in the list: {listed}"
             );
         }
     }
 
-    /// Um manifesto que declara SÓ o que é comparado não tem nada a avisar — e um
-    /// aviso que dispara sobre um manifesto correcto é como as pessoas aprendem a
-    /// não ler avisos. O `detach` conta como nada a dizer: é o modo de invocação
-    /// de quem cria, não estado que um container a correr possa ter divergido.
+    /// A manifest that declares ONLY what is compared has nothing to warn about —
+    /// and a warning that fires over a correct manifest is how people learn not to
+    /// read warnings. `detach` counts as nothing to say: it is the invocation mode
+    /// of whoever creates, not state a running container could have diverged on.
     #[test]
-    fn um_manifesto_so_com_campos_comparados_nao_avisa() {
+    fn a_manifest_with_only_compared_fields_does_not_warn() {
         assert!(
             unconverged_fields_condition(&doc("image: alpine\nports: ['80:80']\n"), None).is_none()
         );
@@ -9024,6 +9456,42 @@ mod runspec_single_builder_tests {
 
 #[cfg(test)]
 mod tests {
+    /// `--pod <name>` is the CLI's imperative pod join (Podman parity). The flag
+    /// carries the pod NAME, but the engine treats the `pod` field as the pod's
+    /// NETNS name everywhere downstream — so `run_opts_from_args` must translate
+    /// it (bug: the join opened a netns named after the pod, not `pod-<name>`,
+    /// and died). A pod owns its network, so pairing `--pod` with an explicit
+    /// `--net <network>` is refused rather than letting `--net` silently win.
+    #[test]
+    fn pod_flag_becomes_netns_name_and_refuses_an_explicit_net() {
+        use clap::Parser;
+        #[derive(Parser)]
+        struct T {
+            #[command(flatten)]
+            args: super::RunArgs,
+        }
+        let parse = |argv: &[&str]| T::try_parse_from(argv).unwrap().args;
+
+        // `--pod wp` alone → the pod's netns name, `pod-wp`.
+        let joined = super::run_opts_from_args(parse(&["run", "--pod", "wp", "busybox"]), false)
+            .expect("`--pod` alone is valid");
+        assert_eq!(joined.pod.as_deref(), Some("pod-wp"));
+
+        // No `--pod` → no pod membership.
+        let plain = super::run_opts_from_args(parse(&["run", "busybox"]), false).unwrap();
+        assert!(plain.pod.is_none());
+
+        // `--pod` + a custom `--net` → refused (mutually exclusive).
+        let clash = super::run_opts_from_args(
+            parse(&["run", "--net", "mynet", "--pod", "wp", "busybox"]),
+            false,
+        );
+        assert!(
+            clash.is_err(),
+            "--pod with an explicit --net <network> must be refused, not silently ignored"
+        );
+    }
+
     /// Relative bind sources are anchored to the caller's CWD before the 2nd
     /// pass (which runs elsewhere); named volumes and absolute paths are not
     /// touched, and neither is the rest of the spec (`:ro`).
@@ -9108,7 +9576,7 @@ mod tests {
     /// the compared fields and asserts the two maps are equal. It fails if
     /// either side changes alone, which is the point.
     #[test]
-    fn manifesto_inalterado_nao_produz_diferenca_nenhuma() {
+    fn unchanged_manifest_produces_no_difference_at_all() {
         let spec = super::ContainerSpec {
             image: "nginx:1.27".into(),
             ports: vec!["8080:80".into()],
@@ -9206,7 +9674,7 @@ mod tests {
     /// direction: it CREATES the volume, and computing a plan must not create
     /// anything.
     #[test]
-    fn mount_to_spec_devolve_o_nome_do_volume_e_o_caminho_de_um_bind() {
+    fn mount_to_spec_returns_the_volume_name_and_a_bind_path() {
         let root = std::path::Path::new("/var/lib/delonix/volumes");
         let named = delonix_compute::Mount {
             source: "/var/lib/delonix/volumes/dados/_data".into(),
@@ -9321,7 +9789,7 @@ mod tests {
     /// a change and, because `ports` is hot but `volumes` ordering would drag in
     /// a full-list diff, it would read far more alarming than it is.
     #[test]
-    fn a_ordem_das_portas_no_manifesto_nao_e_uma_alteracao() {
+    fn the_order_of_ports_in_the_manifest_is_not_a_change() {
         let mk = |ports: Vec<&str>| super::ContainerSpec {
             ports: ports.into_iter().map(String::from).collect(),
             ..serde_yaml::from_str::<super::ContainerSpec>("image: nginx").unwrap()
@@ -9400,11 +9868,11 @@ ports: [\"0.0.0.0:8080:80\"]",
         );
     }
 
-    /// `hostAliases` do k8s (um IP, N nomes) tem de dar o mesmo resultado que
-    /// N `--add-host`. Sem isto, o MESMO `kind: Container` tinha a
-    /// funcionalidade na forma plana e não na forma k8s.
+    /// k8s `hostAliases` (one IP, N names) has to give the same result as
+    /// N `--add-host`. Without this, the SAME `kind: Container` had the
+    /// feature in the flat form and not in the k8s form.
     #[test]
-    fn host_alias_k8s_converte_para_add_host() {
+    fn host_alias_k8s_converts_to_add_host() {
         let a = super::HostAlias {
             ip: "10.0.0.9".into(),
             hostnames: vec!["meet.local".into(), "erp.local".into()],
@@ -9413,13 +9881,13 @@ ports: [\"0.0.0.0:8080:80\"]",
             a.to_add_host().unwrap(),
             vec!["meet.local:10.0.0.9", "erp.local:10.0.0.9"]
         );
-        // Passa pelo MESMO validador — um IP inválido falha aqui também.
-        let mau = super::HostAlias {
-            ip: "nao-e-ip".into(),
+        // Goes through the SAME validator — an invalid IP fails here too.
+        let bad = super::HostAlias {
+            ip: "not-an-ip".into(),
             hostnames: vec!["x.local".into()],
         };
-        assert!(mau.to_add_host().is_err());
-        // E a injecção também.
+        assert!(bad.to_add_host().is_err());
+        // And injection too.
         let inj = super::HostAlias {
             ip: "10.0.0.9".into(),
             hostnames: vec!["a\nb 9.9.9.9 evil".into()],
@@ -9427,25 +9895,25 @@ ports: [\"0.0.0.0:8080:80\"]",
         assert!(inj.to_add_host().is_err());
     }
 
-    /// O `\n` era o que armava a escrita de conteúdo arbitrário fora do
-    /// rootfs (achado ALTO, provado ao vivo antes desta correcção): permitia
-    /// injectar linhas no `/etc/hosts`, e um symlink plantado pela imagem
-    /// levava-as para um caminho do host.
+    /// The `\n` was what armed writing arbitrary content outside the
+    /// rootfs (HIGH finding, proven live before this fix): it allowed
+    /// injecting lines into `/etc/hosts`, and a symlink planted by the image
+    /// carried them to a host path.
     #[test]
-    fn parse_add_host_recusa_injeccao_e_exige_ip() {
+    fn parse_add_host_refuses_injection_and_requires_ip() {
         use super::parse_add_host as p;
-        // O exploit exacto do revisor.
-        assert!(p("x:1.2.3.4\nLINHA-ARBITRARIA\n#").is_err());
+        // The reviewer's exact exploit.
+        assert!(p("x:1.2.3.4\nARBITRARY-LINE\n#").is_err());
         assert!(p("x:1.2.3.4 evil\n9.9.9.9 deb.debian.org").is_err());
-        // Espaço = alias no formato do /etc/hosts: uma entrada mapeava N nomes.
+        // Space = alias in the /etc/hosts format: one entry mapped N names.
         assert!(p("registry-1.docker.io deb.debian.org:10.66.66.66").is_err());
         assert!(p("a\tb:1.2.3.4").is_err());
-        // O endereço TEM de ser um IP — antes escrevia-se o que viesse.
-        assert!(p("nome:isto-nao-e-ip").is_err());
-        assert!(p("10.0.0.9:meet.local").is_err()); // ordem trocada
-        assert!(p("semseparador").is_err());
-        assert!(p(":10.0.0.1").is_err()); // nome vazio
-                                          // Válidos, incluindo IPv6 (é por isso que se parte pelo ÚLTIMO `:`).
+        // The address MUST be an IP — before, whatever came in was written.
+        assert!(p("name:this-is-not-an-ip").is_err());
+        assert!(p("10.0.0.9:meet.local").is_err()); // swapped order
+        assert!(p("noseparator").is_err());
+        assert!(p(":10.0.0.1").is_err()); // empty name
+                                          // Valid, including IPv6 (this is why we split on the LAST `:`).
         assert_eq!(
             p("meet.kaeso.local:10.0.0.9").unwrap(),
             ("meet.kaeso.local".into(), "10.0.0.9".into())
@@ -9454,14 +9922,14 @@ ports: [\"0.0.0.0:8080:80\"]",
             p("db:2001:db8::1").unwrap(),
             ("db".into(), "2001:db8::1".into())
         );
-        // A forma `=` foi removida: partia IPv6 em silêncio.
+        // The `=` form was removed: it split IPv6 silently.
         assert!(p("db=2001:db8::1").is_err());
     }
 
-    /// A degradação de rede tem de ser DISTINGUÍVEL de uma escolha
-    /// deliberada. Antes disto, os três casos abaixo diziam todos "host".
+    /// Network degradation has to be DISTINGUISHABLE from a deliberate
+    /// choice. Before this, the three cases below all said "host".
     #[test]
-    fn net_mode_display_separa_degradacao_de_escolha() {
+    fn net_mode_display_separates_degradation_from_choice() {
         let base = |net_mode: Option<&str>, network: Option<&str>| {
             let mut c = delonix_compute::Container::new(
                 "id".into(),
@@ -9474,72 +9942,72 @@ ports: [\"0.0.0.0:8080:80\"]",
             c.network = network.map(str::to_string);
             c
         };
-        // Ligado: mostra a rede.
+        // Attached: shows the network.
         assert_eq!(
             super::net_mode_display(&base(Some("dev"), Some("dev"))),
             "dev"
         );
-        // Escolhas deliberadas: sem alarme.
+        // Deliberate choices: no alarm.
         assert_eq!(super::net_mode_display(&base(Some("host"), None)), "host");
         assert_eq!(super::net_mode_display(&base(Some("none"), None)), "none");
-        // O caso que estava mudo: pediu rede, não a tem.
+        // The case that was mute: asked for a network, does not have it.
         assert_eq!(
             super::net_mode_display(&base(Some("dev"), None)),
             "host (degraded: asked for 'dev')"
         );
-        // Registo antigo (sem o campo): não inventa intenção.
+        // Old record (without the field): does not invent intent.
         assert_eq!(super::net_mode_display(&base(None, None)), "host");
     }
 
-    /// O supervisor é o que torna o exit code de um container `-d` conhecível:
-    /// `waitpid` é a única fonte de um estado real e o kernel só o dá ao PAI.
-    /// Sem supervisor o CLI saía, o container era reparentado ao `init`, e o
-    /// código morria com ele — `Exited (unknown)`.
+    /// The supervisor is what makes the exit code of a `-d` container knowable:
+    /// `waitpid` is the only source of real state and the kernel only gives it
+    /// to the PARENT. Without a supervisor the CLI exited, the container was
+    /// reparented to `init`, and the code died with it — `Exited (unknown)`.
     #[test]
-    fn supervisiona_todo_o_detached_excepto_quem_nao_pode_fazer_fork() {
+    fn supervises_everything_detached_except_who_cannot_fork() {
         use super::should_supervise;
-        // Detached, com ou sem política: supervisiona (a política só decide o
-        // que o supervisor FAZ depois da morte, não se existe).
+        // Detached, with or without a policy: supervise (the policy only decides
+        // what the supervisor DOES after death, not whether it exists).
         for pol in ["", "no", "always", "on-failure:3", "unless-stopped"] {
             assert!(
                 should_supervise(pol, true, true),
-                "política {pol:?} devia ser supervisionada em -d"
+                "policy {pol:?} should be supervised under -d"
             );
         }
-        // Em primeiro plano o CLI JÁ é o pai — não há nada a resolver.
+        // In the foreground the CLI IS already the parent — nothing to resolve.
         assert!(!should_supervise("always", false, true));
-        // Chamador que não pode fazer fork em segurança (o servidor docker-api,
-        // multi-thread): mantém o comportamento antigo em vez de arriscar um
-        // fork de um processo com threads.
+        // Caller that cannot fork safely (the multi-threaded docker-api server):
+        // keeps the old behavior instead of risking a fork of a threaded
+        // process.
         assert!(!should_supervise("", true, false));
         assert!(!should_supervise("always", true, false));
     }
 
-    /// O tecto ABSOLUTO de I/O (`--device-read-bps` & família) — o que o
-    /// `io.weight` não dá: sozinho na máquina, um container com peso continua a
-    /// saturar o disco e a esfomear o journald/store/swap do host.
+    /// The ABSOLUTE I/O ceiling (`--device-read-bps` & family) — what `io.weight`
+    /// does not give: alone on the machine, a weighted container still saturates
+    /// the disk and starves the host's journald/store/swap.
     #[test]
-    fn compoe_o_io_max_a_partir_das_quatro_flags() {
-        // Só leitura.
+    fn composes_io_max_from_the_four_flags() {
+        // Read only.
         assert_eq!(
             compose_io_max(Some("10mb"), None, None, None).unwrap(),
             Some("rbps=10485760".to_string())
         );
-        // Os quatro, pela ordem canónica do cgroup-v2.
+        // All four, in the cgroup-v2 canonical order.
         assert_eq!(
             compose_io_max(Some("1m"), Some("2m"), Some("100"), Some("200")).unwrap(),
             Some("rbps=1048576 wbps=2097152 riops=100 wiops=200".to_string())
         );
-        // Nenhuma flag → sem linha `io.max` nenhuma (não escrever é diferente de
-        // escrever "max").
+        // No flag → no `io.max` line at all (not writing differs from writing
+        // "max").
         assert_eq!(compose_io_max(None, None, None, None).unwrap(), None);
     }
 
-    /// Sintaxe do Docker (`<device>:<rate>`) aceite; o device é IGNORADO de
-    /// propósito — as escritas de um container só chegam ao disco do store, e
-    /// aceitar outro seria aceitar uma instrução que o motor não pode honrar.
+    /// Docker syntax (`<device>:<rate>`) accepted; the device is IGNORED on
+    /// purpose — a container's writes only reach the store's disk, and accepting
+    /// another would be accepting an instruction the engine cannot honor.
     #[test]
-    fn parse_io_rate_aceita_a_sintaxe_docker_e_ignora_o_device() {
+    fn parse_io_rate_accepts_docker_syntax_and_ignores_the_device() {
         assert_eq!(
             parse_io_rate("/dev/sda:10mb", true).unwrap(),
             10 * 1024 * 1024
@@ -9550,20 +10018,20 @@ ports: [\"0.0.0.0:8080:80\"]",
         assert_eq!(parse_io_rate("/dev/nvme0n1:500", false).unwrap(), 500);
     }
 
-    /// Fail-closed no input: um valor absurdo NUNCA pode virar `u64::MAX` — um
-    /// limite que se lê como definido e é limite nenhum (a mesma armadilha do
-    /// `as u64` saturante que a quota de volumes já pagou).
+    /// Fail-closed on input: an absurd value can NEVER become `u64::MAX` — a
+    /// limit that reads as set and is no limit at all (the same trap of the
+    /// saturating `as u64` the volume quota already paid).
     #[test]
-    fn parse_io_rate_recusa_input_invalido_em_vez_de_saturar() {
+    fn parse_io_rate_refuses_invalid_input_instead_of_saturating() {
         for bad in ["", "abc", "0", "-5", "99999999999t", "10xb"] {
             assert!(
                 parse_io_rate(bad, true).is_err(),
-                "aceitou o valor inválido {bad:?}"
+                "accepted the invalid value {bad:?}"
             );
         }
-        // IOPS não leva sufixos de tamanho.
+        // IOPS does not take size suffixes.
         assert!(parse_io_rate("10mb", false).is_err());
-        // E o erro nomeia a flag, para o utilizador saber qual corrigir.
+        // And the error names the flag, so the user knows which one to fix.
         let e = compose_io_max(None, Some("xpto"), None, None).unwrap_err();
         assert!(e.contains("--device-write-bps"), "{e}");
     }
@@ -9623,7 +10091,7 @@ ports: [\"0.0.0.0:8080:80\"]",
     }
 
     #[test]
-    fn parse_signal_aceita_nome_numero_e_variantes_de_maiusculas() {
+    fn parse_signal_accepts_name_number_and_case_variants() {
         assert_eq!(parse_signal("9").unwrap(), libc::SIGKILL);
         assert_eq!(parse_signal("KILL").unwrap(), libc::SIGKILL);
         assert_eq!(parse_signal("kill").unwrap(), libc::SIGKILL);
@@ -9634,7 +10102,7 @@ ports: [\"0.0.0.0:8080:80\"]",
     }
 
     #[test]
-    fn parse_cri_log_line_reconhece_o_formato_e_rejeita_texto_cru() {
+    fn parse_cri_log_line_recognizes_the_format_and_rejects_raw_text() {
         let (ts, body) =
             parse_cri_log_line("2026-07-26T15:30:00.123456789Z stdout F hello world").unwrap();
         assert_eq!(ts, "2026-07-26T15:30:00.123456789Z");
@@ -9649,7 +10117,7 @@ ports: [\"0.0.0.0:8080:80\"]",
     /// of this function is that its output has to be lexicographically
     /// comparable against a REAL CRI log line's own timestamp text.
     #[test]
-    fn unix_secs_to_rfc3339_prefix_bate_com_date_u() {
+    fn unix_secs_to_rfc3339_prefix_matches_date_u() {
         assert_eq!(unix_secs_to_rfc3339_prefix(0), "1970-01-01T00:00:00");
         assert_eq!(
             unix_secs_to_rfc3339_prefix(1_700_000_000),
@@ -9662,7 +10130,7 @@ ports: [\"0.0.0.0:8080:80\"]",
     }
 
     #[test]
-    fn since_prefix_e_menor_ou_igual_a_um_timestamp_real_do_mesmo_segundo() {
+    fn since_prefix_is_less_than_or_equal_to_a_real_timestamp_of_the_same_second() {
         // The actual property `--since` relies on: a bare-seconds prefix must
         // compare <= any real (fractional-nanosecond) CRI timestamp for that
         // same second, so `ts >= threshold` includes the whole second.
@@ -9674,26 +10142,26 @@ ports: [\"0.0.0.0:8080:80\"]",
     }
 
     #[test]
-    fn containerspec_aceita_restart_legado_e_restartpolicy_canonico() {
-        let legado: ContainerSpec =
+    fn containerspec_accepts_legacy_restart_and_canonical_restartpolicy() {
+        let legacy: ContainerSpec =
             serde_yaml::from_str("image: alpine\nrestart: always\n").unwrap();
-        assert_eq!(legado.restart, "always");
+        assert_eq!(legacy.restart, "always");
         let canon: ContainerSpec =
             serde_yaml::from_str("image: alpine\nrestartPolicy: always\n").unwrap();
         assert_eq!(canon.restart, "always");
         // Without the field → the default `no`.
-        let vazio: ContainerSpec = serde_yaml::from_str("image: alpine\n").unwrap();
-        assert_eq!(vazio.restart, "no");
+        let empty: ContainerSpec = serde_yaml::from_str("image: alpine\n").unwrap();
+        assert_eq!(empty.restart, "no");
     }
 
-    /// BUG REAL, apanhado a gerar o JSON Schema e presente num exemplo
-    /// PUBLICADO (`examples/networking/dependency.yaml`): `env: { K: v }` — a forma que
-    /// qualquer pessoa vinda do compose ou do k8s escreve — era aceite e
-    /// silenciosamente DESCARTADA, porque o `env` era removido antes de se
-    /// verificar se a mapping era mesmo a forma agrupada. O Postgres do exemplo
-    /// arrancava sem password nenhuma.
+    /// REAL BUG, caught generating the JSON Schema and present in a PUBLISHED
+    /// example (`examples/networking/dependency.yaml`): `env: { K: v }` — the
+    /// form anyone coming from compose or k8s writes — was accepted and silently
+    /// DISCARDED, because `env` was removed before checking whether the mapping
+    /// really was the grouped form. The example's Postgres started with no
+    /// password at all.
     #[test]
-    fn env_como_mapa_simples_nao_e_descartado() {
+    fn env_as_a_simple_map_is_not_discarded() {
         let v: serde_yaml::Value =
             serde_yaml::from_str("image: postgres:16\nenv: { POSTGRES_PASSWORD: dev, DEBUG: 1 }\n")
                 .unwrap();
@@ -9710,12 +10178,12 @@ ports: [\"0.0.0.0:8080:80\"]",
         );
     }
 
-    /// ...e a forma AGRUPADA continua a ser a forma agrupada. É a presença de
-    /// uma das quatro chaves conhecidas que a identifica, não o facto de ser
-    /// uma mapping — senão a correcção acima trocaria uma perda silenciosa por
-    /// outra.
+    /// ...and the GROUPED form stays the grouped form. It is the presence of
+    /// one of the four known keys that identifies it, not the fact of being a
+    /// mapping — otherwise the fix above would trade one silent loss for
+    /// another.
     #[test]
-    fn env_agrupado_continua_a_ser_hoisteado() {
+    fn grouped_env_still_gets_hoisted() {
         let v: serde_yaml::Value = serde_yaml::from_str(
             "image: nginx\nenv:\n  vars: [K=v]\n  files: [.env]\n  secretFiles: true\n",
         )
@@ -9732,14 +10200,14 @@ ports: [\"0.0.0.0:8080:80\"]",
     }
 
     #[test]
-    fn normalize_container_spec_deixa_a_forma_plana_intacta() {
+    fn normalize_container_spec_leaves_the_flat_form_intact() {
         let flat: serde_yaml::Value =
             serde_yaml::from_str("image: nginx\nnetwork: host\nenv: [K=v]\nmemory: 1G\n").unwrap();
         assert_eq!(flat.clone(), normalize_container_spec(flat));
     }
 
     #[test]
-    fn normalize_container_spec_hoisteia_todos_os_grupos() {
+    fn normalize_container_spec_hoists_all_the_groups() {
         let grouped: serde_yaml::Value = serde_yaml::from_str(
             "image: nginx\n\
              resources:\n\
@@ -9784,31 +10252,31 @@ ports: [\"0.0.0.0:8080:80\"]",
     }
 
     #[test]
-    fn sub_chave_desconhecida_no_grupo_e_reportada() {
+    fn unknown_sub_key_in_the_group_is_reported() {
         use super::unknown_group_keys;
         let v: serde_yaml::Value = serde_yaml::from_str(
-            "image: nginx\nresources:\n  memoria: 128M\nsecurity:\n  privileged: true\n",
+            "image: nginx\nresources:\n  bogus: 128M\nsecurity:\n  privileged: true\n",
         )
         .unwrap();
-        assert_eq!(unknown_group_keys(&v), vec!["resources.memoria"]);
+        assert_eq!(unknown_group_keys(&v), vec!["resources.bogus"]);
     }
 
-    /// `env: {KEY: value}` é a forma que quem vem do compose escreve, e cada
-    /// chave ali é uma variável do utilizador — avisar sobre elas seria ruído em
-    /// cima de um manifesto correcto. Só a forma AGRUPADA é verificada.
+    /// `env: {KEY: value}` is the form whoever comes from compose writes, and
+    /// each key there is a user variable — warning about them would be noise on
+    /// top of a correct manifest. Only the GROUPED form is checked.
     #[test]
-    fn env_plano_nao_gera_avisos() {
+    fn flat_env_generates_no_warnings() {
         use super::unknown_group_keys;
-        let plano: serde_yaml::Value =
+        let flat: serde_yaml::Value =
             serde_yaml::from_str("image: nginx\nenv:\n  POSTGRES_PASSWORD: dev\n").unwrap();
-        assert!(unknown_group_keys(&plano).is_empty());
-        let agrupado: serde_yaml::Value =
-            serde_yaml::from_str("image: nginx\nenv:\n  vars: [A=1]\n  ficheiros: x\n").unwrap();
-        assert_eq!(unknown_group_keys(&agrupado), vec!["env.ficheiros"]);
+        assert!(unknown_group_keys(&flat).is_empty());
+        let grouped: serde_yaml::Value =
+            serde_yaml::from_str("image: nginx\nenv:\n  vars: [A=1]\n  bogus: x\n").unwrap();
+        assert_eq!(unknown_group_keys(&grouped), vec!["env.bogus"]);
     }
 
     #[test]
-    fn normalize_container_spec_forma_plana_explicita_ganha_ao_grupo() {
+    fn normalize_container_spec_explicit_flat_form_wins_over_the_group() {
         let mixed: serde_yaml::Value = serde_yaml::from_str(
             "image: nginx\nmemory: 2G\nresources:\n  memory: 512M\n  cpus: \"4.0\"\n",
         )
@@ -9817,12 +10285,12 @@ ports: [\"0.0.0.0:8080:80\"]",
         assert_eq!(
             spec.memory.as_deref(),
             Some("2G"),
-            "o memory plano explícito devia ganhar"
+            "the explicit flat memory should win"
         );
         assert_eq!(
             spec.cpus.as_deref(),
             Some("4.0"),
-            "sem colisão, o do grupo aplica-se"
+            "with no collision, the group's one applies"
         );
     }
 
@@ -9830,7 +10298,7 @@ ports: [\"0.0.0.0:8080:80\"]",
         xs.iter().map(|s| s.to_string()).collect()
     }
 
-    fn c_com_extras(idxs: &[u32]) -> Container {
+    fn c_with_extras(idxs: &[u32]) -> Container {
         let mut c = Container::new(
             "id".into(),
             "t".into(),
@@ -9856,7 +10324,7 @@ ports: [\"0.0.0.0:8080:80\"]",
     /// editing the record.
     #[test]
     fn the_containers_namespace_wins_over_a_stale_record() {
-        let mut c = c_com_extras(&[]);
+        let mut c = c_with_extras(&[]);
         c.namespace = "teama".into();
         c.firewall = Some(delonix_model::records::ContainerFw {
             enabled: true,
@@ -9892,32 +10360,32 @@ ports: [\"0.0.0.0:8080:80\"]",
     #[test]
     fn extra_network_index_starts_at_1_and_reuses_holes() {
         // eth0 is always the primary network, so the extras start at 1.
-        assert_eq!(next_extra_idx(&c_com_extras(&[])), 1);
-        assert_eq!(next_extra_idx(&c_com_extras(&[1, 2])), 3);
+        assert_eq!(next_extra_idx(&c_with_extras(&[])), 1);
+        assert_eq!(next_extra_idx(&c_with_extras(&[1, 2])), 3);
         // A --net-disconnect of the middle one leaves a hole: it's reused, otherwise
         // the index would climb forever and the interface names would drift off eth1..N.
-        assert_eq!(next_extra_idx(&c_com_extras(&[1, 3])), 2);
+        assert_eq!(next_extra_idx(&c_with_extras(&[1, 3])), 2);
     }
 
     #[test]
-    fn cp_distingue_container_de_caminho_de_host() {
+    fn cp_distinguishes_container_from_host_path() {
         use super::split_cp_arg;
         assert_eq!(
             split_cp_arg("web:/etc/conf"),
             Some(("web".into(), "/etc/conf".into()))
         );
         assert_eq!(
-            split_cp_arg("web:relativo"),
-            Some(("web".into(), "relativo".into()))
+            split_cp_arg("web:relative"),
+            Some(("web".into(), "relative".into()))
         );
         // Pure host paths.
         assert_eq!(split_cp_arg("/tmp/x"), None);
-        assert_eq!(split_cp_arg("ficheiro.txt"), None);
+        assert_eq!(split_cp_arg("file.txt"), None);
         // The ':' MUST come before any '/', otherwise a host path with a colon in
-        // the name (`./a:b/c`, `/mnt/disco:1/f`) would be read as a container named
+        // the name (`./a:b/c`, `/mnt/disk:1/f`) would be read as a container named
         // "./a" — and cp would write to the wrong place.
         assert_eq!(split_cp_arg("./a:b/c"), None);
-        assert_eq!(split_cp_arg("/mnt/disco:1/f"), None);
+        assert_eq!(split_cp_arg("/mnt/disk:1/f"), None);
         // An empty name is not a container.
         assert_eq!(split_cp_arg(":/etc"), None);
     }
@@ -9930,7 +10398,7 @@ ports: [\"0.0.0.0:8080:80\"]",
     /// container that shipped `secret -> /etc/shadow` copied the HOST file's
     /// bytes out. The fix copies the LINK itself; the target is never read.
     #[test]
-    fn cp_nao_segue_symlink_do_container_para_fora() {
+    fn cp_does_not_follow_a_container_symlink_outward() {
         use std::os::unix::fs::symlink;
         let tmp = tempfile::tempdir().unwrap();
         // A host secret OUTSIDE any container rootfs.
@@ -9962,7 +10430,7 @@ ports: [\"0.0.0.0:8080:80\"]",
     /// `hook -> /host/victim` let `cp file container:/hook` overwrite the host
     /// file. The fix unlinks the planted symlink first and writes a real node.
     #[test]
-    fn cp_nao_escreve_atraves_de_symlink_no_destino() {
+    fn cp_does_not_write_through_a_symlink_at_the_destination() {
         use std::os::unix::fs::symlink;
         let tmp = tempfile::tempdir().unwrap();
         let victim = tmp.path().join("host-victim");
@@ -9993,7 +10461,7 @@ ports: [\"0.0.0.0:8080:80\"]",
     /// WITHIN the rootfs (an absolute target restarts at the rootfs, never at the
     /// host `/`). This is the `safe_bind_target` reuse the `cp` fix relies on.
     #[test]
-    fn cp_confina_dot_dot_e_symlink_do_caminho_do_container() {
+    fn cp_confines_dot_dot_and_symlink_of_the_container_path() {
         use std::os::unix::fs::symlink;
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().join("rootfs");
@@ -10011,7 +10479,7 @@ ports: [\"0.0.0.0:8080:80\"]",
     }
 
     #[test]
-    fn valid_container_name_recusa_pontos_e_outros_exploits() {
+    fn valid_container_name_refuses_dots_and_other_exploits() {
         // HIGH fixed here: a dotted name is indistinguishable from an
         // external FQDN to the DNS resolver's whole-name match — reject it.
         assert!(!valid_container_name("registry.npmjs.org"));
@@ -10037,7 +10505,7 @@ ports: [\"0.0.0.0:8080:80\"]",
     }
 
     #[test]
-    fn status_no_formato_do_docker_ps() {
+    fn status_in_docker_ps_format() {
         assert_eq!(fmt_status(&Status::Running, Some(300)), "Up 5 minutes");
         assert_eq!(
             fmt_status(&Status::Paused, Some(300)),
@@ -10458,7 +10926,7 @@ containers:
     }
 
     #[test]
-    fn reexec_env_fixa_o_root_e_o_runtime_dir_dos_sockets() {
+    fn reexec_env_pins_the_root_and_the_sockets_runtime_dir() {
         let env = reexec_env("abc123", "10.210.0.7");
         let names: Vec<&str> = env.iter().map(|(k, _)| k.as_str()).collect();
         assert!(names.contains(&"DELONIX_REEXEC_ID"), "{names:?}");
@@ -10479,7 +10947,7 @@ containers:
         assert_eq!(got, rt_dir.into_os_string());
     }
 
-    // ---- health check contínuo ----
+    // ---- continuous health check ----
 
     use super::{
         apply_probe, fmt_status_of, health_opts, health_probe_argv, parse_health_net,
@@ -10496,10 +10964,10 @@ containers:
     }
 
     #[test]
-    fn health_opts_so_liga_quando_o_utilizador_pede() {
+    fn health_opts_only_turns_on_when_the_user_asks() {
         let d = HealthConfig::default();
-        // Só os defaults: monitorização DESLIGADA. Uma imagem com HEALTHCHECK
-        // não passa a custar um processo por intervalo só por existir.
+        // Just the defaults: monitoring OFF. An image with a HEALTHCHECK does not
+        // start costing a process per interval just by existing.
         assert!(health_opts(
             None,
             None,
@@ -10509,8 +10977,8 @@ containers:
             d.start_period_secs
         )
         .is_none());
-        // Um --health-interval sozinho basta para ligar sobre o HEALTHCHECK da
-        // imagem, sem obrigar a repetir o comando.
+        // A --health-interval on its own is enough to turn on over the image's
+        // HEALTHCHECK, without forcing the command to be repeated.
         let on = health_opts(
             None,
             None,
@@ -10539,15 +11007,15 @@ containers:
     }
 
     #[test]
-    fn health_opts_nunca_aceita_zero() {
-        // Um intervalo de 0 seria um ciclo apertado a correr um processo dentro
-        // do container para sempre — o clap aceita o número, nós não.
+    fn health_opts_never_accepts_zero() {
+        // An interval of 0 would be a tight loop running a process inside the
+        // container forever — clap accepts the number, we do not.
         let o = health_opts(Some("true".into()), None, 0, 0, 0, 0).unwrap();
         assert_eq!((o.interval_secs, o.timeout_secs, o.retries), (1, 1, 1));
     }
 
     #[test]
-    fn health_net_parse_e_conflitos() {
+    fn health_net_parse_and_conflicts() {
         // `[:]PORT[/path]` with and without sugar/path.
         assert_eq!(parse_http_spec("8080").unwrap(), (8080, "/".to_string()));
         assert_eq!(
@@ -10558,7 +11026,7 @@ containers:
             parse_http_spec("9090/livez").unwrap(),
             (9090, "/livez".to_string())
         );
-        assert!(parse_http_spec("0/x").is_err(), "porta 0 é inválida");
+        assert!(parse_http_spec("0/x").is_err(), "port 0 is invalid");
         assert!(parse_http_spec("abc").is_err());
 
         // Plain TCP: no path.
@@ -10574,13 +11042,13 @@ containers:
     }
 
     #[test]
-    fn apply_probe_precisa_de_retries_seguidos_para_ficar_unhealthy() {
+    fn apply_probe_needs_consecutive_retries_to_become_unhealthy() {
         let cfg = hc(3, 0);
         let mut st = apply_probe(None, &cfg, 1, 100, 0);
         assert_eq!(
             st.health,
             Health::Starting,
-            "1 falha de 3 ainda não é doente"
+            "1 failure out of 3 is not sick yet"
         );
         st = apply_probe(Some(&st), &cfg, 1, 100, 0);
         assert_eq!(st.health, Health::Starting);
@@ -10590,11 +11058,11 @@ containers:
     }
 
     #[test]
-    fn apply_probe_um_sucesso_zera_a_sequencia() {
+    fn apply_probe_one_success_resets_the_streak() {
         let cfg = hc(3, 0);
-        // Duas falhas, um sucesso, duas falhas: NUNCA doente. `retries` é uma
-        // sequência, não um total — um serviço que falha uma vez por hora não
-        // pode acumular até ser declarado morto.
+        // Two failures, one success, two failures: NEVER sick. `retries` is a
+        // streak, not a total — a service that fails once an hour cannot
+        // accumulate until it is declared dead.
         let mut st = apply_probe(None, &cfg, 1, 100, 0);
         st = apply_probe(Some(&st), &cfg, 1, 100, 0);
         st = apply_probe(Some(&st), &cfg, 0, 100, 0);
@@ -10606,21 +11074,22 @@ containers:
     }
 
     #[test]
-    fn apply_probe_start_period_protege_e_o_sucesso_promove_de_imediato() {
+    fn apply_probe_start_period_protects_and_success_promotes_immediately() {
         let cfg = hc(1, 60);
-        // Dentro da janela, mesmo com retries=1, uma falha não condena.
+        // Inside the window, even with retries=1, a failure does not condemn.
         let st = apply_probe(None, &cfg, 1, 10, 0);
         assert_eq!(st.health, Health::Starting);
-        // Mas um sucesso promove já — a janela é licença para falhar, não atraso.
+        // But a success promotes right away — the window is a license to fail,
+        // not a delay.
         let st = apply_probe(Some(&st), &cfg, 0, 11, 0);
         assert_eq!(st.health, Health::Healthy);
-        // Passada a janela, a mesma falha condena.
+        // Past the window, the same failure condemns.
         let st = apply_probe(Some(&st), &cfg, 1, 61, 0);
         assert_eq!(st.health, Health::Unhealthy);
     }
 
     #[test]
-    fn health_probe_argv_mata_se_a_si_proprio() {
+    fn health_probe_argv_kills_itself() {
         let a = health_probe_argv("curl -f localhost", 7);
         assert_eq!(a[0], "/bin/sh");
         assert_eq!(a[1], "-c");
@@ -10672,7 +11141,7 @@ containers:
     }
 
     #[test]
-    fn status_so_mostra_saude_de_um_container_a_correr() {
+    fn status_only_shows_health_of_a_running_container() {
         let mut c = Container::new(
             "id".into(),
             "t".into(),
@@ -10688,8 +11157,8 @@ containers:
             checked_unix: 0,
         });
         assert!(fmt_status_of(&c, Some(90)).contains("(unhealthy)"));
-        // Parado, o último veredicto deixa de ser afirmado: seria dar por
-        // presente uma observação que já não se está a fazer.
+        // Stopped, the last verdict stops being asserted: it would be treating as
+        // present an observation that is no longer being made.
         c.status = Status::Stopped;
         assert_eq!(fmt_status_of(&c, None), "Exited (0)");
     }
@@ -10725,7 +11194,7 @@ containers:
     /// `count("start") - 1` therefore undercounted every container by
     /// exactly one restart the moment it was ACTUALLY restarted once.
     #[test]
-    fn restart_counts_nao_subtrai_um_porque_o_run_nunca_emite_start() {
+    fn restart_counts_does_not_subtract_one_because_run_never_emits_start() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         delonix_node::events::emit(root, "container", "create", "c1", "c1", None);
@@ -10733,7 +11202,7 @@ containers:
         assert_eq!(
             counts.get("c1").copied().unwrap_or(0),
             0,
-            "create sozinho não é um restart"
+            "create on its own is not a restart"
         );
 
         delonix_node::events::emit(root, "container", "stop", "c1", "c1", None);
@@ -10751,7 +11220,7 @@ containers:
     /// Each container's count is independent — a `start` on `c2` must not
     /// bleed into `c1`'s row.
     #[test]
-    fn restart_counts_e_por_container() {
+    fn restart_counts_are_per_container() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
         delonix_node::events::emit(root, "container", "create", "c1", "c1", None);
@@ -10929,5 +11398,138 @@ mod rm_namespace_tests {
             resolve_rm_query(&store, "team/db", Some("other")),
             "team/db"
         );
+    }
+}
+
+#[cfg(test)]
+mod run_arg_parity_tests {
+    //! Docker/Podman parity for the `run`/`create`/`exec` positional split:
+    //! every token after the image/container is the command, even when it
+    //! begins with `-` and collides with a delonix flag. See the
+    //! `image_command`/`id_command` field docs and `strip_leading_separator`.
+    use super::{ContainerCmd, RunArgs};
+    use crate::{Cli, Cmd};
+    use clap::Parser;
+
+    fn run_image_command(argv: &[&str]) -> (String, Vec<String>) {
+        split_run_image_command(argv).expect("the split accepts this image")
+    }
+
+    /// The fallible form, for the cases that assert the REFUSAL of an image that
+    /// begins with `-`.
+    fn split_run_image_command(argv: &[&str]) -> super::Result<(String, Vec<String>)> {
+        let cli = Cli::try_parse_from(argv).expect("parses");
+        match cli.cmd {
+            Cmd::Container {
+                action: ContainerCmd::Run(args) | ContainerCmd::Create(args),
+            } => RunArgs::split_image_command(args.image_command),
+            _ => panic!("not container run/create"),
+        }
+    }
+
+    /// THE OTHER REGRESSION GUARD, and the one that cost a network round trip.
+    /// A mistyped flag used to be taken as the IMAGE: `run --no-such-flag`
+    /// went to `registry-1.docker.io` asking for
+    /// `library/--no-such-flag:latest` and failed naming an image, when
+    /// what was misspelled was a flag. Docker and Podman both answer `unknown
+    /// flag` without touching the network. Measured on 0.1.2; see
+    /// `refuse_leading_dash_operand`.
+    #[test]
+    fn a_mistyped_flag_is_not_taken_as_the_image() {
+        for argv in [
+            ["delonix", "container", "run", "--no-such-flag"],
+            ["delonix", "container", "create", "--no-such-flag"],
+        ] {
+            let err = split_run_image_command(&argv)
+                .expect_err("an image beginning with `-` has to be refused");
+            let msg = err.to_string();
+            assert!(
+                msg.contains("--no-such-flag"),
+                "the refusal has to NAME the token: {msg}"
+            );
+            assert!(
+                msg.contains("image"),
+                "the refusal has to say which operand it is about: {msg}"
+            );
+        }
+    }
+
+    /// The guard is on the leading character, not on a `--` prefix: an unknown
+    /// SHORT flag and a bare `-` reach the positional too, and are refused.
+    ///
+    /// `-p` does NOT work as a probe here, and the first version of this test
+    /// used it: `-p` is one of `run`'s own flags, so clap refuses it for a
+    /// missing value BEFORE the positional exists and `try_parse_from` never
+    /// returns a value. The probe has to be a token clap does not recognise.
+    #[test]
+    fn an_unknown_short_flag_is_not_taken_as_the_image_either() {
+        for token in ["-Z", "-"] {
+            assert!(
+                split_run_image_command(&["delonix", "container", "run", token]).is_err(),
+                "'{token}' reaches the positional and has to be refused"
+            );
+        }
+    }
+
+    /// THE REGRESSION GUARD. `run <img> --config=X` used to have `--config`
+    /// stolen by `run`'s own `--config` flag; now it is the container's command.
+    #[test]
+    fn a_container_flag_after_the_image_is_the_command_not_a_run_flag() {
+        let (image, command) = run_image_command(&[
+            "delonix",
+            "container",
+            "run",
+            "otel/collector",
+            "--config=/c.yaml",
+        ]);
+        assert_eq!(image, "otel/collector");
+        assert_eq!(command, ["--config=/c.yaml"]);
+    }
+
+    /// `run`'s own flags still work when placed BEFORE the image (as in Docker).
+    #[test]
+    fn run_flags_before_the_image_still_parse() {
+        let (image, command) = run_image_command(&[
+            "delonix",
+            "container",
+            "run",
+            "--name",
+            "x",
+            "alpine:3.19",
+            "echo",
+            "hi",
+        ]);
+        assert_eq!(image, "alpine:3.19");
+        assert_eq!(command, ["echo", "hi"]);
+    }
+
+    /// The `--` separator still works and is consumed (not passed as argv[0]).
+    #[test]
+    fn a_leading_double_dash_in_the_command_is_consumed() {
+        let (image, command) = run_image_command(&[
+            "delonix",
+            "container",
+            "run",
+            "alpine:3.19",
+            "--",
+            "-n",
+            "x",
+        ]);
+        assert_eq!(image, "alpine:3.19");
+        assert_eq!(command, ["-n", "x"]);
+    }
+
+    /// A SECOND `--` (a genuine argument) survives — only the separator is dropped.
+    #[test]
+    fn strip_leading_separator_drops_only_the_first_double_dash() {
+        assert_eq!(
+            super::strip_leading_separator(vec!["--".into(), "--".into(), "x".into()]),
+            vec!["--".to_string(), "x".to_string()]
+        );
+        assert_eq!(
+            super::strip_leading_separator(vec!["a".into()]),
+            vec!["a".to_string()]
+        );
+        assert!(super::strip_leading_separator(vec![]).is_empty());
     }
 }

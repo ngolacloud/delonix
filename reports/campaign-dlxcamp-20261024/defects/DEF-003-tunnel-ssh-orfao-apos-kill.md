@@ -1,32 +1,32 @@
-# DEF-003 — `net tunnel expose` deixa o `ssh -R` órfão (exposição pública persiste) quando o processo pai é morto
+# DEF-003 — `net tunnel expose` leaves the `ssh -R` orphaned (public exposure persists) when the parent process is killed
 
-- **Requisito/teste:** TUNNEL-02 (§17 — stop/remoção; "restart do Delonix"), §19 (recuperação/órfãos)
-- **Severidade:** P2 (segurança — exposição pública sobrevive ao que o operador julga ser a paragem)
-- **Ambiente:** delonix v5.1.1 `350a6320…` (develop `558e5f20`), pinggy provider, host rootless
+- **Requirement/test:** TUNNEL-02 (§17 — stop/removal; "Delonix restart"), §19 (recovery/orphans)
+- **Severity:** P2 (security — public exposure survives what the operator believes to be the shutdown)
+- **Environment:** delonix v5.1.1 `350a6320…` (develop `558e5f20`), pinggy provider, rootless host
 
-## Esperado
-Parar um túnel (fechar o processo `delonix net tunnel expose`) termina o encaminhamento e fecha a exposição pública.
+## Expected
+Stopping a tunnel (closing the `delonix net tunnel expose` process) terminates the forwarding and closes the public exposure.
 
-## Observado
-- `net tunnel expose 18090 --provider pinggy` lança um filho `ssh -p 443 ... -R 0:localhost:18090 free.pinggy.io`.
-- Ao matar o processo pai `delonix net tunnel expose` (SIGTERM via `pkill -f`), o filho `ssh -R` **sobrevive** e a URL pública **continua a servir a origem** (verificado: `curl https://<id>.free.pinggy.net/index.html` → `dlxcamp-20261024-OK` DEPOIS do kill do pai).
-- Só um **SIGKILL explícito ao processo `ssh`** fechou a exposição.
+## Observed
+- `net tunnel expose 18090 --provider pinggy` launches a child `ssh -p 443 ... -R 0:localhost:18090 free.pinggy.io`.
+- When the parent `delonix net tunnel expose` process is killed (SIGTERM via `pkill -f`), the `ssh -R` child **survives** and the public URL **keeps serving the origin** (verified: `curl https://<id>.free.pinggy.net/index.html` → `dlxcamp-20261024-OK` AFTER the parent kill).
+- Only an **explicit SIGKILL to the `ssh` process** closed the exposure.
 
-## Passos mínimos de reprodução
+## Minimal reproduction steps
 ```
-delonix net tunnel expose 18090 --provider pinggy &   # anota a URL
-curl https://<id>.free.pinggy.net/           # serve a origem
-pkill -f 'net tunnel expose 18090'            # "parar" o túnel
-curl https://<id>.free.pinggy.net/           # AINDA serve (ssh -R órfão vivo)
-pgrep -af 'ssh -p 443.*pinggy'                # processo órfão presente
+delonix net tunnel expose 18090 --provider pinggy &   # note the URL
+curl https://<id>.free.pinggy.net/           # serves the origin
+pkill -f 'net tunnel expose 18090'            # "stop" the tunnel
+curl https://<id>.free.pinggy.net/           # STILL serves (orphaned ssh -R alive)
+pgrep -af 'ssh -p 443.*pinggy'                # orphaned process present
 ```
 
-## Impacto
-Um operador que termina o processo do túnel (ou cujo processo morre) pode acreditar que a exposição fechou, quando o `ssh -R` órfão a mantém pública. Risco de exposição não-intencional prolongada.
+## Impact
+An operator who terminates the tunnel process (or whose process dies) may believe the exposure is closed, when the orphaned `ssh -R` keeps it public. Risk of prolonged unintended exposure.
 
-## Nuance / limites do teste
-- A paragem foi por kill não-gracioso do pai; o teardown gracioso (SIGINT/Ctrl+C em foreground, ou um eventual `tunnel stop`) pode limpar correctamente — não foi possível exercitar um `tunnel stop` (não existe subcomando; o help só expõe `expose`/`apply`).
-- Portanto o defeito é: **morte não-graciosa do pai não arrasta o filho `ssh`**. Confirmar se há (ou falta) um process-group kill / `prctl(PDEATHSIG)` no supervisor do túnel.
+## Nuance / test limits
+- The stop was by a non-graceful kill of the parent; graceful teardown (SIGINT/Ctrl+C in the foreground, or an eventual `tunnel stop`) may clean up correctly — it was not possible to exercise a `tunnel stop` (no such subcommand; the help only exposes `expose`/`apply`).
+- Therefore the defect is: **non-graceful death of the parent does not take down the `ssh` child**. Confirm whether there is (or is missing) a process-group kill / `prctl(PDEATHSIG)` in the tunnel supervisor.
 
-## Critério de encerramento
-Matar o processo `delonix net tunnel expose` (por qualquer sinal) termina também o `ssh -R` filho (ex.: colocá-lo no mesmo process group e sinalizar o grupo, ou `PR_SET_PDEATHSIG`), fechando a exposição; idealmente existir também um `net tunnel stop`/`ls`.
+## Closure criterion
+Killing the `delonix net tunnel expose` process (by any signal) also terminates the child `ssh -R` (e.g. placing it in the same process group and signalling the group, or `PR_SET_PDEATHSIG`), closing the exposure; ideally a `net tunnel stop`/`ls` would also exist.

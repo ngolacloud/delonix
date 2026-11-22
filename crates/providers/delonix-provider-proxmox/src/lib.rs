@@ -110,7 +110,7 @@ const TASK_TIMEOUT: Duration = Duration::from_secs(600);
 ///
 /// Backing off keeps the fast case fast (first answer at 150 ms, 5× sooner) and
 /// the slow case cheap: the same ten minutes costs ~190 requests instead of 800,
-/// measured by `um_backoff_responde_depressa_e_nao_martela_o_no`.
+/// measured by `a_backoff_responds_fast_and_does_not_hammer_the_node`.
 const POLL_MIN: Duration = Duration::from_millis(150);
 const POLL_MAX: Duration = Duration::from_secs(4);
 
@@ -5571,7 +5571,7 @@ fn refuse_unsupported(cfg: &VmConfig) -> Result<()> {
 ///
 /// ```text
 /// 400 Bad Request {"errors":{"sshkeys":"invalid format - invalid urlencoded
-///   string: ssh-ed25519 AAAAC3Nza... validacao-proxmox\n"}}
+///   string: ssh-ed25519 AAAAC3Nza... validation-proxmox\n"}}
 /// ```
 ///
 /// So the VALUE of this parameter is itself defined as a urlencoded string —
@@ -7254,10 +7254,10 @@ impl VmBackend for ProxmoxBackend {
         })?)
     }
 
-    // `_vmdir` porque o Proxmox não tem disco local nosso: os instantâneos
-    // vivem no lado do servidor, indexados pelo `vmid`. O parâmetro entrou no
-    // trait quando os verbos passaram a servir uma VM PARADA (v0.52.0), e serve
-    // os backends que leem o overlay em disco — este não é um deles.
+    // `_vmdir` because Proxmox has no local disk of ours: the snapshots live on
+    // the server side, indexed by `vmid`. The parameter entered the trait when
+    // the verbs started serving a STOPPED VM (v0.52.0), and it serves the
+    // backends that read the on-disk overlay — this is not one of them.
     fn snapshots(&self, _vmdir: &Path, vm: &Vm) -> delonix_model::Result<Vec<String>> {
         Ok(self.on_vm(vm, |c, vmid| c.snapshots(vmid))?)
     }
@@ -7735,26 +7735,26 @@ pub fn capability_report(configured: bool) -> delonix_compute::capability::Provi
                 detail: "`available()` is always true once configured; reachability is learned on the first call",
             },
             C::ResourceReadback => S::Supported {
-                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::create_start_and_destroy_against_a_real_node",
             },
             C::Events => S::NotImplemented,
             C::AsyncOperations => S::Partial {
                 detail: "every write waits on its UPID and is written to a per-VM task ledger before the wait (ADR-0049 slice 1); the engine exposes no job handle yet",
             },
             C::VmCreate => S::Supported {
-                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::create_start_and_destroy_against_a_real_node",
             },
             C::VmStart => S::Supported {
-                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::create_start_and_destroy_against_a_real_node",
             },
             C::VmStop => S::Supported {
-                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::create_start_and_destroy_against_a_real_node",
             },
             C::VmDestroy => S::Supported {
-                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::create_start_and_destroy_against_a_real_node",
             },
             C::VmRestart => S::Supported {
-                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::create_start_and_destroy_against_a_real_node",
             },
             C::VmPause => S::Supported {
                 evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::power_operations_round_trip_through_the_node",
@@ -7763,7 +7763,7 @@ pub fn capability_report(configured: bool) -> delonix_compute::capability::Provi
                 evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::power_operations_round_trip_through_the_node",
             },
             C::VmResumeSameIdentity => S::Supported {
-                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::create_start_and_destroy_against_a_real_node",
             },
             C::VmClone => S::Supported {
                 evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_template_clone_gets_the_disk_size_asked_for",
@@ -7890,7 +7890,7 @@ pub fn capability_report(configured: bool) -> delonix_compute::capability::Provi
                 reason: "the node has no NAT network of the engine's; `net0` is bridged",
             },
             C::VmNetworkBridge => S::Supported {
-                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::create_start_and_destroy_against_a_real_node",
             },
             C::VmNetworkSdn => S::UnsupportedByProvider {
                 reason: "the engine's SDN is on this host; a `network` that names one is refused by name (`refuse_unsupported`), the NIC is `net0` on the node's bridge",
@@ -7900,16 +7900,16 @@ pub fn capability_report(configured: bool) -> delonix_compute::capability::Provi
                 detail: "`disk: <storage>:<gib>` names a node storage for a fresh disk; pools are not listed (ADR-0049: `storage` missing, not excluded)",
             },
             C::VmSnapshotDisk => S::Supported {
-                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::create_start_and_destroy_against_a_real_node",
             },
             C::VmSnapshotMemory => S::Supported {
                 evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_snapshot_of_a_running_vm_captures_its_ram_state",
             },
             C::VmSnapshotRestore => S::Supported {
-                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::create_start_and_destroy_against_a_real_node",
             },
             C::VmSnapshotDelete => S::Supported {
-                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::cria_arranca_e_destroi_contra_um_no_real",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::create_start_and_destroy_against_a_real_node",
             },
             C::VmSnapshotPersistent => S::Supported {
                 evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::a_snapshot_survives_a_stop_and_a_start",
@@ -7945,7 +7945,7 @@ pub fn capability_report(configured: bool) -> delonix_compute::capability::Provi
                 evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::the_guest_agent_reports_the_os_hostname_and_filesystems",
             },
             C::VmIpObserved => S::Supported {
-                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::o_ip_vem_do_agente_de_um_convidado_a_serio",
+                evidence: "live:crates/providers/delonix-provider-proxmox/tests/live.rs::the_ip_comes_from_the_agent_of_a_real_guest",
             },
             C::MetricsPrometheus => S::NotImplemented,
             C::MetricsPerWorkloadNetwork => S::NotImplemented,
@@ -8135,7 +8135,7 @@ mod tests {
         assert!(empty.cpu_model.is_empty());
     }
 
-    fn cfg_com(ssh: &[&str]) -> VmConfig {
+    fn cfg_with(ssh: &[&str]) -> VmConfig {
         VmConfig {
             name: "no1".into(),
             vcpus: 2,
@@ -8145,38 +8145,38 @@ mod tests {
         }
     }
 
-    /// O `sshkeys` vai PERCENT-ENCODED por nós, por cima do encoding do
-    /// formulário. Medido contra um PVE 9.2 ao vivo: o valor cru é recusado com
-    /// `400 … "invalid format - invalid urlencoded string"`. Escrevi primeiro o
-    /// contrário, com um comentário confiante a explicar porquê — este teste
-    /// existe para a próxima pessoa não repetir o raciocínio.
+    /// `sshkeys` goes PERCENT-ENCODED by us, on top of the form encoding.
+    /// Measured against a live PVE 9.2: the raw value is refused with
+    /// `400 … "invalid format - invalid urlencoded string"`. I first wrote it
+    /// the other way, with a confident comment explaining why — this test
+    /// exists so the next person does not repeat the reasoning.
     #[test]
-    fn as_chaves_ssh_vao_percent_encoded() {
-        let f = cloud_init_form(&cfg_com(&["ssh-ed25519 AAAA+B/c teste"]));
+    fn the_ssh_keys_go_percent_encoded() {
+        let f = cloud_init_form(&cfg_with(&["ssh-ed25519 AAAA+B/c teste"]));
         let sk = f
             .iter()
             .find(|(k, _)| *k == "sshkeys")
-            .expect("sshkeys em falta")
+            .expect("sshkeys missing")
             .1
             .clone();
-        assert!(!sk.contains(' '), "o espaço tem de ir escapado: {sk}");
+        assert!(!sk.contains(' '), "the space must be escaped: {sk}");
         assert!(sk.contains("%20"), "{sk}");
         assert!(
             sk.contains("%2B"),
-            "o '+' tem de ir escapado, senão vira espaço: {sk}"
+            "the '+' must be escaped, otherwise it becomes a space: {sk}"
         );
         assert!(sk.contains("%2F"), "{sk}");
-        // Duas chaves separam-se por newline, também escapada.
-        let f = cloud_init_form(&cfg_com(&["ssh-ed25519 AAA a", "ssh-rsa BBB b"]));
+        // Two keys are separated by a newline, also escaped.
+        let f = cloud_init_form(&cfg_with(&["ssh-ed25519 AAA a", "ssh-rsa BBB b"]));
         let sk = f.iter().find(|(k, _)| *k == "sshkeys").unwrap().1.clone();
         assert!(sk.contains("%0A"), "{sk}");
     }
 
-    /// Sem chaves não se manda `ciuser` nem `sshkeys` — mas o `ipconfig0` vai
-    /// sempre, e é ele que decide se o `ide2` de cloud-init é preciso.
+    /// Without keys neither `ciuser` nor `sshkeys` is sent — but `ipconfig0`
+    /// always goes, and it is what decides whether the cloud-init `ide2` is needed.
     #[test]
-    fn sem_chaves_so_vai_a_configuracao_de_rede() {
-        let f = cloud_init_form(&cfg_com(&[]));
+    fn without_keys_only_the_network_config_goes() {
+        let f = cloud_init_form(&cfg_with(&[]));
         assert!(
             f.iter().any(|(k, v)| *k == "ipconfig0" && v == "ip=dhcp"),
             "{f:?}"
@@ -8273,16 +8273,16 @@ mod tests {
     #[test]
     fn the_create_sends_each_key_once() {
         let cases = [
-            cfg_com(&[]),
-            cfg_com(&["ssh-ed25519 AAAA x"]),
+            cfg_with(&[]),
+            cfg_with(&["ssh-ed25519 AAAA x"]),
             VmConfig {
                 static_ip: Some("10.0.0.5/24,gw=10.0.0.1".into()),
                 hostname: Some("other".into()),
-                ..cfg_com(&["ssh-ed25519 AAAA x"])
+                ..cfg_with(&["ssh-ed25519 AAAA x"])
             },
             VmConfig {
                 cloud_init: Some(false),
-                ..cfg_com(&[])
+                ..cfg_with(&[])
             },
         ];
         for cfg in &cases {
@@ -8315,19 +8315,19 @@ mod tests {
         );
     }
 
-    /// Um appliance não leva cloud-init nenhum — e a lista VAZIA é o que faz o
-    /// chamador não lhe anexar um drive de cloud-init que ninguém lê.
+    /// An appliance carries no cloud-init at all — and the EMPTY list is what
+    /// makes the caller not attach a cloud-init drive that no one reads.
     #[test]
-    fn um_appliance_nao_leva_cloud_init_nenhum() {
+    fn an_appliance_carries_no_cloud_init() {
         let cfg = VmConfig {
             cloud_init: Some(false),
-            ..cfg_com(&["ssh-ed25519 AAAA x"])
+            ..cfg_with(&["ssh-ed25519 AAAA x"])
         };
         assert!(cloud_init_form(&cfg).is_empty());
     }
 
     #[test]
-    fn stopped_nao_quer_dizer_falhou() {
+    fn stopped_does_not_mean_failed() {
         // The trap the spike found, and the whole reason this function exists:
         // `status: "stopped"` is how Proxmox says the task is OVER. Reading it
         // as the result inverts every verdict.
@@ -8390,7 +8390,7 @@ mod tests {
     }
 
     #[test]
-    fn a_url_e_o_no_sao_verificados_antes_de_qualquer_credencial() {
+    fn the_url_and_node_are_verified_before_any_credential() {
         assert!(
             validate_target_url("http://pve.local:8006").is_err(),
             "plain http"
@@ -8412,7 +8412,7 @@ mod tests {
     }
 
     #[test]
-    fn um_upid_atravessa_o_path_intacto() {
+    fn a_upid_traverses_the_path_intact() {
         // A UPID carries `@` (from `root@pam`), which is not reliably safe in a
         // path segment; the colons are.
         let upid = "UPID:pve:000005E5:00003010:6A7AD1F9:qmsnapshot:901:root@pam:";
@@ -8422,7 +8422,7 @@ mod tests {
     }
 
     #[test]
-    fn o_backend_nao_toca_em_disco_local_nem_e_auto_detectado() {
+    fn the_backend_touches_no_local_disk_and_is_not_auto_detected() {
         // Both are the point of ADR-0008's phase (a): the engine must not
         // prepare a local overlay for a hypervisor on another machine, and
         // auto-detection must not make network requests.
@@ -8465,7 +8465,7 @@ mod tests {
     }
 
     #[test]
-    fn um_corpo_de_resposta_nao_faz_o_cliente_entrar_em_panico() {
+    fn a_response_body_does_not_make_the_client_panic() {
         let body = format!("{}é", "A".repeat(399));
         assert_eq!(truncate_chars(&body, 400).len(), 399);
         assert_eq!(truncate_chars("olá", 4000), "olá");
@@ -8693,7 +8693,7 @@ mod tests {
     }
 
     #[test]
-    fn o_disco_de_um_no_remoto_nao_e_um_caminho_local() {
+    fn a_remote_nodes_disk_is_not_a_local_path() {
         assert_eq!(
             parse_disk_spec("template:9000").unwrap(),
             DiskSpec::Template(9000)
@@ -8732,7 +8732,7 @@ mod tests {
     /// the k8s `Gi`/`Mi` suffix, so the very same manifest meant 2 GiB on
     /// libvirt and Cloud Hypervisor and 1 GiB here — with nothing said.
     #[test]
-    fn a_memoria_le_se_como_nos_outros_backends() {
+    fn memory_is_read_like_in_the_other_backends() {
         assert_eq!(mem_mib("2G"), 2048);
         assert_eq!(mem_mib("512M"), 512);
         assert_eq!(mem_mib("2048"), 2048);
@@ -8741,7 +8741,7 @@ mod tests {
         assert_eq!(
             mem_mib("2Gi"),
             2048,
-            "o sufixo k8s dava 1024 na copia local"
+            "the k8s suffix gave 1024 in the local copy"
         );
         assert_eq!(mem_mib("512Mi"), 512);
         // Unparseable still falls back to something that boots — but the engine
@@ -8755,7 +8755,7 @@ mod tests {
     /// anything above 0xFF produced `%1F600`, which is not percent-encoding at
     /// all — the server reads a path nobody wrote.
     #[test]
-    fn o_urlencode_codifica_bytes_e_nao_code_points() {
+    fn urlencode_encodes_bytes_not_code_points() {
         assert_eq!(urlencode("ç"), "%C3%A7");
         assert_eq!(urlencode("😀"), "%F0%9F%98%80");
         // Every escape is exactly two hex digits, which is what the grammar says.
@@ -8763,7 +8763,7 @@ mod tests {
         for part in e.split('%').skip(1) {
             assert!(
                 part.len() >= 2 && part[..2].chars().all(|c| c.is_ascii_hexdigit()),
-                "escape mal formado em {e}"
+                "malformed escape in {e}"
             );
         }
         assert!(e.contains("%40pam"), "{e}");
@@ -8773,9 +8773,9 @@ mod tests {
     /// wrong answer at each: too slow for a `start`, and a hammering for a
     /// create that runs for minutes.
     #[test]
-    fn um_backoff_responde_depressa_e_nao_martela_o_no() {
+    fn a_backoff_responds_fast_and_does_not_hammer_the_node() {
         assert_eq!(POLL_MIN, Duration::from_millis(150));
-        assert!(POLL_MIN < Duration::from_millis(750), "mais responsivo");
+        assert!(POLL_MIN < Duration::from_millis(750), "more responsive");
 
         // Ten minutes of polling: count the requests, and cap the interval.
         let (mut waited, mut reqs, mut w) = (Duration::ZERO, 0, POLL_MIN);
@@ -8783,19 +8783,22 @@ mod tests {
             waited += w;
             reqs += 1;
             w = next_poll_wait(w);
-            assert!(w <= POLL_MAX, "o intervalo nao pode crescer sem tecto");
+            assert!(
+                w <= POLL_MAX,
+                "the interval must not grow without a ceiling"
+            );
         }
         assert!(
             reqs < 250,
-            "a 750ms fixos eram 800 pedidos numa tarefa de 10 min; deram {reqs}"
+            "a fixed 750ms was 800 requests in a 10-min task; this gave {reqs}"
         );
-        assert_eq!(next_poll_wait(POLL_MAX), POLL_MAX, "estavel no tecto");
+        assert_eq!(next_poll_wait(POLL_MAX), POLL_MAX, "stable at the ceiling");
     }
 
     /// Three refusals, and each one is an address that would be reported as
     /// the VM's and be useless or actively misleading.
     #[test]
-    fn o_ip_do_agente_ignora_loopback_ipv6_e_link_local() {
+    fn the_agent_ip_ignores_loopback_ipv6_and_link_local() {
         let j = |s: &str| serde_json::from_str::<serde_json::Value>(s).unwrap();
 
         // The ordinary answer. `lo` comes FIRST — which is why "the first IPv4"
@@ -8846,7 +8849,7 @@ mod tests {
     /// exactly what a node answers (with HTTP 500) for a guest that has no
     /// agent running, which is the ordinary case for a plain cloud image.
     #[test]
-    fn uma_resposta_sem_agente_nao_e_um_ip_nem_um_panico() {
+    fn a_response_without_an_agent_is_neither_an_ip_nor_a_panic() {
         let j = |s: &str| serde_json::from_str::<serde_json::Value>(s).unwrap();
         assert_eq!(
             parse_agent_ip(&j(
@@ -8915,7 +8918,7 @@ mod tests {
     /// `-v /data:/data` on a `--backend proxmox` create reported success and
     /// the VM did not have the volume. Nothing outside could tell.
     #[test]
-    fn um_campo_que_este_backend_nao_honra_e_recusado_pelo_nome() {
+    fn a_field_this_backend_does_not_honour_is_refused_by_name() {
         let base = VmConfig {
             name: "v".into(),
             disk: "local-lvm:8".into(),
@@ -8993,13 +8996,13 @@ mod tests {
         ];
         for (field, cfg) in cases {
             let e = match refuse_unsupported(&cfg) {
-                Ok(()) => panic!("'{field}' foi aceite e descartado em silencio"),
+                Ok(()) => panic!("'{field}' was accepted and silently discarded"),
                 Err(e) => e.to_string(),
             };
-            assert!(e.contains(field), "a recusa tem de nomear '{field}': {e}");
+            assert!(e.contains(field), "the refusal must name '{field}': {e}");
             assert!(
                 e.contains("libvirt"),
-                "e tem de dizer o que fazer em vez disso: {e}"
+                "and must say what to do instead: {e}"
             );
         }
 
@@ -9206,7 +9209,7 @@ mod tests {
     }
 
     #[test]
-    fn a_bridge_e_a_vlan_entram_no_net0() {
+    fn the_bridge_and_vlan_go_into_net0() {
         let cli = |bridge: Option<&str>, vlan| Client {
             http: reqwest::blocking::Client::new(),
             base: "https://x".into(),
@@ -9230,7 +9233,7 @@ mod tests {
         assert_eq!(
             cli(Some("vmbr9"), None).net0_arg(&cfg),
             "virtio,bridge=vmbr9",
-            "o default do alvo"
+            "the target's default"
         );
         assert_eq!(
             cli(None, Some(42)).net0_arg(&cfg),
@@ -9257,7 +9260,7 @@ mod tests {
     }
 
     #[test]
-    fn nomes_que_entram_num_path_ou_numa_propriedade_sao_validados() {
+    fn names_that_enter_a_path_or_a_property_are_validated() {
         for bad in [
             "",
             "a b",
@@ -9456,7 +9459,7 @@ mod tests {
     /// token that gets a 401 was revoked, and retrying it forever is how a
     /// credential ends up locked out.
     #[test]
-    fn so_um_401_dispara_nova_autenticacao() {
+    fn only_a_401_triggers_reauthentication() {
         // Built the way `send` builds them, so the test reads the real path.
         let st = |code: u16, body: &str| {
             classify_status(
@@ -9695,7 +9698,7 @@ mod tests {
     }
 
     #[test]
-    fn o_vmid_vem_do_registo_e_nao_do_nome() {
+    fn the_vmid_comes_from_the_record_not_the_name() {
         // Two VMs on a node may share a name; every `qm` call takes the id.
         // A record with no handle was not created by this backend — saying so
         // beats guessing an id and acting on somebody else's VM.
@@ -9994,30 +9997,30 @@ mod tests {
         assert_eq!(located_node(&entries, 999), None);
     }
 
-    /// O parser contra uma resposta REAL, e não contra uma escrita à mão.
+    /// The parser against a REAL response, not against a hand-written one.
     ///
-    /// Capturada de um `qemu-guest-agent` 7.2.22 a correr num convidado Debian
-    /// bookworm com DUAS NICs, dentro da appliance `proxmox-ve:9.1` que este
-    /// repo constrói, por
-    /// `GET /nodes/pve/qemu/100/agent/network-get-interfaces`.
+    /// Captured from a `qemu-guest-agent` 7.2.22 running on a Debian bookworm
+    /// guest with TWO NICs, inside the `proxmox-ve:9.1` appliance this repo
+    /// builds, via `GET /nodes/pve/qemu/100/agent/network-get-interfaces`.
     ///
-    /// Os casos escritos à mão acima cobrem as REGRAS (loopback, IPv6,
-    /// link-local); este cobre a FORMA — que é o que nenhuma amostra inventada
-    /// pode garantir. Trouxe três coisas que o exemplo do doc-comment não tem:
-    /// um bloco `statistics` por interface, as chaves em ordem VARIÁVEL entre
-    /// interfaces (o `eth0` traz `statistics` antes de `ip-addresses`), e um
-    /// IPv6 `fec0::` site-local a par do `fe80::`.
+    /// The hand-written cases above cover the RULES (loopback, IPv6,
+    /// link-local); this one covers the SHAPE — which is what no invented
+    /// sample can guarantee. It brought three things the doc-comment example
+    /// does not have: a `statistics` block per interface, the keys in a
+    /// VARIABLE order between interfaces (`eth0` carries `statistics` before
+    /// `ip-addresses`), and a site-local IPv6 `fec0::` alongside `fe80::`.
     ///
-    /// A escolha é o `eth0` e não o `eth1`: a ordem é a que o agente reporta, e
-    /// medida ao vivo 12 vezes seguidas ela não variou — que é o que torna o
-    /// `ip()` de um convidado multi-NIC determinístico em vez de oscilante,
-    /// a única pergunta que um segundo NIC levanta e uma NIC só nunca revela.
+    /// The choice is `eth0` and not `eth1`: the order is the one the agent
+    /// reports, and measured live 12 times in a row it did not vary — which is
+    /// what makes the `ip()` of a multi-NIC guest deterministic instead of
+    /// flickering, the one question a second NIC raises and a single NIC never
+    /// reveals.
     #[test]
-    fn o_parser_contra_um_agente_a_serio_com_duas_nics() {
+    fn the_parser_against_a_real_agent_with_two_nics() {
         let v: serde_json::Value = serde_json::from_str(include_str!(
             "../tests/fixtures/agent-network-get-interfaces.json"
         ))
-        .expect("a resposta gravada tem de ser JSON válido");
+        .expect("the recorded response must be valid JSON");
         assert_eq!(parse_agent_ip(&v).as_deref(), Some("10.0.2.17"));
     }
 

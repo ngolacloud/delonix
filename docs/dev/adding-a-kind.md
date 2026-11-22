@@ -69,14 +69,17 @@ converges without recreating; can be torn down; always namespaced; and a real re
 
 ## The Stack group
 
-A Kind with `in_stack: true` must have a `stack_group`, and four tests in `kinds.rs` hold the
-column in place (ADR-0045):
+A Kind with `in_stack: true` has a `stack_group` or says why it has none, and four tests in
+`kinds.rs` hold the column in place (ADR-0045):
 
-- **`every_kind_applied_by_the_stack_has_a_group`** — nothing the stack applies can be missing
-  from `kind: Stack`.
+- **`every_kind_applied_by_the_stack_has_a_group_or_says_why`** — nothing the stack applies can
+  be missing from `kind: Stack` without a written reason. The third state is real and narrow:
+  `Node` (ADR-0101 A6) is applied by `stack apply -f node.yaml` and deliberately not nestable in
+  an aggregate, because a tenant's stack would then own and prune the node it runs on.
 - **`a_kind_without_a_group_says_why`** — a row with `stack_group: ""` needs an entry in
-  `stack_group_absent_reason` (`Stack` itself, `KubernetesCluster`), and a row with a group must
-  not have one.
+  `stack_group_absent_reason` (`Stack` itself, `KubernetesCluster`, `Node`), and a row with a
+  group must not have one. It is this biconditional that keeps the test above from loosening
+  anything: "no group" always comes with a reason, so a FORGOTTEN group still fails here.
 - **`a_group_key_is_unique_and_no_alias_shadows_it`** — two Kinds under one key would merge their
   children and hand one of them the wrong spec.
 - **`a_group_is_the_plural_of_its_kind`** — the key is the plural in lowerCamelCase

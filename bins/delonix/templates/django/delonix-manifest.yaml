@@ -31,9 +31,10 @@ spec:
       spec:
         image: __NAME__:dev
         restart: always
-        # The unprivileged user of the image (uid 10001). Named here because the engine
+        # The unprivileged user of the distroless image (uid 65532, numeric: the
+        # distroless base has no named "app" entry). Named here because the engine
         # applies an image's USER only when the manifest asks for it.
-        user: "app"
+        user: "65532:65532"
         ports:
           - "__PORT__:__PORT__"
         env:

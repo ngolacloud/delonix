@@ -184,10 +184,10 @@ delonix stack destroy                 # removes what the manifest created
 
 The manifest publishes `__PORT__`, sets `APP_ENV=production`, 256M/1 CPU,
 read-only root filesystem with a `/tmp` tmpfs, and `restart: always`.
-The image runs as the unprivileged user `app` (uid 10001), which owns nothing
-in the image. The manifest names it (`user:`) because the engine applies an
-image's USER only when asked — see
-[docs/adr/0003](docs/adr/0003-container-image.md). Other
+The runtime image is distroless (`static-debian12:nonroot`): no shell and no
+package manager, running as the nonroot user uid 65532. The manifest names that
+id (`user: "65532"`) because the engine applies an image's USER only when asked
+— see [docs/adr/0003](docs/adr/0003-container-image.md). Other
 engines can build the `Delonixfile` as a Dockerfile, but only Delonix is
 tested here.
 

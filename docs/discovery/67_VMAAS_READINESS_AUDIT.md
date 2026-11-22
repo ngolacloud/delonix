@@ -216,8 +216,8 @@ from this audit.
   unsupported`) on both local backends and Proxmox — a VM manifest that asks
   for `hugepages`/`tpm`/`cpuModel` on Proxmox, or `kernel`/`seed` on a backend
   that manages its own storage, is rejected up front, never silently ignored.
-  This is exactly §5's "rejeita capacidades não suportadas... sem simular
-  sucesso", already built.
+  This is exactly §5's "refuses unsupported capabilities... without faking
+  success", already built.
 
 ## 5. Lifecycle (§6 of the brief) — the real matrix
 

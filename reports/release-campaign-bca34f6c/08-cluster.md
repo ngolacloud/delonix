@@ -1,45 +1,45 @@
-# 08 — Clusters (kind-mode) e kubeadm offline
+# 08 — Clusters (kind-mode) and kubeadm offline
 
-SUT: `delonix 5.1.1` @ `bca34f6c3`. Imagem: `kindest/node:v1.34.0` (cache). Cluster: `relccluster`.
+SUT: `delonix 5.1.1` @ `bca34f6c3`. Image: `kindest/node:v1.34.0` (cache). Cluster: `relccluster`.
 
 ## Kind-mode (CLUSTER-1/2)
 
-| # | Caso (§12) | Observado | Estado |
+| # | Case (§12) | Observed | State |
 |---|---|---|---|
-| criação | `cluster create --name relccluster` (sem Docker) | nó em ~1m07s control-plane + kindnet; cluster `up`, API :6443, kubeconfig escrito, contexto `delonix-relccluster` | **PASSOU** |
-| nó Ready | `kubectl get nodes` | `relccluster-control-plane Ready v1.34.0` (containerd 2.1.3, no engine Delonix) | **PASSOU** |
-| **app + tráfego** | deployment nginx + Service + **port-forward curl** | `rollout successfully`; pod `1/1 Running` (IP 10.244.0.5 kindnet); **Service HTTP 200 via port-forward** | **PASSOU** |
-| DNS pod→service | `wget http://relcweb-svc.default.svc.cluster.local/` de um pod | página nginx obtida; CoreDNS 2/2 Running | **PASSOU** |
-| remoção | `cluster destroy relccluster --force` | nós removidos, rede `dlx-relccluster` libertada, kubeconfig+contexto limpos, disco reclamado | **PASSOU** |
+| creation | `cluster create --name relccluster` (without Docker) | node in ~1m07s control-plane + kindnet; cluster `up`, API :6443, kubeconfig written, context `delonix-relccluster` | **PASSED** |
+| node Ready | `kubectl get nodes` | `relccluster-control-plane Ready v1.34.0` (containerd 2.1.3, on the Delonix engine) | **PASSED** |
+| **app + traffic** | nginx deployment + Service + **port-forward curl** | `rollout successfully`; pod `1/1 Running` (IP 10.244.0.5 kindnet); **Service HTTP 200 via port-forward** | **PASSED** |
+| DNS pod→service | `wget http://relcweb-svc.default.svc.cluster.local/` from a pod | nginx page fetched; CoreDNS 2/2 Running | **PASSED** |
+| removal | `cluster destroy relccluster --force` | nodes removed, network `dlx-relccluster` released, kubeconfig+context cleaned, disk reclaimed | **PASSED** |
 
-> **§12 cumprido onde importa:** não parei em "listar nós" — corri uma aplicação e provei
-> tráfego **duas formas** (port-forward externo + DNS pod→service interno).
+> **§12 met where it matters:** I did not stop at "listing nodes" — I ran an application and proved
+> traffic **two ways** (external port-forward + internal DNS pod→service).
 
-## Notas
+## Notes
 
-- **Erro de método (meu):** numa primeira criação, uma limpeza minha com `grep relc` removeu
-  acidentalmente o nó `relc-k8s-control-plane` a meio do `kubeadm init` → `exit 137` (SIGKILL).
-  **Essa falha é minha, não do produto.** A 2ª corrida, limpa, chegou a Ready sem incidentes
-  (control-plane 1m07s vs 4m20s abortados). Registado para não contaminar o veredicto.
-- **UX (baixa):** `cluster destroy` exige `--force` fora de terminal (bom, fail-safe). Mas
-  `cluster delete <name>` (palpite natural) devolve um erro confuso de kubeconfig em vez de
-  "subcomando desconhecido; talvez `destroy`". Nota menor.
-- **Carregar imagens locais:** `cluster load` existe (sem registry) — não exercitado.
+- **Method error (mine):** on a first creation, a cleanup of mine with `grep relc` accidentally
+  removed the node `relc-k8s-control-plane` mid-`kubeadm init` → `exit 137` (SIGKILL).
+  **That failure is mine, not the product's.** The 2nd run, clean, reached Ready without incident
+  (control-plane 1m07s vs 4m20s aborted). Recorded so as not to contaminate the verdict.
+- **UX (low):** `cluster destroy` requires `--force` outside a terminal (good, fail-safe). But
+  `cluster delete <name>` (a natural guess) returns a confusing kubeconfig error instead of
+  "unknown subcommand; maybe `destroy`". Minor note.
+- **Loading local images:** `cluster load` exists (no registry) — not exercised.
 
-## CLUSTER-2 (workers/mounts/portmap, config kind real) — PARCIAL
+## CLUSTER-2 (workers/mounts/portmap, real kind config) — PARTIAL
 
-Testado single control-plane. `--workers`, mounts, port-mappings e a aceitação/recusa de um
-`kind: Cluster` config real (`kindconfig.rs`) **não exercitados** nesta ronda → cobertura parcial.
+Single control-plane tested. `--workers`, mounts, port-mappings and the acceptance/rejection of a
+real `kind: Cluster` config (`kindconfig.rs`) **not exercised** this round → partial coverage.
 
-## CLUSTER-3 (kubeadm offline HA, §13) — **BLOQUEADO**
+## CLUSTER-3 (kubeadm offline HA, §13) — **BLOCKED**
 
-`cluster kubeadm` existe (provisiona VMs da golden image + bootstrap kubeadm), mas exige a imagem
-`k8s-golden` e espaço em disco para múltiplas VMs (host a 96%, 44 G livres). **Não executável** nesta
-campanha sem a imagem golden e sem folga de disco. É uma lacuna de ambiente, não N/A — fica como
-**risco aberto** para a avaliação de release (HA, kube-vip, perfis CNI, falha de CP, modo offline real).
+`cluster kubeadm` exists (provisions VMs from the golden image + kubeadm bootstrap), but it requires the
+`k8s-golden` image and disk space for multiple VMs (host at 96%, 44 G free). **Not executable** in this
+campaign without the golden image and without disk headroom. It is an environment gap, not N/A — it stands as
+an **open risk** for the release assessment (HA, kube-vip, CNI profiles, CP failure, real offline mode).
 
-## CLUSTER-4 (multi-cluster + kubeconfig preservado, §14) — NÃO EXECUTADO
+## CLUSTER-4 (multi-cluster + preserved kubeconfig, §14) — NOT EXECUTED
 
-Um único cluster criado (disco). Observação lateral: existem 3 contextos de kubeconfig antigos
-(`delonix`, `lindo`, `mbandi-saurimo-32`) sem nós vivos — confirma a distinção escala-de-gestão vs
-escala-de-execução que §14 pede, mas o teste de preservação ao adicionar/remover não foi corrido.
+A single cluster created (disk). Incidental observation: there are 3 old kubeconfig contexts
+(`delonix`, `lindo`, `mbandi-saurimo-32`) with no live nodes — confirming the management-scale vs
+execution-scale distinction that §14 asks for, but the preservation test on add/remove was not run.

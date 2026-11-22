@@ -39,15 +39,72 @@ pub enum ServeCmd {
     /// it on the first connection, and it exits after `--idle-timeout` with
     /// nothing open.
     NodeApi {
-        /// Socket address (default: `$DELONIX_NODE_API_ADDR` or `unix:///run/delonix-node.sock`).
+        /// Socket address: a unix path (`unix:///run/delonix-node.sock`, the default, or `$DELONIX_NODE_API_ADDR`) or a TCP address (`tcp://host:port`). A `tcp://` address serves mutual TLS and requires `--tls-cert`/`--tls-key`/`--tls-client-ca`.
         #[arg(long)]
         addr: Option<String>,
         /// Exit after this long with no connection open and no operation running: `120`, `90s`, `5m`, `0` for never. Default: 300s when started by socket activation, never otherwise.
         #[arg(long, value_name = "DURATION")]
         idle_timeout: Option<String>,
-        /// Write a systemd socket unit and its service (user units when rootless, system units as root), reload systemd and enable the socket, instead of serving. The node API then starts on the first connection and exits when idle (default `--idle-timeout` in the unit: 120s).
+        /// TLS: the server certificate chain (PEM path). Required for a `tcp://` address (ADR-0096); together with `--tls-key` and `--tls-client-ca`. Overrides `$DELONIX_NODE_API_TLS_CERT`.
+        #[arg(long, value_name = "PEM")]
+        tls_cert: Option<String>,
+        /// TLS: the server private key (PEM path). Overrides `$DELONIX_NODE_API_TLS_KEY`.
+        #[arg(long, value_name = "PEM")]
+        tls_key: Option<String>,
+        /// TLS: the CA a client certificate must chain to (PEM path) — the node verifies every client against it (mutual TLS). Overrides `$DELONIX_NODE_API_TLS_CLIENT_CA`.
+        #[arg(long, value_name = "PEM")]
+        tls_client_ca: Option<String>,
+        /// TLS: an OPTIONAL CRL (PEM path) the node consults — a client whose certificate serial is listed, or one past its validity, is refused at the handshake (ADR-0097). Overrides `$DELONIX_NODE_API_TLS_CLIENT_CRL`. Only meaningful with a `tcp://` address.
+        #[arg(long, value_name = "PEM")]
+        tls_client_crl: Option<String>,
+        /// Authorization: a JSON policy (ADR-0098) granting client-cert identities operations per namespace. Absent, every authenticated client is authorized for all operations. Overrides `$DELONIX_NODE_API_AUTHZ_POLICY`. Only meaningful with a `tcp://` address.
+        #[arg(long, value_name = "JSON")]
+        authz_policy: Option<String>,
+        /// Audit: append one JSON line per mutating call and per denial to this file (ADR-0098). Also emitted to the tracing stream. Overrides `$DELONIX_NODE_API_AUDIT_LOG`. Only meaningful with a `tcp://` address.
+        #[arg(long, value_name = "PATH")]
+        audit_log: Option<String>,
+        /// Write a systemd socket unit and its service (user units when rootless, system units as root), reload systemd and enable the socket, instead of serving. The node API then starts on the first connection and exits when idle (default `--idle-timeout` in the unit: 120s). With a `tcp://` address the unit carries the TLS material.
         #[arg(long)]
         install_units: bool,
+    },
+    /// Serve the ENROLLMENT AUTHORITY (ADR-0097): trade a one-time token for a short client cert.
+    ///
+    /// A server-TLS-only endpoint (`POST /v1/enroll`) that signs a member's CSR
+    /// with the node CA key it holds (`--ca-key`) and returns a short-lived
+    /// client certificate. The member pins the node CA; the token authenticates
+    /// it. This is NOT a node-API server and never holds a node's data — it holds
+    /// the CA key, so run it deliberately, not by socket activation.
+    NodeEnroll {
+        /// Address to listen on: `tcp://host:port` (server-authenticated TLS).
+        #[arg(long)]
+        addr: String,
+        /// The node CA private key (PEM path) — used to sign CSRs and the authority's own cert.
+        #[arg(long, value_name = "PEM", default_value = "node-ca.key")]
+        ca_key: String,
+        /// The node CA certificate (PEM path) — echoed to members in the response.
+        #[arg(long, value_name = "PEM", default_value = "node-ca.crt")]
+        ca_cert: String,
+        /// The CA subject common name (must match `node-ca init --cn`).
+        #[arg(long = "cn", default_value = "delonix-node-ca")]
+        cn: String,
+        /// A valid one-time enrollment token. Repeatable.
+        #[arg(long = "token", value_name = "TOKEN")]
+        token: Vec<String>,
+        /// A file of one-time tokens, one per line (`#` comments and blanks skipped).
+        #[arg(long, value_name = "FILE")]
+        token_file: Option<String>,
+        /// A SAN (IP/DNS) for the authority's own server certificate — the address members reach it at. Repeatable; 127.0.0.1 and localhost are always included.
+        #[arg(long = "san", value_name = "SAN")]
+        san: Vec<String>,
+        /// Lifetime of the client certificates issued: `60s`, `30m`, `1h`. Default 1h.
+        #[arg(long, value_name = "DURATION", default_value = "1h")]
+        cert_ttl: String,
+        /// An explicit server certificate (PEM path) instead of auto-issuing one from the CA.
+        #[arg(long, value_name = "PEM")]
+        server_cert: Option<String>,
+        /// The explicit server certificate's key (PEM path); required with `--server-cert`.
+        #[arg(long, value_name = "PEM")]
+        server_key: Option<String>,
     },
     /// Serve a slice of the Docker Engine API on a unix socket.
     ///
@@ -107,10 +164,25 @@ pub fn run(action: ServeCmd) -> Result<()> {
         ServeCmd::NodeApi {
             addr,
             idle_timeout,
+            tls_cert,
+            tls_key,
+            tls_client_ca,
+            tls_client_crl,
+            authz_policy,
+            audit_log,
             install_units,
         } => {
             if install_units {
-                return install_node_api_units(addr.as_deref(), idle_timeout.as_deref());
+                return install_node_api_units(NodeApiUnitRequest {
+                    addr: addr.as_deref(),
+                    idle: idle_timeout.as_deref(),
+                    tls_cert: tls_cert.as_deref(),
+                    tls_key: tls_key.as_deref(),
+                    tls_client_ca: tls_client_ca.as_deref(),
+                    tls_client_crl: tls_client_crl.as_deref(),
+                    authz_policy: authz_policy.as_deref(),
+                    audit_log: audit_log.as_deref(),
+                });
             }
             let mut args = Vec::new();
             let mut env = Vec::new();
@@ -121,6 +193,24 @@ pub fn run(action: ServeCmd) -> Result<()> {
                     "DELONIX_NODE_API_IDLE_TIMEOUT",
                     idle_timeout,
                 ),
+                ("--tls-cert", "DELONIX_NODE_API_TLS_CERT", tls_cert),
+                ("--tls-key", "DELONIX_NODE_API_TLS_KEY", tls_key),
+                (
+                    "--tls-client-ca",
+                    "DELONIX_NODE_API_TLS_CLIENT_CA",
+                    tls_client_ca,
+                ),
+                (
+                    "--tls-client-crl",
+                    "DELONIX_NODE_API_TLS_CLIENT_CRL",
+                    tls_client_crl,
+                ),
+                (
+                    "--authz-policy",
+                    "DELONIX_NODE_API_AUTHZ_POLICY",
+                    authz_policy,
+                ),
+                ("--audit-log", "DELONIX_NODE_API_AUDIT_LOG", audit_log),
             ] {
                 if let Some(v) = value {
                     args.push(flag.to_string());
@@ -136,6 +226,37 @@ pub fn run(action: ServeCmd) -> Result<()> {
                 return Ok(());
             }
             super::dockerapi::run(addr)
+        }
+        ServeCmd::NodeEnroll {
+            addr,
+            ca_key,
+            ca_cert,
+            cn,
+            token,
+            token_file,
+            san,
+            cert_ttl,
+            server_cert,
+            server_key,
+        } => {
+            let ttl = delonix_host::dispatch::parse_idle_timeout(&cert_ttl)?;
+            if ttl.is_zero() {
+                return Err(Error::Invalid(
+                    "--cert-ttl must be a positive duration (e.g. 1h); a short-lived cert is the point".into(),
+                ));
+            }
+            super::node_enroll::serve_authority(super::node_enroll::AuthorityConfig {
+                addr,
+                ca_key,
+                ca_cert,
+                cn,
+                tokens: token,
+                token_file,
+                sans: san,
+                cert_ttl: ttl,
+                server_cert,
+                server_key,
+            })
         }
     }
 }
@@ -301,6 +422,18 @@ const NODE_API_SERVICE_UNIT: &str = include_str!("../../../../dist/delonix-node-
 /// that an idle node shows no process within two minutes of the last call.
 const UNIT_DEFAULT_IDLE: &str = "120s";
 
+/// The mutual-TLS material a TCP node-API unit carries (ADR-0096): the three
+/// PEM file paths, written into the service as `DELONIX_NODE_API_TLS_*` so the
+/// socket-activated server reads them the same way a direct `--tls-*` would.
+#[derive(Debug)]
+struct NodeApiTls<'a> {
+    cert: &'a str,
+    key: &'a str,
+    client_ca: &'a str,
+    /// The OPTIONAL CRL (ADR-0097); `None` keeps A1's chain-to-CA-only check.
+    client_crl: Option<&'a str>,
+}
+
 /// What the two units are filled with.
 #[derive(Debug)]
 struct NodeApiUnits<'a> {
@@ -308,13 +441,21 @@ struct NodeApiUnits<'a> {
     exec: &'a str,
     /// `DELONIX_ROOT`.
     root: &'a str,
-    /// The socket's `ListenStream=`.
+    /// The socket's `ListenStream=` (an absolute unix path, or `host:port`).
     listen: &'a str,
     /// The `--idle-timeout` value, already validated.
     idle: &'a str,
     /// `DELONIX_NET_RUNTIME_DIR`, when this `delonix` runs with one: the
     /// activated server has to reach the same network holder.
     net_runtime_dir: Option<&'a str>,
+    /// The TCP transport's TLS material, when the address is `tcp://`.
+    tls: Option<NodeApiTls<'a>>,
+    /// The authorization policy (ADR-0098) `DELONIX_NODE_API_AUTHZ_POLICY`, when
+    /// given with a `tcp://` address.
+    authz_policy: Option<&'a str>,
+    /// The audit-log path (ADR-0098) `DELONIX_NODE_API_AUDIT_LOG`, when given with
+    /// a `tcp://` address.
+    audit_log: Option<&'a str>,
 }
 
 /// A value written into a unit line as is. systemd splits `ExecStart=` on
@@ -337,10 +478,31 @@ fn unit_safe(what: &str, value: &str) -> Result<()> {
 
 /// The socket and service units, from the shipped templates.
 fn node_api_units(u: &NodeApiUnits) -> (String, String) {
-    let extra = u
+    let mut extra = u
         .net_runtime_dir
         .map(|d| format!("Environment=DELONIX_NET_RUNTIME_DIR={d}\n"))
         .unwrap_or_default();
+    if let Some(tls) = &u.tls {
+        extra.push_str(&format!(
+            "Environment=DELONIX_NODE_API_TLS_CERT={}\n\
+             Environment=DELONIX_NODE_API_TLS_KEY={}\n\
+             Environment=DELONIX_NODE_API_TLS_CLIENT_CA={}\n",
+            tls.cert, tls.key, tls.client_ca
+        ));
+        if let Some(crl) = tls.client_crl {
+            extra.push_str(&format!(
+                "Environment=DELONIX_NODE_API_TLS_CLIENT_CRL={crl}\n"
+            ));
+        }
+    }
+    if let Some(policy) = u.authz_policy {
+        extra.push_str(&format!(
+            "Environment=DELONIX_NODE_API_AUTHZ_POLICY={policy}\n"
+        ));
+    }
+    if let Some(audit) = u.audit_log {
+        extra.push_str(&format!("Environment=DELONIX_NODE_API_AUDIT_LOG={audit}\n"));
+    }
     let socket = NODE_API_SOCKET_UNIT.replace("@LISTEN@", u.listen);
     let service = NODE_API_SERVICE_UNIT
         .replace("@ROOT@", u.root)
@@ -350,9 +512,45 @@ fn node_api_units(u: &NodeApiUnits) -> (String, String) {
     (socket, service)
 }
 
+/// The `serve node-api --install-units` request, as the operator gave it: the
+/// eight flags before any validation. They are ONE decision — what to bake into
+/// the unit — and as positional parameters the call site was a column of eight
+/// bare `Option<&str>` in which a swapped pair would compile and write the
+/// wrong unit. Named at the call site, that cannot happen.
+struct NodeApiUnitRequest<'a> {
+    /// `--addr`: a `tcp://host:port`, an absolute unix path, or absent.
+    addr: Option<&'a str>,
+    /// `--idle-timeout`; absent takes `UNIT_DEFAULT_IDLE`.
+    idle: Option<&'a str>,
+    /// `--tls-cert`. With `--tls-key` and `--tls-client-ca` it is required for a
+    /// `tcp://` address and refused for a unix one (ADR-0096).
+    tls_cert: Option<&'a str>,
+    /// `--tls-key`, the private key of the certificate above.
+    tls_key: Option<&'a str>,
+    /// `--tls-client-ca`: the CA every client certificate must chain to.
+    tls_client_ca: Option<&'a str>,
+    /// `--tls-client-crl`: optional even on a `tcp://` address (ADR-0097).
+    tls_client_crl: Option<&'a str>,
+    /// `--authz-policy` (ADR-0098): meaningful only on the TLS transport, since
+    /// a unix socket has no client certificate to read an identity from.
+    authz_policy: Option<&'a str>,
+    /// `--audit-log` (ADR-0098), refused on a unix socket for the same reason.
+    audit_log: Option<&'a str>,
+}
+
 /// `delonix serve node-api --install-units`: writes the socket and service
 /// units, reloads systemd and enables the socket (ADR-0040 P5).
-fn install_node_api_units(addr: Option<&str>, idle: Option<&str>) -> Result<()> {
+fn install_node_api_units(req: NodeApiUnitRequest<'_>) -> Result<()> {
+    let NodeApiUnitRequest {
+        addr,
+        idle,
+        tls_cert,
+        tls_key,
+        tls_client_ca,
+        tls_client_crl,
+        authz_policy,
+        audit_log,
+    } = req;
     let rootless = delonix_node::is_rootless();
     let exec = resolve_server("delonix-node-api", "install.sh")?;
     if !exec.is_absolute() {
@@ -365,12 +563,86 @@ fn install_node_api_units(addr: Option<&str>, idle: Option<&str>) -> Result<()> 
     let root = super::util::state_root().display().to_string();
     let idle = idle.unwrap_or(UNIT_DEFAULT_IDLE);
     let never_idle = delonix_host::dispatch::parse_idle_timeout(idle)?.is_zero();
+    // A TCP address serves mutual TLS and needs all three materials; a unix
+    // address (or the default) takes none. This is the same fail-closed rule
+    // the server enforces (ADR-0096), decided here before a unit is written.
+    let is_tcp = addr.map(|a| a.starts_with("tcp://")).unwrap_or(false);
+    let any_tls = tls_cert.is_some()
+        || tls_key.is_some()
+        || tls_client_ca.is_some()
+        || tls_client_crl.is_some();
+    let tls = if is_tcp {
+        let addr = addr.unwrap();
+        let (cert, key, client_ca) = match (tls_cert, tls_key, tls_client_ca) {
+            (Some(c), Some(k), Some(ca)) => (c, k, ca),
+            _ => {
+                return Err(Error::Invalid(super::po::tf(
+                    "--addr '{addr}' is a TCP address and needs mutual TLS: --tls-cert, --tls-key and --tls-client-ca are all required",
+                    &[("addr", addr)],
+                )))
+            }
+        };
+        for (what, p) in [
+            ("--tls-cert", cert),
+            ("--tls-key", key),
+            ("--tls-client-ca", client_ca),
+        ] {
+            unit_safe(what, p)?;
+        }
+        if let Some(crl) = tls_client_crl {
+            unit_safe("--tls-client-crl", crl)?;
+        }
+        Some(NodeApiTls {
+            cert,
+            key,
+            client_ca,
+            client_crl: tls_client_crl,
+        })
+    } else {
+        if any_tls {
+            return Err(Error::Invalid(super::po::t(
+                "--tls-cert/--tls-key/--tls-client-ca/--tls-client-crl apply only to a tcp:// address; a unix socket serves no TLS",
+            ).into()));
+        }
+        None
+    };
+    // Authorization and audit (ADR-0098) are meaningful only on the TLS
+    // transport — a unix socket has no client certificate to read an identity
+    // from. Refuse them on a non-TCP address, as TLS is refused; validate the
+    // paths for a TCP one so they go into the unit as is.
+    let (authz_policy, audit_log) = if is_tcp {
+        if let Some(p) = authz_policy {
+            unit_safe("--authz-policy", p)?;
+        }
+        if let Some(p) = audit_log {
+            unit_safe("--audit-log", p)?;
+        }
+        (authz_policy, audit_log)
+    } else {
+        if authz_policy.is_some() || audit_log.is_some() {
+            return Err(Error::Invalid(super::po::t(
+                "--authz-policy/--audit-log apply only to a tcp:// address; a unix socket has no client certificate to authorize",
+            ).into()));
+        }
+        (None, None)
+    };
     let listen = match addr {
+        Some(a) if is_tcp => {
+            let hostport = a.strip_prefix("tcp://").unwrap();
+            if hostport.is_empty() || !hostport.contains(':') {
+                return Err(Error::Invalid(super::po::tf(
+                    "--addr '{addr}' is not a 'tcp://host:port' address",
+                    &[("addr", a)],
+                )));
+            }
+            unit_safe("--addr", hostport)?;
+            hostport.to_string()
+        }
         Some(a) => {
             let p = a.strip_prefix("unix://").unwrap_or(a);
             if !p.starts_with('/') {
                 return Err(Error::Invalid(super::po::tf(
-                    "--addr '{addr}' is not an absolute socket path; a .socket unit needs one",
+                    "--addr '{addr}' is not an absolute socket path nor a tcp://host:port address",
                     &[("addr", a)],
                 )));
             }
@@ -396,6 +668,9 @@ fn install_node_api_units(addr: Option<&str>, idle: Option<&str>) -> Result<()> 
         listen: &listen,
         idle,
         net_runtime_dir: net.as_deref(),
+        tls,
+        authz_policy,
+        audit_log,
     });
     let unit_dir = if rootless {
         let config = std::env::var_os("XDG_CONFIG_HOME")
@@ -474,7 +749,7 @@ fn install_node_api_units(addr: Option<&str>, idle: Option<&str>) -> Result<()> 
 
 #[cfg(test)]
 mod node_api_units_tests {
-    use super::{node_api_units, unit_safe, NodeApiUnits};
+    use super::{node_api_units, unit_safe, NodeApiTls, NodeApiUnits};
 
     fn units(net: Option<&str>) -> (String, String) {
         node_api_units(&NodeApiUnits {
@@ -483,7 +758,50 @@ mod node_api_units_tests {
             listen: "%t/delonix-node.sock",
             idle: "120s",
             net_runtime_dir: net,
+            tls: None,
+            authz_policy: None,
+            audit_log: None,
         })
+    }
+
+    /// A TCP unit carries the mutual-TLS material as the three environment
+    /// variables the server reads, and the socket listens on the address
+    /// (ADR-0096).
+    #[test]
+    fn a_tcp_unit_carries_the_tls_material() {
+        let (socket, service) = node_api_units(&NodeApiUnits {
+            exec: "/home/u/.local/bin/delonix-node-api",
+            root: "/home/u/.local/share/delonix",
+            listen: "0.0.0.0:9443",
+            idle: "120s",
+            net_runtime_dir: None,
+            tls: Some(NodeApiTls {
+                cert: "/etc/delonix/node.crt",
+                key: "/etc/delonix/node.key",
+                client_ca: "/etc/delonix/clients-ca.crt",
+                client_crl: Some("/etc/delonix/node-ca.crl"),
+            }),
+            authz_policy: Some("/etc/delonix/authz.json"),
+            audit_log: Some("/var/log/delonix/node-audit.jsonl"),
+        });
+        assert!(
+            socket.contains("ListenStream=0.0.0.0:9443"),
+            "the socket listens on the TCP address:\n{socket}"
+        );
+        for line in [
+            "Environment=DELONIX_NODE_API_TLS_CERT=/etc/delonix/node.crt",
+            "Environment=DELONIX_NODE_API_TLS_KEY=/etc/delonix/node.key",
+            "Environment=DELONIX_NODE_API_TLS_CLIENT_CA=/etc/delonix/clients-ca.crt",
+            "Environment=DELONIX_NODE_API_TLS_CLIENT_CRL=/etc/delonix/node-ca.crl",
+            // ADR-0098: authorization policy + audit log carried the same way.
+            "Environment=DELONIX_NODE_API_AUTHZ_POLICY=/etc/delonix/authz.json",
+            "Environment=DELONIX_NODE_API_AUDIT_LOG=/var/log/delonix/node-audit.jsonl",
+        ] {
+            assert!(
+                service.contains(line),
+                "service is missing `{line}`:\n{service}"
+            );
+        }
     }
 
     #[test]

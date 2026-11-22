@@ -245,10 +245,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_chave_vai_para_a_conta_da_golden_e_nao_para_a_default_da_distro() {
+    fn the_key_goes_to_the_golden_account_and_not_the_distro_default() {
         let ud = build_user_data("no1", DEFAULT_CI_USER, &["ssh-ed25519 AAAA".into()], &[]);
-        // O `- default` fica, para a conta da distro continuar a existir; a
-        // chave é que tem de aterrar na conta que o `cluster kubeadm` usa.
+        // The `- default` stays so the distro's own account keeps existing; the
+        // key is what has to land on the account `cluster kubeadm` uses.
         assert!(ud.contains("  - default\n"), "{ud}");
         assert!(ud.contains("  - name: delonix\n"), "{ud}");
         // The `delonix` account is CREATED from scratch by cloud-init, with
@@ -261,18 +261,24 @@ mod tests {
         assert!(ud.contains("    lock_passwd: true\n"), "{ud}");
         let keys_at = ud.find("ssh_authorized_keys").unwrap();
         let user_at = ud.find("  - name: delonix").unwrap();
-        assert!(user_at < keys_at, "a chave saiu de baixo da conta:\n{ud}");
+        assert!(
+            user_at < keys_at,
+            "the key slipped out from under the account:\n{ud}"
+        );
     }
 
-    /// O `ci_user` governa as DUAS coisas que dependem da conta — a chave e o
-    /// autologin da consola série. Ter uma sem a outra dá uma VM em que se entra
-    /// por SSH e não pela consola, ou o contrário.
+    /// `ci_user` governs the TWO things that depend on the account — the key and
+    /// the serial-console autologin. Having one without the other gives a VM you
+    /// get into over SSH but not the console, or the other way around.
     #[test]
-    fn o_ci_user_governa_a_chave_e_o_autologin() {
+    fn the_ci_user_governs_the_key_and_the_autologin() {
         let ud = build_user_data("no1", "operador", &["ssh-ed25519 AAAA".into()], &[]);
         assert!(ud.contains("  - name: operador\n"), "{ud}");
         assert!(ud.contains("--autologin operador "), "{ud}");
-        assert!(!ud.contains("delonix"), "sobrou a conta antiga:\n{ud}");
+        assert!(
+            !ud.contains("delonix"),
+            "the old account was left behind:\n{ud}"
+        );
     }
 
     /// Even WITHOUT keys the `users:` block exists and CREATES the `delonix`
@@ -314,20 +320,23 @@ mod tests {
         assert!(ud.ends_with('\n'), "{ud}");
     }
 
-    /// O `network-config` casa por MAC e NUNCA por nome — é o que faz o mesmo
-    /// ficheiro servir netplan e NetworkManager (ver o doc-comment).
+    /// The `network-config` matches by MAC and NEVER by name — that is what lets
+    /// the same file serve netplan and NetworkManager (see the doc-comment).
     #[test]
-    fn a_rede_casa_por_mac_e_nunca_por_nome() {
+    fn the_network_matches_by_mac_and_never_by_name() {
         let nc = build_network_config("no1");
         assert!(nc.contains("macaddress:"), "{nc}");
-        assert!(!nc.contains("name:"), "voltou a casar por nome:\n{nc}");
+        assert!(
+            !nc.contains("name:"),
+            "it went back to matching by name:\n{nc}"
+        );
         assert!(nc.contains(&mac_for("no1")), "{nc}");
     }
 
-    /// Cada volume 9p vira uma linha de `mounts:` — é o que faz o convidado
-    /// montar o volume/NAS sem ninguém escrever fstab à mão.
+    /// Each 9p volume becomes a `mounts:` line — that is what lets the guest
+    /// mount the volume/NAS without anyone writing fstab by hand.
     #[test]
-    fn com_volumes_injecta_os_mounts_9p() {
+    fn with_volumes_it_injects_the_9p_mounts() {
         let vols = vec![
             VmVolume {
                 tag: "dados".into(),
@@ -352,26 +361,26 @@ mod tests {
             ud.contains("[ \"ro\", \"/mnt/ro\", 9p, \"trans=virtio,version=9p2000.L,ro,_netdev\", \"0\", \"0\" ]"),
             "{ud}"
         );
-        // Sem volumes → sem secção nenhuma.
+        // No volumes → no section at all.
         assert!(!build_user_data("myvm", DEFAULT_CI_USER, &[], &[]).contains("mounts:"));
     }
 
     #[test]
-    fn o_meta_data_tem_instance_id_e_hostname() {
+    fn the_meta_data_has_instance_id_and_hostname() {
         assert_eq!(
             build_meta_data("vm-1", "myvm"),
             "instance-id: vm-1\nlocal-hostname: myvm\n"
         );
     }
 
-    /// Um nome de VM com travessia é recusado ANTES de escrever seja o que for —
-    /// esta função é uma fronteira de escrita por direito próprio.
+    /// A VM name with traversal is refused BEFORE anything is written — this
+    /// function is a write boundary in its own right.
     #[test]
-    fn um_nome_com_travessia_nao_escreve_nada() {
+    fn a_name_with_traversal_writes_nothing() {
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path();
-        let mau = "../../../etc/delonix-teste";
-        assert!(generate_seed_iso(base, "default", mau, None, None, &[], None, &[]).is_err());
-        assert!(!base.join("vms").join(mau).exists());
+        let bad = "../../../etc/delonix-teste";
+        assert!(generate_seed_iso(base, "default", bad, None, None, &[], None, &[]).is_err());
+        assert!(!base.join("vms").join(bad).exists());
     }
 }

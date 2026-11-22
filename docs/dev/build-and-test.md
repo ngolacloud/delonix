@@ -225,7 +225,7 @@ pgrep -a delonix
 
 | Part | What it does | Flag that skips or enables it |
 |---|---|---|
-| Binary | downloads a release, verifies the minisign signature and sha256, installs `delonix` (plus `delonix-mcp`, `delonix-mgmt`, and `delonix-cri` with `--with-cri`), then completion, man pages, editor syntax and the editor extension | skipped with `--no-binary`; `--user` picks `~/.local/bin` |
+| Binary | downloads a release, verifies the minisign signature and sha256, installs `delonix` (plus `delonix-mcp`, `delonix-mgmt`, and `delonix-cri` with `--with-cri`), then completion, man pages and editor syntax | skipped with `--no-binary`; `--user` picks `~/.local/bin` |
 | Host packages | `slirp4netns`, `uidmap`, `nftables`, `iproute2`, `conntrack` | always |
 | Rootless identity | `/etc/subuid` and `/etc/subgid` ranges for your user | always |
 | AppArmor | profile for `<dir>/delonix` when the userns restriction is active | always (when the restriction is on) |

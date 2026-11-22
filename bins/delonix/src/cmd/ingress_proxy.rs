@@ -340,7 +340,7 @@ fn set_forwarding_headers(headers: &mut hyper::HeaderMap, peer: std::net::IpAddr
     }
 }
 
-/// The request's `Host`, without the port (`loja.exemplo.ao:80` → `loja.exemplo.ao`).
+/// The request's `Host`, without the port (`shop.example.com:80` → `shop.example.com`).
 fn req_host(req: &Request<Incoming>) -> String {
     req.headers()
         .get(hyper::header::HOST)
@@ -540,8 +540,8 @@ async fn accept_loop(
 /// needed — follow-up. Today the self-signed covers all the HTTPRoute's hosts in one
 /// cert (multi-SAN), and the BYO mode assumes a cert that serves all the hosts.
 fn build_server_config(tls: &TlsMaterial) -> Result<Arc<tokio_rustls::rustls::ServerConfig>> {
-    // PEM parsing via `rustls-pki-types` (re-exportado pelo próprio rustls) em vez
-    // do `rustls-pemfile` não-mantido (RUSTSEC-2025-0134) — sem nova dependência.
+    // PEM parsing via `rustls-pki-types` (re-exported by rustls itself) instead
+    // of the unmaintained `rustls-pemfile` (RUSTSEC-2025-0134) — no new dependency.
     use tokio_rustls::rustls::pki_types::pem::{Error as PemError, PemObject};
     use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
     use tokio_rustls::rustls::ServerConfig;
@@ -1878,7 +1878,7 @@ mod tests {
     }
 
     #[test]
-    fn pick_route_prefere_host_especifico_e_prefixo_mais_longo() {
+    fn pick_route_prefers_specific_host_and_longest_prefix() {
         let routes = vec![
             r("", "/", "10.0.0.1:80"),           // any host, root
             r("loja.ex", "/", "10.0.0.2:80"),    // specific host, root
@@ -1902,13 +1902,13 @@ mod tests {
     }
 
     #[test]
-    fn pick_route_sem_correspondencia() {
+    fn pick_route_no_match() {
         let routes = vec![r("loja.ex", "/", "10.0.0.2:80")];
         assert!(pick_route(&routes, "outro.ex", "/").is_none());
     }
 
     #[test]
-    fn pick_route_respeita_fronteira_de_segmento() {
+    fn pick_route_respects_segment_boundary() {
         // BUG regression guard: `/api-docs` used to match the `/api` route
         // (raw string-prefix match, no segment boundary) instead of falling
         // through to `/` — exactly the k8s Gateway API PathPrefix semantics
@@ -1921,22 +1921,22 @@ mod tests {
         assert_eq!(
             pick_route(&routes, "loja.ex", "/api-docs").unwrap().backend,
             "public:80",
-            "/api-docs não é um sub-caminho de /api"
+            "/api-docs is not a sub-path of /api"
         );
         assert_eq!(
             pick_route(&routes, "loja.ex", "/api").unwrap().backend,
             "internal:80",
-            "/api exacto continua a casar"
+            "/api exact still matches"
         );
         assert_eq!(
             pick_route(&routes, "loja.ex", "/api/v1").unwrap().backend,
             "internal:80",
-            "/api/v1 é um sub-caminho real de /api"
+            "/api/v1 is a real sub-path of /api"
         );
     }
 
     #[test]
-    fn path_prefix_matches_casos_directos() {
+    fn path_prefix_matches_direct_cases() {
         assert!(super::path_prefix_matches("/api", "/api"));
         assert!(super::path_prefix_matches("/api/v1", "/api"));
         assert!(!super::path_prefix_matches("/api-docs", "/api"));
@@ -1946,7 +1946,7 @@ mod tests {
     }
 
     #[test]
-    fn self_signed_gera_pem_valido() {
+    fn self_signed_produces_valid_pem() {
         let mat = self_signed_pem(&["loja.exemplo.ao".into()]).unwrap();
         assert!(mat.cert_pem.contains("BEGIN CERTIFICATE"));
         assert!(mat.key_pem.contains("PRIVATE KEY"));
@@ -1956,7 +1956,7 @@ mod tests {
     }
 
     #[test]
-    fn config_com_tls_roundtrip_json() {
+    fn config_with_tls_roundtrips_json() {
         let cfg = ProxyConfig {
             listeners: vec![Listener {
                 port: 443,
