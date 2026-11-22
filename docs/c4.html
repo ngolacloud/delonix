@@ -392,7 +392,7 @@ display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hi
 <h1>Architecture — Delonix Engine</h1>
 <p>C4 model (Context → Containers → Components) and functional system design of the
 <strong>Delonix Engine</strong>: a <strong>daemonless, rootless-first, kernel-native</strong> container and
-microVM engine, written in Rust (40 crates, <code>crates/</code> workspace). This document is
+microVM engine, written in Rust (41 crates, <code>crates/</code> workspace). This document is
 canonical and kept in sync with the code — every structural claim carries a reference
 to the crate/file where it was confirmed. Where limits exist, they appear in the
 diagrams, not hidden away in footnotes.</p>
@@ -544,7 +544,7 @@ at read time — <code>reconcile_status</code> (<code>crates/adapters/delonix-li
 reclassifies <code>Running</code>→<code>Crashed</code>/<code>Paused</code>. The CRI calls it in <code>load_reconciled</code>
 before replying to the kubelet.</p>
 <hr />
-<h2>C4 — Level 3: Components (the 40 crates)</h2>
+<h2>C4 — Level 3: Components (the 41 crates)</h2>
 <p>Arrows = <strong>real</strong> dependencies, confirmed in the <code>Cargo.toml</code> files of <code>crates/*/</code> and
 in the <code>use delonix_*</code> of the <code>src/</code>. There are no cycles; <code>delonix-model</code> is the
 common root.</p>
@@ -563,6 +563,7 @@ common root.</p>
     SCAN[&quot;delonix-scanner&lt;br&gt;SBOM e varredura de CVE — image scan&lt;br&gt;e a imposicao de scan-on-pull&quot;]
     SEC[&quot;delonix-security&lt;br&gt;decisoes de seguranca do no: politica, admissao&lt;br&gt;unica (container E VM), evento, score, redaccao&lt;br&gt;(ADR-0026) — puro, sem sensores e sem inquilino&quot;]
     RULES[&quot;delonix-net-rules&lt;br&gt;regras de rede PURAS, ZERO dependencias — Cidr, nome de bridge,&lt;br&gt;IPAM dentro de um prefixo, leitura de taxas, o PolicyIr (ADR-0059 D6); partilhado com o PaaS&quot;]
+    SPIFFE[&quot;delonix-spiffe&lt;br&gt;SPIFFE identity of the node as rustls material (ADR-0102, H0):&lt;br&gt;X.509-SVID chain, key and trust bundle (PEM) into a rustls ServerConfig/ClientConfig;&lt;br&gt;external authority (SPIRE) or the engine&#x27;s own CA via self_signed.&lt;br&gt;NO consumer in the workspace yet — hence no inbound edge&quot;]
     CHV[&quot;delonix-provider-cloud-hypervisor&lt;br&gt;backend VmBackend Cloud Hypervisor (microVM por processo, api-socket)&lt;br&gt;(ADR-0044 P4b.4c) — saiu do delonix-vm, que o regista&quot;]
     LVIRT[&quot;delonix-provider-libvirt&lt;br&gt;backend VmBackend libvirt/KVM (QEMU via virsh)&lt;br&gt;(ADR-0044 P4b.4b) — saiu do delonix-vm, que o regista&quot;]
     PVE[&quot;delonix-provider-proxmox&lt;br&gt;backend VmBackend REMOTO contra a API de UM no Proxmox VE&lt;br&gt;(ADR-0008) — fora do delonix-vm por trazer cliente HTTP&quot;]
