@@ -1,0 +1,48 @@
+# Identidades do histórico, mapeadas para a canónica.
+#
+# Um `.mailmap` NÃO reescreve nada: o commit continua exactamente como foi
+# gravado, com o autor e os trailers que tinha. O que o ficheiro faz é dizer ao
+# git — e às páginas de contribuidores que o lêem — que várias identidades são a
+# mesma pessoa. `git shortlog -sne`, `git log --use-mailmap` e `git blame`
+# passam a somá-las numa só.
+#
+# Medido a 2026-11-22, antes e depois, em todo o histórico:
+#
+#     sem o ficheiro:  7 identidades (3700 commits dispersos por 6 grafias)
+#     com o ficheiro:  2 — `angolardevops` e `Alexandre Antonio Juca`
+#
+# O Alexandre NÃO entra aqui: é um contribuidor distinto e real, e juntá-lo
+# tirava-lhe o crédito de um commit que é dele.
+#
+# A forma de cada linha é `<Nome canónico> <email canónico> <Nome antigo> <email antigo>`.
+
+# ---------------------------------------------------------------- o dono
+# O mesmo email com dois nomes (a maioria do histórico), a conta noreply do
+# GitHub, um email com gralha (`gamil`), e duas contas próprias que o GitHub
+# mostra à parte como se fossem outras pessoas: `nukubico` (ss.system@kaeso.co)
+# e `angolarti` (angolarti@gmail.com).
+angolardevops <angolar.devops@gmail.com> Walter Angolar <angolar.devops@gmail.com>
+angolardevops <angolar.devops@gmail.com> <191955947+angolardevops@users.noreply.github.com>
+angolardevops <angolar.devops@gmail.com> Walter Angolar <angolar.devops@gamil.com>
+angolardevops <angolar.devops@gmail.com> Walter Angolar <angolarti@gmail.com>
+angolardevops <angolar.devops@gmail.com> Walter Angolar <ss.system@kaeso.co>
+
+# ------------------------------------------------------------- o CI local
+# `ngola-ci` é o harness desta casa a assinar os seus próprios commits de
+# integração, não uma pessoa.
+angolardevops <angolar.devops@gmail.com> ngola-ci <ci@local>
+
+# ----------------------------------------------- os trailers de atribuição a IA
+# O `claude` que aparece na lista de contribuidores não é autor nem committer de
+# commit nenhum: vem de 810 trailers `Co-Authored-By: Claude …` no CORPO das
+# mensagens, que a página de contribuidores do GitHub conta como se fossem
+# pessoas. A regra desta casa (CLAUDE.md, 2026-09-24) proíbe esses trailers
+# precisamente porque o trabalho é de quem o dirigiu — logo mapeá-los para o
+# dono é dizer o que a regra já diz.
+#
+# **Isto é uma tentativa, não uma garantia**: o `git shortlog` só lê autor e
+# committer, por isso o efeito destas linhas sobre uma página que conta
+# co-autores não é verificável daqui. Se a lista continuar a mostrar `claude`,
+# só uma reescrita do histórico o tira — com o custo que isso tem, descrito no
+# commit que trouxe este ficheiro.
+angolardevops <angolar.devops@gmail.com> <noreply@anthropic.com>
