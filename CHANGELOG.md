@@ -30,6 +30,18 @@ Prose notes: [docs/releases/v0.2.0.md](docs/releases/v0.2.0.md).
   into sharing; `--net none`, `--net <network>` and pods are unchanged, and `-p`
   still adds host port forwards. A container created before this release keeps
   the host netns — `start` reconstructs the mode from the record.
+- **And a `kind: Container` with no `network:` means the same thing**, which it
+  did not when the change above first landed: the declarative default stayed
+  `host` while `run`'s became `private`, so one field meant opposite things
+  depending on which door read it. Measured: a hand-made `container run -d`
+  against a manifest declaring it planned `network: private → host`, a REPLACE —
+  destroy and recreate a container that was already running — so adoption was
+  impossible without `--replace`. The declarative default is now `private`
+  (`docs/schema/v1/delonix.json` carries it). **A manifest that does not name a
+  network changes behaviour**: declare `network: host` to keep sharing. A `Pod`
+  is unchanged. One welcome consequence: a `GitOpsSource` may now declare a
+  container without naming a network — the guard exists to keep a repo off the
+  HOST's network, and an unnamed one is no longer on it.
 
 ### Added
 

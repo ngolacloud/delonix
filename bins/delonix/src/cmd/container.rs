@@ -64,7 +64,9 @@ pub(crate) struct ContainerSpec {
     pub(crate) image: String,
     #[serde(default = "default_true")]
     pub(crate) detach: bool,
-    #[serde(default = "default_net")]
+    // `default_net_private` and not `default_net`: the same default the
+    // imperative `run` has. See that function for the why.
+    #[serde(default = "default_net_private")]
     network: String,
     /// HTTP port to auto-register in the L7 proxy (internal FQDN). See `--expose`.
     #[serde(default)]
@@ -1020,7 +1022,7 @@ fn hoist(m: &mut serde_yaml::Mapping, group: &serde_yaml::Mapping, from: &str, t
     }
 }
 
-use delonix_compute::pod::{default_net, default_restart, default_true};
+use delonix_compute::pod::{default_net_private, default_restart, default_true};
 /// `host`/`none` are the two built-in networks (no user bridge); anything else
 /// is the name of a custom `delonix network` to attach to.
 /// How to show the network mode, crossing the INTENT with the RESULT.

@@ -2170,7 +2170,9 @@ spec: { image: nginx }
         // The user only wrote `image: nginx`; the defaults must materialize.
         assert!(out.contains("image: nginx"));
         assert!(out.contains("detach: true"), "got:\n{out}"); // default_true
-        assert!(out.contains("network: host"), "got:\n{out}"); // default_net
+                                                              // `private` and not `host`: the declarative Container carries the same
+                                                              // default as the imperative `run` since v0.2.0 (`default_net_private`).
+        assert!(out.contains("network: private"), "got:\n{out}");
         assert!(out.contains("restartPolicy: no"), "got:\n{out}"); // renamed default
     }
 

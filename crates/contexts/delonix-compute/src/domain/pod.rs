@@ -25,6 +25,24 @@ pub fn default_net() -> String {
     "host".to_string()
 }
 
+/// The declarative `Container`'s default network, which is the IMPERATIVE `run`'s
+/// default and not [`default_net`]'s.
+///
+/// v0.2.0 made a bare `run` stop sharing the host's netns (`--net` defaults to
+/// `private`) and left the declarative side on `host`, so the SAME field meant
+/// opposite things depending on which door read it — the class this repo already
+/// paid for with `resolve_image_ref`: a string cannot mean two things depending
+/// on the entry point. Measured on 2026-11-22: a hand-made `container run -d`
+/// against a manifest that declares it with no `network:` planned
+/// `network: private → host`, i.e. a REPLACE — destroy and recreate a container
+/// that was already running — so adoption was impossible without `--replace`.
+///
+/// `Pod` keeps [`default_net`]: the release note promises pods are unchanged, and
+/// a pod always builds a netns of its own anyway.
+pub fn default_net_private() -> String {
+    "private".to_string()
+}
+
 /// Validates an `--add-host` entry, in the `name:ip` format (Docker's).
 ///
 /// Returns the normalized `(name, ip)`, or the error to show. Validate HERE, at

@@ -553,7 +553,7 @@
         "network": {
           "anyOf": [
             {
-              "default": "host",
+              "default": "private",
               "type": "string"
             },
             {

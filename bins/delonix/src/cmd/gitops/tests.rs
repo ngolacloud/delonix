@@ -398,7 +398,6 @@ fn a_container_asking_for_the_host_is_refused() {
     for host in [
         "  image: alpine\n  network: appnet\n  privileged: true\n",
         "  image: alpine\n  network: host\n",
-        "  image: alpine\n",
         "  image: alpine\n  network: appnet\n  volumes: [\"/etc:/x\"]\n",
         "  image: alpine\n  network: appnet\n  volumes: [\"./data:/x\"]\n",
         "  image: alpine\n  network: appnet\n  devices: [\"/dev/kvm\"]\n",
@@ -408,12 +407,21 @@ fn a_container_asking_for_the_host_is_refused() {
     ] {
         let y = container(host);
         // Exactly one reason per case: each refusal stands on its own, and
-        // none hides behind another (a flat spec without `network` would
-        // also be refused for the host network).
+        // none hides behind another.
         let r = guard(&[&y], &base_spec());
         assert_eq!(r.len(), 1, "{host}: {r:?}");
         assert!(!r[0].contains(','), "{host}: {r:?}");
     }
+    // A flat spec that names NO network is allowed since v0.2.0: the default
+    // stopped being `host` (`default_net_private`), so there is nothing to
+    // refuse — the guard exists to keep a repo off the HOST's network, and this
+    // container is not on it. Naming `host` explicitly is still refused, above.
+    let bare = container("  image: alpine\n");
+    assert!(
+        guard(&[&bare], &base_spec()).is_empty(),
+        "{:?}",
+        guard(&[&bare], &base_spec())
+    );
     let plain = container(
         "  image: alpine\n  network: appnet\n  volumes: [\"data:/x\"]\n  ports: [\"8080:80\"]\n",
     );
