@@ -130,13 +130,13 @@ falls without the baseline lowered in the same commit.
 
 | Ratchet | Now | Baseline | Target |
 | --- | ---: | ---: | --- |
-| self_exec_sites | 37 | 37 | 0 (R5) |
-| library_prints | 121 | 116 | down |
-| env_writes | 25 | 23 | down |
+| self_exec_sites | 35 | 35 | 0 (R5) |
+| library_prints | 121 | 121 | down |
+| env_writes | 25 | 25 | down |
 | shared_error_imports | 3 | 3 | 0 |
 | raw_error_variant_matches | 0 | 0 | 0 |
 | context_spawns | 0 | 0 | 0 |
-| cli_context_lines | 127,907 | 126,181 | 0 (R4) |
+| cli_context_lines | 127,907 | 127,907 | 0 (R4) |
 | interface_mechanism_deps | 0 | 0 | 0 (R3) |
 | provider_namers | 17 | 17 | 0 (R3/R4) |
 | bin_crates | 6 | 6 | 1 (R1) |

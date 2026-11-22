@@ -350,5 +350,51 @@ class C1RestructuringRules(unittest.TestCase):
         self.assertEqual(names, ["delonix-bin"])
 
 
+class CodeOnly(unittest.TestCase):
+    """The comment filter behind `COMMENT_BLIND` (2026-11-22). It exists because
+    `raw_error_variant_matches` read 1 when its only hit was the sentence in
+    `cmd/util.rs` explaining why the code must NOT do what the pattern matches."""
+
+    def test_a_whole_line_comment_is_blanked(self):
+        self.assertEqual(g.code_only("  // matches!(e, Error::NotFound(_))"), "")
+
+    def test_real_code_survives(self):
+        src = "let x = current_exe();"
+        self.assertEqual(g.code_only(src), src)
+
+    def test_a_trailing_comment_keeps_the_code_before_it(self):
+        src = "let x = current_exe(); // the host path, before any rootfs"
+        self.assertEqual(g.code_only(src), src)
+
+    def test_line_count_is_preserved(self):
+        self.assertEqual(len(g.code_only("a\n// b\nc").splitlines()), 3)
+
+    def test_a_url_inside_a_string_is_not_a_comment(self):
+        src = 'let u = "https://example.test/x";'
+        self.assertEqual(g.code_only(src), src)
+
+    def test_the_two_blind_patterns_stop_seeing_the_sentence(self):
+        """Named one by one on purpose. The first version of this test looped
+        over `COMMENT_BLIND`, and an empty tuple made it assert NOTHING: with
+        the fix reverted the 40 tests stayed green while the gate itself went
+        red. A test that can encode the bug is the trap this repo records."""
+        sentence = "// never `matches!(e, Error::NotFound(_))`, ask current_exe()"
+        for pattern in (g.RAW_VARIANT_MATCH, g.SELF_EXEC):
+            self.assertIn(pattern, g.COMMENT_BLIND, "the gate has to be blind here")
+            self.assertTrue(pattern.search(sentence), "the pattern must match the prose")
+            self.assertFalse(pattern.search(g.code_only(sentence)))
+
+    def test_the_sighted_patterns_are_left_alone(self):
+        """PRINTS and ENV_WRITES are deliberately NOT filtered — the decision is
+        measured in the comment beside `COMMENT_BLIND`, so pin it here too."""
+        self.assertNotIn(g.PRINTS, g.COMMENT_BLIND)
+        self.assertNotIn(g.ENV_WRITES, g.COMMENT_BLIND)
+
+    def test_a_live_violation_is_still_counted(self):
+        """The filter must not blind the gate: real code still reads as debt."""
+        code = "if let Err(Error::NotFound(_)) = r { return; }"
+        self.assertTrue(g.RAW_VARIANT_MATCH.search(g.code_only(code)))
+
+
 if __name__ == "__main__":
     unittest.main()
