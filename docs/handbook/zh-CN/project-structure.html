@@ -247,7 +247,7 @@ th:first-child,td:first-child{white-space:nowrap}
 ├── README.rst, CONTRIBUTING.md   user entry point, contributor entry point
 ├── GOVERNANCE.md, MAINTAINERS.md, CODE_OF_CONDUCT.md, SECURITY.md, LICENSE
 ├── .clinerules, .cursorrules     pointers to AGENTS.md for AI coding tools
-├── .dockerignore, .gitignore, .git-blame-ignore-revs
+├── .dockerignore, .gitignore, .git-blame-ignore-revs, .mailmap
 ├── .ai/                          skills for AI assistants (E2E quality)
 ├── .github/                      CI and release workflows, CODEOWNERS, issue/PR templates
 ├── crates/
@@ -353,6 +353,12 @@ th:first-child,td:first-child{white-space:nowrap}
 <td><code>.git-blame-ignore-revs</code></td>
 <td><code>git blame</code> 应该跳过的提交（那次全 workspace 的 <code>rustfmt</code> 运行）。用 <code>git config blame.<wbr>ignoreRevsFile .<wbr>git-blame-ignore-revs</code> 启用。</td>
 <td>落地一次大规模重排版提交的人。</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>.mailmap</code></td>
+<td>把所有者的其它名字和邮箱映射到一个规范身份，使 <code>git shortlog</code>、<code>git blame --use-mailmap</code> 和贡献者页面把它们算作一个人而不是六个。它不重写任何东西：每个提交仍保留记录时的作者。</td>
+<td>每当 <code>git shortlog -sne</code> 里出现新身份时。</td>
 <td>—</td>
 </tr>
 <tr>
