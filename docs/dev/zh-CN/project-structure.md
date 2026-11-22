@@ -1,4 +1,4 @@
-<!-- translated-from: project-structure.md sha256:915514edbb0ec8afbf6a80a8d3c8214efb890203b2747327b70e9f0d29f4070f -->
+<!-- translated-from: project-structure.md sha256:cd0fd7b749374f6c4a530ad21c60f4fdd42aaf92ec3583c2b99676e6480b6abb -->
 # 项目结构
 
 **阅读之前：**[克隆、构建与测试](build-and-test.md) —— 你已经有一份能构建的 checkout，也知道
@@ -45,7 +45,7 @@
 ├── README.rst, CONTRIBUTING.md   user entry point, contributor entry point
 ├── GOVERNANCE.md, MAINTAINERS.md, CODE_OF_CONDUCT.md, SECURITY.md, LICENSE
 ├── .clinerules, .cursorrules     pointers to AGENTS.md for AI coding tools
-├── .dockerignore, .gitignore, .git-blame-ignore-revs, .mailmap
+├── .dockerignore, .gitignore, .git-blame-ignore-revs, .mailmap, .githooks/
 ├── .ai/                          skills for AI assistants (E2E quality)
 ├── .github/                      CI and release workflows, CODEOWNERS, issue/PR templates
 ├── crates/
@@ -98,6 +98,7 @@
 | `.gitignore` | 忽略 `target/`、`__pycache__/` 和本地的 agent 工具文件。 | 很少改动。 | — |
 | `.git-blame-ignore-revs` | `git blame` 应该跳过的提交（那次全 workspace 的 `rustfmt` 运行）。用 `git config blame.ignoreRevsFile .git-blame-ignore-revs` 启用。 | 落地一次大规模重排版提交的人。 | — |
 | `.mailmap` | 把所有者的其它名字和邮箱映射到一个规范身份，使 `git shortlog`、`git blame --use-mailmap` 和贡献者页面把它们算作一个人而不是六个。它不重写任何东西：每个提交仍保留记录时的作者。 | 每当 `git shortlog -sne` 里出现新身份时。 | — |
+| `.githooks/` | 本仓库自己的 git hooks，纳入版本控制，因此随 clone 一起到来。`commit-msg` 拒绝 AI 署名 trailer —— 这是 2026-09-24 的规则，而历史中的 810 条 trailer 说明光有规则是守不住的。由 `make bootstrap` 接上（`core.hooksPath`）；`--no-verify` 可绕过。 | 要新增一项属于提交时刻的检查的人。 | [克隆、构建与测试](build-and-test.md) |
 | `AGENTS.md` | 项目日志与 agent 规则，用葡萄牙语写成：引擎的身份与边界（权威版本）、各个门禁，以及每个功能的一段长历史。有些章节已经过时。 | 维护者和贡献者用来记录决策和发现；冲突用「两边都保留」的方式解决。 | [从这里开始](start-here.md) |
 | `ARCHITECTURE.md` | C4 模型（context、containers、components）与功能性系统设计，用葡萄牙语写成，渲染进用户站点。 | 手写，随结构性变化与代码保持同步。 | [架构](architecture.md) |
 | `README.rst` | 面向用户的入口：Delonix 是什么、如何安装、第一批命令。 | 随用户可见的功能和发布而改动。 | [发布文档](publishing-docs.md) |

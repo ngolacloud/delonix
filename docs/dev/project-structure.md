@@ -44,7 +44,7 @@ Start at the root and follow the dependencies inward:
 ├── GOVERNANCE.md, MAINTAINERS.md, CODE_OF_CONDUCT.md, SECURITY.md, LICENSE
 ├── CNCF-SANDBOX-READINESS.md     CNCF Sandbox Phase A readiness checklist
 ├── .clinerules, .cursorrules     pointers to AGENTS.md for AI coding tools
-├── .dockerignore, .gitignore, .git-blame-ignore-revs, .mailmap
+├── .dockerignore, .gitignore, .git-blame-ignore-revs, .mailmap, .githooks/
 ├── .ai/                          versioned AI harness: skills/ and agents/
 ├── .claude/                      agents/ bridge (symlinks to .ai/agents/); rest gitignored
 ├── .github/                      CI and release workflows, CODEOWNERS, issue/PR templates
@@ -101,6 +101,7 @@ Start at the root and follow the dependencies inward:
 | `.gitignore` | Ignores `target/`, `__pycache__/` and local agent-tool files. | Rarely. | — |
 | `.git-blame-ignore-revs` | Commits `git blame` should skip (the workspace-wide `rustfmt` run). Enable with `git config blame.ignoreRevsFile .git-blame-ignore-revs`. | Whoever lands a mass reformatting commit. | — |
 | `.mailmap` | Maps the owner's alternate names and emails onto one canonical identity, so `git shortlog`, `git blame --use-mailmap` and the contributors page count one person instead of six. Rewrites nothing: each commit keeps the author it was recorded with. | Whenever a new identity shows up in `git shortlog -sne`. | — |
+| `.githooks/` | The repository's own git hooks, versioned so they arrive with a clone. `commit-msg` refuses an AI attribution trailer — the rule of 2026-09-24, which 810 trailers in the history show a rule alone does not hold. Wired by `make bootstrap` (`core.hooksPath`); `--no-verify` bypasses it. | Whoever adds a check that belongs at commit time. | [Clone, build and test](build-and-test.md) |
 | `AGENTS.md` | Project journal and agent rules, in Portuguese: the engine's identity and boundary (canonical), the gates, and a long history per feature. Some sections are out of date. | Maintainers and contributors recording decisions and findings; conflicts are resolved by keeping both sides. | [Start here](start-here.md) |
 | `ARCHITECTURE.md` | C4 model (context, containers, components) and functional system design, in Portuguese, rendered into the user site. | Hand-written, kept in step with the code on structural changes. | [Architecture](architecture.md) |
 | `README.rst` | The user-facing entry point: what Delonix is, installation, first commands. | Changed with user-visible features and releases. | [Publishing the documentation](publishing-docs.md) |

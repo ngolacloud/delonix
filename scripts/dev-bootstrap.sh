@@ -148,6 +148,23 @@ install_cargo_tools() {
   done
 }
 
+# The repository's own git hooks (`.githooks/`). Pointing `core.hooksPath` at a
+# VERSIONED directory is what makes the hook arrive with a clone instead of
+# living in one person's `.git/hooks`, where nothing watches it. Idempotent, and
+# it never overrides a path somebody set on purpose.
+install_git_hooks() {
+  local want=.githooks current
+  [ -d "$ROOT_DIR/$want" ] || return 0
+  git -C "$ROOT_DIR" rev-parse --git-dir >/dev/null 2>&1 || return 0
+  current=$(git -C "$ROOT_DIR" config --local --get core.hooksPath || true)
+  if [ -z "$current" ]; then
+    git -C "$ROOT_DIR" config --local core.hooksPath "$want"
+    echo "git hooks: core.hooksPath -> $want"
+  elif [ "$current" != "$want" ]; then
+    echo "git hooks: core.hooksPath is '$current', left as is (set it to '$want' to use the repo's)" >&2
+  fi
+}
+
 suggested_jobs() {
   local cores avail j
   cores=$(nproc 2>/dev/null || echo 2)
@@ -161,6 +178,7 @@ suggested_jobs() {
 if [ "$CHECK" = 0 ]; then
   [ "$WITH_PACKAGES" = 1 ] && install_packages
   install_rust
+  install_git_hooks
   [ "$WITH_CARGO_TOOLS" = 1 ] && install_cargo_tools
   echo
 fi
@@ -193,6 +211,12 @@ echo "recommended"
 for c in clang ld.lld sccache cargo-deny cargo-nextest; do
   if has "$c"; then row ok "$c" "$(command -v "$c")"; else row opt "$c" "not installed"; fi
 done
+hp=$(git -C "$ROOT_DIR" config --local --get core.hooksPath 2>/dev/null || true)
+if [ "$hp" = ".githooks" ]; then
+  row ok "git hooks" "core.hooksPath -> .githooks (refuses AI attribution trailers)"
+else
+  row opt "git hooks" "core.hooksPath not set — run: git config core.hooksPath .githooks"
+fi
 for c in nice ionice; do
   if has "$c"; then row ok "$c" "builds run at low CPU/disk priority"; else row opt "$c" "not installed — builds run at normal priority"; fi
 done
