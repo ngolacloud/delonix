@@ -9685,14 +9685,17 @@ check "cluster kube generate: a name that is neither container nor pod is 4" 4 "
 #
 # `profiles` prints what THIS binary would install, so the assertions are
 # against the table in `cmd::net_profiles`, not against a web page: every
-# profile name the CLI accepts has a row, and an experimental one carries the
-# reason it is experimental.
+# profile name the CLI accepts has a row, and every row reports a support
+# level — the LEVEL is not asserted: ADR-0078 was amended and all three read
+# `supported` since Cilium's D7 ran live, so a check pinned to «experimental»
+# fails on PROMOTION, which is the opposite of what it is for.
 check "cluster network profiles: a row per profile the CLI accepts" ok bash -c "
   out=\$('$BIN' cluster network profiles 2>&1) || exit 1
   for p in cilium calico flannel; do
     grep -qw \"\$p\" <<<\"\$out\" || { echo \"profile \$p is missing from the table\"; exit 1; }
   done
-  grep -qiE 'experimental' <<<\"\$out\" || { echo 'no support level is reported'; exit 1; }"
+  n=\$(grep -cE '^[[:space:]]+support[[:space:]]+[a-z-]+\$' <<<\"\$out\")
+  [ \"\$n\" -ge 3 ] || { echo \"expected a support level per profile, got \$n\"; exit 1; }"
 # The divergence contract: a status over a cluster that does not exist cannot
 # report 0. `status` returning success with nothing to look at is exactly the
 # dishonest reporting its own --help promises not to do.
