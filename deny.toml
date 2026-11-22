@@ -9,24 +9,26 @@ yanked = "deny"
 # Só `unmaintained` (não são vulnerabilidades). Cada um com razão e revisão — um
 # CVE/`unsound` real continua a FALHAR o gate. Rever a cada bump de deps.
 ignore = [
-    # rustls-pemfile arquivado; "no safe upgrade". FIXME(follow-up): migrar para
-    # `rustls-pki-types::PemObject` (dep DIRECTA do bin, no proxy TLS). Nossa a fechar.
-    "RUSTSEC-2025-0134",
-    # paste (macro) não mantido — TRANSITIVO via `ratatui` (TUI do `delonix dash`);
-    # sem acção do nosso lado até o ratatui o largar. Sai quando o upstream sair.
-    "RUSTSEC-2024-0436",
-    # unsafe-libyaml não mantido (publicado 2026-10-12) — TRANSITIVO via
-    # `serde_yaml` 0.9.34+deprecated, que é dep DIRECTA (os manifestos, o compose,
-    # o kubeadm config, o schema). Unmaintained, não CVE. Sai quando o `serde_yaml`
-    # sair: a migração (o advisory sugere `serde-saphyr`) toca todos os parsers de
-    # manifesto e é trabalho próprio, não um bump. Nossa a fechar.
-    "RUSTSEC-2024-0449",
     # chrono não mantido (anunciado 2026) — TRANSITIVO, nenhum crate nosso o usa
     # directamente: entra via `schemars` (JSON Schema dos manifestos), `pbjson-types`
     # (JSON do node-API gRPC) e `rmcp` (MCP). Unmaintained, não CVE. Sem acção do
     # nosso lado até esses upstreams o largarem; sai quando saírem.
     "RUSTSEC-2026-0543",
 ]
+# Saíram a 2026-11-22 porque cada um cumpriu a condição de saída que o seu próprio
+# comentário escrevia, e o `cargo-deny` já avisava («advisory was not encountered»)
+# que guardavam coisa nenhuma. Uma excepção que deixou de se aplicar é tão má como
+# uma que falta: se o crate voltar, é um advisory real a ser ignorado em silêncio.
+# Medido nas DUAS linhas (`origin/main` e `origin/develop`), por contagem no
+# `Cargo.lock`:
+#
+#   RUSTSEC-2025-0134  rustls-pemfile  0 ocorrências  — o FIXME fechou: o proxy TLS
+#                      passou a `rustls-pki-types::PemObject` sem nova dependência
+#                      (`bins/delonix/src/cmd/ingress_proxy.rs`)
+#   RUSTSEC-2024-0449  unsafe-libyaml  0  — e o `serde_yaml` que o puxava também
+#                      saiu da árvore: a migração dos parsers de manifesto foi feita
+#   RUSTSEC-2024-0436  paste           0  — o `ratatui` continua lá (1) e largou-o,
+#                      exactamente como o comentário previa
 
 [licenses]
 version = 2
