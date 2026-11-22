@@ -16,6 +16,79 @@ The prose notes for each historical release live in `docs/releases/v<tag>.md`
 
 ---
 
+## [0.2.0] - 2026-11-22 — the container network is isolated by default, and the node is operable from outside
+
+First **minor** of the Delonix line: 102 commits since `0.1.2`. Under the
+pre-1.0 policy a minor may break contracts; this one breaks exactly one, below.
+Prose notes: [docs/releases/v0.2.0.md](docs/releases/v0.2.0.md).
+
+### BREAKING
+
+- **A bare `run` no longer shares the host's network namespace.** It gets its
+  own, with an outbound uplink: `slirp4netns` when rootless, a shared `dlxnat0`
+  bridge (`10.88.0.0/16`) with NAT egress when rootful. `--net host` opts back
+  into sharing; `--net none`, `--net <network>` and pods are unchanged, and `-p`
+  still adds host port forwards. A container created before this release keeps
+  the host netns — `start` reconstructs the mode from the record.
+
+### Added
+
+- **Node contract over TCP with mutual TLS** (ADR-0096), plus fleet operability
+  A2–A6 (ADR-0099): enrollment, authorization, generation, watch and scheduling.
+- **SPIFFE node identity** (ADR-0102, phase H0): the X.509-SVID chain, key and
+  trust bundle as rustls material, so an external authority can be the issuer.
+  Foundation only — no resident process, no rotation loop. `AttestWorkload` RPC.
+- **Warm plane** (ADR-0095): pre-loaded runners behind an isolated path, with
+  per-image CRI warming and asynchronous refill, after a per-phase profile of
+  the cold start found `pre_spawn` dominant.
+- **OCI runtime root conformance**: the 5-set capability model, seccomp and the
+  stdio plumbing the validation suite reads — 19 → 32 passing assertions.
+- **CNCF compatibility campaign foundation**: `tests/interop` and a generated
+  `docs/compatibility` matrix.
+- **`exec` parity**: `-d/--detach`, `--env-file`, and a `--privileged` scoped to
+  the call.
+- **Docker-style help**, grouped by command and by flag (#1020).
+- **`vm logs`** with `--capture-serial`; **`vm create --distro`**; distroless by
+  default with a labelled fallback.
+- **TCP `/metrics` listener** for the management API (`DELONIX_MGMT_METRICS_ADDR`).
+
+### Fixed
+
+- `exec -u` loads the supplementary groups from `/etc/group`; `exec -w` on a
+  missing directory aborts with rc 126 instead of landing the process in `/`.
+- The positional split keeps container flags written after the image, and a
+  mistyped flag is no longer consumed as the image or container name — which
+  used to send a typo to a public registry.
+- `--wait` recognizes the CLI's own probe (`--health-cmd`/`http`/`tcp`);
+  `--pid host` starts rootless; `--pod` joins the pod's netns by name.
+- `RemoveImage` is idempotent (CRI-F1) and `exec setgroups` tolerates EPERM
+  (CRI-F2).
+- Egress uses the `inet` family and a per-architecture BPF (#438); the cgroup
+  leaf is removed under `--cgroup-parent` (#812); a repeated container name in
+  another namespace is a conflict, not "already exists" (#824).
+
+### Security / Hardened
+
+- `CapInh`/`CapAmb` asserted, `recv_fd` hardened, and the children's credentials
+  and `dup2` tightened (P3-1/P3-2).
+- The anti-spoof `forget`+`add` became a single `nft` transaction (P3-3).
+- The `--gpus dri` glob delivers device nodes only — `by-path` is a directory,
+  and it used to be replaced by an empty regular file.
+
+### Dependencies
+
+- `url` 2.5.9 closes **RUSTSEC-2026-0592**; three `deny.toml` ignores that
+  matched no crate were removed, each having met the exit condition its own
+  comment described.
+
+### Docs
+
+- The gate drift on `develop` was paid rather than absorbed: 119 lines
+  translated in three reports, and two counters corrected where they measured
+  the sentence describing the rule instead of code.
+- A `.mailmap` joins the owner's six identities into one, and a versioned
+  `commit-msg` hook refuses AI attribution trailers.
+
 ## [0.1.2] - 2026-11-18 — zero-vuln supply-chain, VFIO/platform hardening and CLI parity
 
 Patch on top of `0.1.1`: **additive** on the CLI/API/JSON/schema surface. The
