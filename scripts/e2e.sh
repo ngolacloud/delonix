@@ -9162,7 +9162,18 @@ section "stack init --template --up (Sprint 7: --up passa a honrar o manifesto)"
 # `container run` cru nunca aplicava a um único container.
 SCAFN="scaf-$PFX"
 SCAFDIR=$(mktemp -d "${TMPDIR:-/tmp}/e2e-scaffold-XXXXXX")
-check "stack init --template httpd" ok "$BIN" stack init --template httpd "$SCAFDIR/$SCAFN"
+# The template defaults (8080/8443) are taken on any dev host that serves
+# anything — here the host's own nginx holds 8443, measured 2026-10-21 and
+# still true — so the ports are CHOSEN free and passed to EVERY `init` of this
+# section, including the first: adoption (ADR-0061 D5) rewrites the manifest
+# but NOT `scripts/smoke.sh`, so a project generated on the defaults and then
+# re-adopted on other ports would smoke-test an address nothing serves.
+# Same bind-to-0 idiom as `$VHP`; the TOCTOU is inherent and accepted, and
+# `--up` refuses a busy port by name before building, so a lost race is a
+# clear FAIL and never a hang.
+SCAFP=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])')
+SCAFTP=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])')
+check "stack init --template httpd" ok "$BIN" stack init --template httpd "$SCAFDIR/$SCAFN" --port "$SCAFP" --tls-port "$SCAFTP"
 check "o manifesto gerado declara memory/cpus" ok bash -c \
   "grep -q 'memory: 512M' '$SCAFDIR/$SCAFN/delonix-manifest.yaml'"
 # Os templates de edge (nginx/httpd/haproxy) nascem com HTTPS: o `init` gera o
@@ -9255,25 +9266,26 @@ check "o mesmo template com as mesmas flags continua a passar (2.º --up idempot
 check "uma config editada à mão NÃO é glue e não trava nada" ok bash -c \
   "printf 'worker_processes 1;\\n' >> '$FGN/nginx.conf' && \
    '$BIN' stack init -t nginx --port 19085 --tls-port 19446 --hostname fg '$FGN'"
-# The guard is the HOST's ports, read with `ss` before the engine is asked. It
-# used to be the `--up` itself: any failure SKIPped as «rede lenta, ou porta
-# 8080/8443 já ocupada», so a broken build or apply read as a busy host. Measured
-# 2026-10-21 on the dev host, where it was the port (8443 held by the host's
-# nginx) — the guard now says so by name, and a failure on free ports is a FAIL.
-_scaf_busy=$(ss -tlnpH 2>/dev/null | awk '$4 ~ /:(8080|8443)$/ {print $4, $6}' | tr '\n' ' ')
-if [[ -n "$_scaf_busy" ]]; then
-  skip "stack init --template httpd --up" "as portas do template já estão ocupadas neste host: $_scaf_busy"
+# A failure below is a FAIL, never a SKIP, and the ports are no longer part of
+# the question. It used to be the `--up` itself: any failure SKIPped as «rede
+# lenta, ou porta 8080/8443 já ocupada», so a broken build or apply read as a
+# busy host. That became an `ss` guard on the HOST's ports, which told the truth
+# and still lost the whole section whenever they were taken — on this host 8443
+# is its own nginx. The ports are now chosen free up front (see `$SCAFP`), so
+# the only thing left to guard is the pathological case of not getting two.
+if [[ -z "$SCAFP" || -z "$SCAFTP" || "$SCAFP" == "$SCAFTP" ]]; then
+  skip "stack init --template httpd --up" "não foi possível escolher duas portas livres"
 elif check_then "--up: stack init --template httpd constrói e aplica (180 s)" ok bash -c \
-    "timeout 180 '$BIN' stack init --template httpd '$SCAFDIR/$SCAFN' --up --force >'${TMPDIR:-/tmp}/e2e-scaffold-up.log' 2>&1 \
+    "timeout 180 '$BIN' stack init --template httpd '$SCAFDIR/$SCAFN' --port \"\$SCAFP\" --tls-port \"\$SCAFTP\" --up --force >'${TMPDIR:-/tmp}/e2e-scaffold-up.log' 2>&1 \
      || { rc=\$?; tail -15 '${TMPDIR:-/tmp}/e2e-scaffold-up.log'; exit \$rc; }"; then
   check "--up: o container tem memory_max do manifesto (não só o run cru)" ok bash -c \
     "$BIN container inspect '$SCAFN' | grep -q '\"memory_max\": \"512M\"'"
   check "--up: o HTTPS responde, com HTTP/2, e o HTTP redirecciona para lá" ok bash -c \
-    "[ \"\$(curl -ks -o /dev/null -w '%{http_code} %{http_version}' https://127.0.0.1:8443/)\" = '200 2' ] && curl -s -o /dev/null -D - http://127.0.0.1:8080/x | grep -qi '^location: https://127.0.0.1:8443/x'"
+    "[ \"\$(curl -ks -o /dev/null -w '%{http_code} %{http_version}' https://127.0.0.1:\$SCAFTP/)\" = '200 2' ] && curl -s -o /dev/null -D - http://127.0.0.1:\$SCAFP/x | grep -qi '^location: https://127.0.0.1:\$SCAFTP/x'"
   check "--up: o resumo final dá o endereço HTTPS a abrir" ok \
-    grep -q 'open:    https://localhost:8443/' "${TMPDIR:-/tmp}/e2e-scaffold-up.log"
+    grep -q 'open:    https://localhost:\$SCAFTP/' "${TMPDIR:-/tmp}/e2e-scaffold-up.log"
   check "--up: o smoke do próprio template passa" ok bash -c \
-    "cd '$SCAFDIR/$SCAFN' && PATH=\"$(dirname "$BIN"):\$PATH\" sh scripts/smoke.sh"
+    "cd '$SCAFDIR/$SCAFN' && PATH=\"$(dirname "$BIN"):\$PATH\" sh scripts/smoke.sh https://127.0.0.1:\$SCAFTP http://127.0.0.1:\$SCAFP"
   check "--up: o container está mesmo a correr" ok bash -c \
     "$BIN container ls | grep -q '$SCAFN'"
   # Um segundo `--up` sobre o projecto que já está de pé. Medido 2026-10-02: a
@@ -9282,12 +9294,12 @@ elif check_then "--up: stack init --template httpd constrói e aplica (180 s)" o
   # ficava «is UP» com o container antigo a servir a página anterior.
   _cid1=$("$BIN" container inspect "$SCAFN" 2>/dev/null | grep -m1 '"id"')
   check "--up outra vez, sem alterações: passa e o container é o mesmo" ok bash -c \
-    "timeout 180 '$BIN' stack init --template httpd '$SCAFDIR/$SCAFN' --up --force >/dev/null 2>&1 \
+    "timeout 180 '$BIN' stack init --template httpd '$SCAFDIR/$SCAFN' --port \"\$SCAFP\" --tls-port \"\$SCAFTP\" --up --force >/dev/null 2>&1 \
      && [ \"\$('$BIN' container inspect '$SCAFN' | grep -m1 '\"id\"')\" = '$_cid1' ]"
   echo '<h1>e2e second build</h1>' > "$SCAFDIR/$SCAFN/public/index.html"
   check "--up depois de alterar o projecto: serve a versão nova" ok bash -c \
-    "timeout 420 '$BIN' stack init --template httpd '$SCAFDIR/$SCAFN' --up --force >/dev/null 2>&1 \
-     && curl -ks https://127.0.0.1:8443/ | grep -q 'e2e second build'"
+    "timeout 420 '$BIN' stack init --template httpd '$SCAFDIR/$SCAFN' --port \"\$SCAFP\" --tls-port \"\$SCAFTP\" --up --force >/dev/null 2>&1 \
+     && curl -ks https://127.0.0.1:\$SCAFTP/ | grep -q 'e2e second build'"
   "$BIN" stack destroy -f "$SCAFDIR/$SCAFN/delonix-manifest.yaml" >/dev/null 2>&1
 else
   e2e_rm "$SCAFN"
