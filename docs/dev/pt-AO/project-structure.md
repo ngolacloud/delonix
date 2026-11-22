@@ -1,4 +1,4 @@
-<!-- translated-from: project-structure.md sha256:915514edbb0ec8afbf6a80a8d3c8214efb890203b2747327b70e9f0d29f4070f -->
+<!-- translated-from: project-structure.md sha256:cd0fd7b749374f6c4a530ad21c60f4fdd42aaf92ec3583c2b99676e6480b6abb -->
 # Estrutura do projecto
 
 **Antes de leres:** [Clonar, compilar e testar](build-and-test.md) — tens uma checkout que compila, e sabes que gates existem.
@@ -44,7 +44,7 @@ procurar, mas partes dele estão desactualizadas; confirma no código o que ele 
 ├── README.rst, CONTRIBUTING.md   user entry point, contributor entry point
 ├── GOVERNANCE.md, MAINTAINERS.md, CODE_OF_CONDUCT.md, SECURITY.md, LICENSE
 ├── .clinerules, .cursorrules     pointers to AGENTS.md for AI coding tools
-├── .dockerignore, .gitignore, .git-blame-ignore-revs, .mailmap
+├── .dockerignore, .gitignore, .git-blame-ignore-revs, .mailmap, .githooks/
 ├── .ai/                          skills for AI assistants (E2E quality)
 ├── .github/                      CI and release workflows, CODEOWNERS, issue/PR templates
 ├── crates/
@@ -98,6 +98,7 @@ procurar, mas partes dele estão desactualizadas; confirma no código o que ele 
 | `.gitignore` | Ignora `target/`, `__pycache__/` e ficheiros locais de ferramentas de agente. | Raramente. | — |
 | `.git-blame-ignore-revs` | Commits que o `git blame` deve saltar (a corrida de `rustfmt` em todo o workspace). Activa-se com `git config blame.ignoreRevsFile .git-blame-ignore-revs`. | Quem fizer um commit de reformatação em massa. | — |
 | `.mailmap` | Mapeia os nomes e emails alternativos do dono numa identidade canónica, para que o `git shortlog`, o `git blame --use-mailmap` e a página de contribuidores contem uma pessoa em vez de seis. Não reescreve nada: cada commit fica com o autor com que foi gravado. | Sempre que aparecer uma identidade nova no `git shortlog -sne`. | — |
+| `.githooks/` | Os hooks de git desta casa, versionados para chegarem com o clone. O `commit-msg` recusa um trailer de atribuição a IA — a regra de 2026-09-24, que os 810 trailers do histórico mostram que uma regra sozinha não segura. Ligado pelo `make bootstrap` (`core.hooksPath`); o `--no-verify` contorna-o. | Quem acrescentar uma verificação que pertence ao momento do commit. | [Clonar, construir e testar](build-and-test.md) |
 | `AGENTS.md` | Diário do projecto e regras de agente, em português: a identidade e fronteira do motor (canónica), os gates, e um histórico longo por funcionalidade. Algumas secções estão desactualizadas. | Mantenedores e contribuidores que registam decisões e achados; conflitos resolvem-se mantendo os dois lados. | [Começa aqui](start-here.md) |
 | `ARCHITECTURE.md` | Modelo C4 (contexto, containers, componentes) e desenho funcional do sistema, em português, renderizado no site do utilizador. | Escrito à mão, mantido em sincronia com o código em mudanças estruturais. | [Arquitectura](architecture.md) |
 | `README.rst` | O ponto de entrada visível ao utilizador: o que é o Delonix, instalação, primeiros comandos. | Mudado com funcionalidades visíveis ao utilizador e releases. | [Publicar a documentação](publishing-docs.md) |

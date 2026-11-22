@@ -247,7 +247,7 @@ below, or when a table names a path that no longer exists.</p>
 ├── GOVERNANCE.md, MAINTAINERS.md, CODE_OF_CONDUCT.md, SECURITY.md, LICENSE
 ├── CNCF-SANDBOX-READINESS.md     CNCF Sandbox Phase A readiness checklist
 ├── .clinerules, .cursorrules     pointers to AGENTS.md for AI coding tools
-├── .dockerignore, .gitignore, .git-blame-ignore-revs, .mailmap
+├── .dockerignore, .gitignore, .git-blame-ignore-revs, .mailmap, .githooks/
 ├── .ai/                          versioned AI harness: skills/ and agents/
 ├── .claude/                      agents/ bridge (symlinks to .ai/agents/); rest gitignored
 ├── .github/                      CI and release workflows, CODEOWNERS, issue/PR templates
@@ -369,6 +369,12 @@ below, or when a table names a path that no longer exists.</p>
 <td>Maps the owner's alternate names and emails onto one canonical identity, so <code>git shortlog</code>, <code>git blame --use-mailmap</code> and the contributors page count one person instead of six. Rewrites nothing: each commit keeps the author it was recorded with.</td>
 <td>Whenever a new identity shows up in <code>git shortlog -sne</code>.</td>
 <td>—</td>
+</tr>
+<tr>
+<td><code>.githooks/</code></td>
+<td>The repository's own git hooks, versioned so they arrive with a clone. <code>commit-msg</code> refuses an AI attribution trailer — the rule of 2026-09-24, which 810 trailers in the history show a rule alone does not hold. Wired by <code>make bootstrap</code> (<code>core.hooksPath</code>); <code>--no-verify</code> bypasses it.</td>
+<td>Whoever adds a check that belongs at commit time.</td>
+<td><a href="build-and-test.html">Clone, build and test</a></td>
 </tr>
 <tr>
 <td><a class="src" href="https://github.com/ngolacloud/delonix/blob/main/AGENTS.md" target="_blank" rel="noopener"><code>AGENTS.md</code></a></td>
