@@ -324,14 +324,17 @@ que selecciona; agrupado sob <code>services:</code> num Stack; tem um caminho re
 primário; converge sem recriar; pode ser desfeito; sempre namespaced; e um registo real está por
 trás.</p>
 <h2 id="the-stack-group">O grupo do Stack<a class="hanchor" href="#the-stack-group" aria-label="#">#</a></h2>
-<p>Um Kind com <code>in_stack: true</code> tem de ter um <code>stack_group</code>, e quatro testes em <code>kinds.rs</code> seguram a
-coluna no sítio (ADR-0045):</p>
+<p>Um Kind com <code>in_stack: true</code> tem um <code>stack_group</code> ou diz porque não o tem, e quatro testes em
+<code>kinds.rs</code> seguram a coluna no sítio (ADR-0045):</p>
 <ul>
-<li><strong><code>every_kind_applied_by_the_stack_has_a_group</code></strong> — nada do que o stack aplica pode faltar em
-  <code>kind: Stack</code>.</li>
+<li><strong><code>every_kind_applied_by_the_stack_has_a_group_or_says_why</code></strong> — nada do que o stack aplica pode
+  faltar em <code>kind: Stack</code> sem uma razão escrita. O terceiro estado é real e estreito: o <code>Node</code>
+  (ADR-0101 A6) é aplicado pelo <code>stack apply -f node.yaml</code> e de propósito não é aninhável num
+  agregado, porque o stack de um tenant passaria a possuir e a podar o nó onde corre.</li>
 <li><strong><code>a_kind_without_a_group_says_why</code></strong> — uma linha com <code>stack_group: ""</code> precisa de uma entrada
-  em <code>stack_group_absent_reason</code> (o próprio <code>Stack</code>, o <code>KubernetesCluster</code>), e uma linha com grupo
-  não pode ter uma.</li>
+  em <code>stack_group_absent_reason</code> (o próprio <code>Stack</code>, o <code>KubernetesCluster</code>, o <code>Node</code>), e uma linha
+  com grupo não pode ter uma. É esta bicondicional que impede o teste acima de afrouxar o que seja:
+  «sem grupo» vem sempre com uma razão, logo um grupo ESQUECIDO continua a falhar aqui.</li>
 <li><strong><code>a_group_key_is_unique_and_no_alias_shadows_it</code></strong> — dois Kinds sob uma chave fundiriam os seus
   filhos e entregariam a um deles a spec errada.</li>
 <li><strong><code>a_group_is_the_plural_of_its_kind</code></strong> — a chave é o plural em lowerCamelCase

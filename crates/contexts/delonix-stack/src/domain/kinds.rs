@@ -1192,15 +1192,31 @@ mod tests {
     }
     use super::*;
 
-    /// **A Kind the stack applies must be a Kind a Stack can hold.** Four were
-    /// not — `NetworkRoute`, `NetworkAccessRule`, `Service`, `App` — because the
-    /// group list was written by hand next to the table instead of coming off it.
+    /// **A Kind the stack applies is groupable in a Stack, or says why not.**
+    /// Four were neither — `NetworkRoute`, `NetworkAccessRule`, `Service`, `App`
+    /// — because the group list was written by hand next to the table instead of
+    /// coming off it.
+    ///
+    /// The "or says why" is the THIRD state, and it is not a loosening: `Node`
+    /// (ADR-0101 A6) is applied by `stack apply -f node.yaml` and is deliberately
+    /// NOT nestable in a `kind: Stack` aggregate, because a tenant's stack would
+    /// then own and prune the node it runs on. Before A6 the Kind was reserved
+    /// (`in_stack: false`) and the question never came up; A6 gave it an apply and
+    /// this invariant, which only knew two states, started failing on a table that
+    /// was right — `main` is green because `Node` is still reserved there.
+    ///
+    /// Nothing is lost by accepting the third state, and the reason is the test
+    /// below: `a_kind_without_a_group_says_why` asserts the BICONDITIONAL over
+    /// every Kind, so "no group" always comes with a written reason and a
+    /// FORGOTTEN group — the defect this test exists for — still fails there. It
+    /// is the shape `not_converged_reason` and `no_teardown_reason` already use.
     #[test]
-    fn every_kind_applied_by_the_stack_has_a_group() {
+    fn every_kind_applied_by_the_stack_has_a_group_or_says_why() {
         for f in all().filter(|f| f.in_stack) {
             assert!(
-                !f.stack_group.is_empty(),
-                "{} is applied by `stack apply` and has no group in `kind: Stack`",
+                !f.stack_group.is_empty() || stack_group_absent_reason(f.kind).is_some(),
+                "{} is applied by `stack apply`, has no group in `kind: Stack`, and \
+                 does not say why — give it a group or a stack_group_absent_reason",
                 f.kind
             );
         }

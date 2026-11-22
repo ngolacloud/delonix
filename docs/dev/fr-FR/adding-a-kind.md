@@ -1,4 +1,4 @@
-<!-- translated-from: adding-a-kind.md sha256:8f062a5ce433402c048423a1b86c904b734b114f58a93f6e0f9cbd864dda1891 -->
+<!-- translated-from: adding-a-kind.md sha256:9cf155679919a182cd1d3f977818925e9dddb14ec2c3ad127fe1ffb745f57e48 -->
 # Ajouter un Kind
 
 **À lire avant :** [Conventions de code](coding-conventions.md), [Architecture](architecture.md) et [Les crates](crates.md#delonix-stack) — cette page suppose que vous savez ce que possède `delonix-stack` et pourquoi la planification est pure.
@@ -72,14 +72,19 @@ namespaced ; et un vrai registre est derrière.
 
 ## Le groupe du Stack
 
-Un Kind avec `in_stack: true` doit avoir un `stack_group`, et quatre tests dans `kinds.rs`
-tiennent la colonne en place (ADR-0045) :
+Un Kind avec `in_stack: true` a un `stack_group` ou dit pourquoi il n'en a pas, et quatre tests
+dans `kinds.rs` tiennent la colonne en place (ADR-0045) :
 
-- **`every_kind_applied_by_the_stack_has_a_group`** — rien de ce que le stack applique ne peut
-  manquer à `kind: Stack`.
+- **`every_kind_applied_by_the_stack_has_a_group_or_says_why`** — rien de ce que le stack applique
+  ne peut manquer à `kind: Stack` sans une raison écrite. Le troisième état est réel et étroit :
+  `Node` (ADR-0101 A6) est appliqué par `stack apply -f node.yaml` et n'est délibérément pas
+  imbriquable dans un agrégat, car le stack d'un tenant posséderait et élaguerait alors le nœud
+  sur lequel il tourne.
 - **`a_kind_without_a_group_says_why`** — une ligne avec `stack_group: ""` a besoin d'une entrée
-  dans `stack_group_absent_reason` (`Stack` lui-même, `KubernetesCluster`), et une ligne qui a un
-  groupe ne doit pas en avoir.
+  dans `stack_group_absent_reason` (`Stack` lui-même, `KubernetesCluster`, `Node`), et une ligne
+  qui a un groupe ne doit pas en avoir. C'est cette biconditionnelle qui empêche le test ci-dessus
+  de relâcher quoi que ce soit : « sans groupe » vient toujours avec une raison, donc un groupe
+  OUBLIÉ échoue toujours ici.
 - **`a_group_key_is_unique_and_no_alias_shadows_it`** — deux Kinds sous une même clé fusionneraient
   leurs enfants et donneraient à l'un d'eux la mauvaise spec.
 - **`a_group_is_the_plural_of_its_kind`** — la clé est le pluriel en lowerCamelCase

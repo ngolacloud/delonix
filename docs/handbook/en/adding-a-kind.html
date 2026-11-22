@@ -323,14 +323,17 @@ resource looking correct through the wrong path.</p>
 selects; grouped under <code>services:</code> in a Stack; a real path exists (<code>NetConnectivity</code>); primary;
 converges without recreating; can be torn down; always namespaced; and a real registry backs it.</p>
 <h2 id="the-stack-group">The Stack group<a class="hanchor" href="#the-stack-group" aria-label="#">#</a></h2>
-<p>A Kind with <code>in_stack: true</code> must have a <code>stack_group</code>, and four tests in <code>kinds.rs</code> hold the
-column in place (ADR-0045):</p>
+<p>A Kind with <code>in_stack: true</code> has a <code>stack_group</code> or says why it has none, and four tests in
+<code>kinds.rs</code> hold the column in place (ADR-0045):</p>
 <ul>
-<li><strong><code>every_kind_applied_by_the_stack_has_a_group</code></strong> — nothing the stack applies can be missing
-  from <code>kind: Stack</code>.</li>
+<li><strong><code>every_kind_applied_by_the_stack_has_a_group_or_says_why</code></strong> — nothing the stack applies can
+  be missing from <code>kind: Stack</code> without a written reason. The third state is real and narrow:
+  <code>Node</code> (ADR-0101 A6) is applied by <code>stack apply -f node.yaml</code> and deliberately not nestable in
+  an aggregate, because a tenant's stack would then own and prune the node it runs on.</li>
 <li><strong><code>a_kind_without_a_group_says_why</code></strong> — a row with <code>stack_group: ""</code> needs an entry in
-  <code>stack_group_absent_reason</code> (<code>Stack</code> itself, <code>KubernetesCluster</code>), and a row with a group must
-  not have one.</li>
+  <code>stack_group_absent_reason</code> (<code>Stack</code> itself, <code>KubernetesCluster</code>, <code>Node</code>), and a row with a
+  group must not have one. It is this biconditional that keeps the test above from loosening
+  anything: "no group" always comes with a reason, so a FORGOTTEN group still fails here.</li>
 <li><strong><code>a_group_key_is_unique_and_no_alias_shadows_it</code></strong> — two Kinds under one key would merge their
   children and hand one of them the wrong spec.</li>
 <li><strong><code>a_group_is_the_plural_of_its_kind</code></strong> — the key is the plural in lowerCamelCase

@@ -325,14 +325,19 @@ calcul qu'il sélectionne ; regroupé sous <code>services:</code> dans un Stack
 (<code>NetConnectivity</code>) ; primaire ; converge sans recréer ; peut être démonté ; toujours
 namespaced ; et un vrai registre est derrière.</p>
 <h2 id="the-stack-group">Le groupe du Stack<a class="hanchor" href="#the-stack-group" aria-label="#">#</a></h2>
-<p>Un Kind avec <code>in_stack: true</code> doit avoir un <code>stack_group</code>, et quatre tests dans <code>kinds.rs</code>
-tiennent la colonne en place (ADR-0045) :</p>
+<p>Un Kind avec <code>in_stack: true</code> a un <code>stack_group</code> ou dit pourquoi il n'en a pas, et quatre tests
+dans <code>kinds.rs</code> tiennent la colonne en place (ADR-0045) :</p>
 <ul>
-<li><strong><code>every_kind_applied_by_the_stack_has_a_group</code></strong> — rien de ce que le stack applique ne peut
-  manquer à <code>kind: Stack</code>.</li>
+<li><strong><code>every_kind_applied_by_the_stack_has_a_group_or_says_why</code></strong> — rien de ce que le stack applique
+  ne peut manquer à <code>kind: Stack</code> sans une raison écrite. Le troisième état est réel et étroit :
+  <code>Node</code> (ADR-0101 A6) est appliqué par <code>stack apply -f node.yaml</code> et n'est délibérément pas
+  imbriquable dans un agrégat, car le stack d'un tenant posséderait et élaguerait alors le nœud
+  sur lequel il tourne.</li>
 <li><strong><code>a_kind_without_a_group_says_why</code></strong> — une ligne avec <code>stack_group: ""</code> a besoin d'une entrée
-  dans <code>stack_group_absent_reason</code> (<code>Stack</code> lui-même, <code>KubernetesCluster</code>), et une ligne qui a un
-  groupe ne doit pas en avoir.</li>
+  dans <code>stack_group_absent_reason</code> (<code>Stack</code> lui-même, <code>KubernetesCluster</code>, <code>Node</code>), et une ligne
+  qui a un groupe ne doit pas en avoir. C'est cette biconditionnelle qui empêche le test ci-dessus
+  de relâcher quoi que ce soit : « sans groupe » vient toujours avec une raison, donc un groupe
+  OUBLIÉ échoue toujours ici.</li>
 <li><strong><code>a_group_key_is_unique_and_no_alias_shadows_it</code></strong> — deux Kinds sous une même clé fusionneraient
   leurs enfants et donneraient à l'un d'eux la mauvaise spec.</li>
 <li><strong><code>a_group_is_the_plural_of_its_kind</code></strong> — la clé est le pluriel en lowerCamelCase

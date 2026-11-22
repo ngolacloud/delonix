@@ -1,4 +1,4 @@
-<!-- translated-from: adding-a-kind.md sha256:8f062a5ce433402c048423a1b86c904b734b114f58a93f6e0f9cbd864dda1891 -->
+<!-- translated-from: adding-a-kind.md sha256:9cf155679919a182cd1d3f977818925e9dddb14ec2c3ad127fe1ffb745f57e48 -->
 # Acrescentar um Kind
 
 **Antes de leres:** [Convenções de código](coding-conventions.md), [Arquitectura](architecture.md) e [Os crates](crates.md#delonix-stack) — esta página assume que sabes o que o `delonix-stack` possui e porque é que o planeamento é puro.
@@ -71,14 +71,17 @@ trás.
 
 ## O grupo do Stack
 
-Um Kind com `in_stack: true` tem de ter um `stack_group`, e quatro testes em `kinds.rs` seguram a
-coluna no sítio (ADR-0045):
+Um Kind com `in_stack: true` tem um `stack_group` ou diz porque não o tem, e quatro testes em
+`kinds.rs` seguram a coluna no sítio (ADR-0045):
 
-- **`every_kind_applied_by_the_stack_has_a_group`** — nada do que o stack aplica pode faltar em
-  `kind: Stack`.
+- **`every_kind_applied_by_the_stack_has_a_group_or_says_why`** — nada do que o stack aplica pode
+  faltar em `kind: Stack` sem uma razão escrita. O terceiro estado é real e estreito: o `Node`
+  (ADR-0101 A6) é aplicado pelo `stack apply -f node.yaml` e de propósito não é aninhável num
+  agregado, porque o stack de um tenant passaria a possuir e a podar o nó onde corre.
 - **`a_kind_without_a_group_says_why`** — uma linha com `stack_group: ""` precisa de uma entrada
-  em `stack_group_absent_reason` (o próprio `Stack`, o `KubernetesCluster`), e uma linha com grupo
-  não pode ter uma.
+  em `stack_group_absent_reason` (o próprio `Stack`, o `KubernetesCluster`, o `Node`), e uma linha
+  com grupo não pode ter uma. É esta bicondicional que impede o teste acima de afrouxar o que seja:
+  «sem grupo» vem sempre com uma razão, logo um grupo ESQUECIDO continua a falhar aqui.
 - **`a_group_key_is_unique_and_no_alias_shadows_it`** — dois Kinds sob uma chave fundiriam os seus
   filhos e entregariam a um deles a spec errada.
 - **`a_group_is_the_plural_of_its_kind`** — a chave é o plural em lowerCamelCase
