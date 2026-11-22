@@ -320,14 +320,17 @@ Kind：primary、可收敛、可移除、按命名空间隔离，并拥有自己
 在 Stack 里分组到 <code>services:</code> 下；真的存在一条路径（<code>NetConnectivity</code>）；是 primary；能在
 不重建的情况下收敛；能被拆除；始终带命名空间；并且有一个真正的注册表在背后支撑。</p>
 <h2 id="the-stack-group">Stack 分组<a class="hanchor" href="#the-stack-group" aria-label="#">#</a></h2>
-<p>一个 <code>in_stack: true</code> 的 Kind 必须有一个 <code>stack_group</code>，<code>kinds.rs</code> 里的四个测试把这一列
-钉在原地（ADR-0045）：</p>
+<p>一个 <code>in_stack: true</code> 的 Kind 要么有一个 <code>stack_group</code>，要么写明为什么没有；<code>kinds.rs</code> 里的
+四个测试把这一列钉在原地（ADR-0045）：</p>
 <ul>
-<li><strong><code>every_kind_applied_by_the_stack_has_a_group</code></strong> —— 凡是 stack 会应用的东西，都不能缺席
-  于 <code>kind: Stack</code>。</li>
+<li><strong><code>every_kind_applied_by_the_stack_has_a_group_or_says_why</code></strong> —— 凡是 stack 会应用的东西，
+  都不能在没有书面理由的情况下缺席于 <code>kind: Stack</code>。第三种状态真实而狭窄：<code>Node</code>
+  （ADR-0101 A6）由 <code>stack apply -f node.yaml</code> 应用，并且有意不可嵌入聚合体——否则租户的
+  stack 就会拥有并修剪它自己运行其上的那个节点。</li>
 <li><strong><code>a_kind_without_a_group_says_why</code></strong> —— 一行 <code>stack_group: ""</code> 需要在
-  <code>stack_group_absent_reason</code> 里有对应条目（<code>Stack</code> 自己、<code>KubernetesCluster</code>），而有分组的
-  那一行不能出现在那里。</li>
+  <code>stack_group_absent_reason</code> 里有对应条目（<code>Stack</code> 自己、<code>KubernetesCluster</code>、<code>Node</code>），而有
+  分组的那一行不能出现在那里。正是这个双条件使上面那个测试不会放松任何东西：「没有分组」
+  永远伴随一条理由，所以被遗忘的分组仍然在这里失败。</li>
 <li><strong><code>a_group_key_is_unique_and_no_alias_shadows_it</code></strong> —— 两个 Kind 共用一个键，会把它们的
   子项合并到一起，给其中一个塞进错误的 spec。</li>
 <li><strong><code>a_group_is_the_plural_of_its_kind</code></strong> —— 键是用 lowerCamelCase 写的复数形式

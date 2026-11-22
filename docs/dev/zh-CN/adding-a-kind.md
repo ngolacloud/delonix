@@ -1,4 +1,4 @@
-<!-- translated-from: adding-a-kind.md sha256:8f062a5ce433402c048423a1b86c904b734b114f58a93f6e0f9cbd864dda1891 -->
+<!-- translated-from: adding-a-kind.md sha256:9cf155679919a182cd1d3f977818925e9dddb14ec2c3ad127fe1ffb745f57e48 -->
 # 新增一个 Kind
 
 **阅读之前：**[编码规范](coding-conventions.md)、[架构](architecture.md) 和 [各个 crate](crates.md#delonix-stack) —— 本页假设你已经知道 `delonix-stack` 拥有什么、以及为什么规划（planning）是纯函数式的。
@@ -67,14 +67,17 @@ KindFacts {
 
 ## Stack 分组
 
-一个 `in_stack: true` 的 Kind 必须有一个 `stack_group`，`kinds.rs` 里的四个测试把这一列
-钉在原地（ADR-0045）：
+一个 `in_stack: true` 的 Kind 要么有一个 `stack_group`，要么写明为什么没有；`kinds.rs` 里的
+四个测试把这一列钉在原地（ADR-0045）：
 
-- **`every_kind_applied_by_the_stack_has_a_group`** —— 凡是 stack 会应用的东西，都不能缺席
-  于 `kind: Stack`。
+- **`every_kind_applied_by_the_stack_has_a_group_or_says_why`** —— 凡是 stack 会应用的东西，
+  都不能在没有书面理由的情况下缺席于 `kind: Stack`。第三种状态真实而狭窄：`Node`
+  （ADR-0101 A6）由 `stack apply -f node.yaml` 应用，并且有意不可嵌入聚合体——否则租户的
+  stack 就会拥有并修剪它自己运行其上的那个节点。
 - **`a_kind_without_a_group_says_why`** —— 一行 `stack_group: ""` 需要在
-  `stack_group_absent_reason` 里有对应条目（`Stack` 自己、`KubernetesCluster`），而有分组的
-  那一行不能出现在那里。
+  `stack_group_absent_reason` 里有对应条目（`Stack` 自己、`KubernetesCluster`、`Node`），而有
+  分组的那一行不能出现在那里。正是这个双条件使上面那个测试不会放松任何东西：「没有分组」
+  永远伴随一条理由，所以被遗忘的分组仍然在这里失败。
 - **`a_group_key_is_unique_and_no_alias_shadows_it`** —— 两个 Kind 共用一个键，会把它们的
   子项合并到一起，给其中一个塞进错误的 spec。
 - **`a_group_is_the_plural_of_its_kind`** —— 键是用 lowerCamelCase 写的复数形式
