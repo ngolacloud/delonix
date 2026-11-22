@@ -1,4 +1,4 @@
-<!-- translated-from: project-structure.md sha256:429dd3f81c099f0c54e6d026741f16a99e2c6f1bdda5b1f3656d5d806f68739e -->
+<!-- translated-from: project-structure.md sha256:915514edbb0ec8afbf6a80a8d3c8214efb890203b2747327b70e9f0d29f4070f -->
 # Estrutura do projecto
 
 **Antes de leres:** [Clonar, compilar e testar](build-and-test.md) — tens uma checkout que compila, e sabes que gates existem.
@@ -44,7 +44,7 @@ procurar, mas partes dele estão desactualizadas; confirma no código o que ele 
 ├── README.rst, CONTRIBUTING.md   user entry point, contributor entry point
 ├── GOVERNANCE.md, MAINTAINERS.md, CODE_OF_CONDUCT.md, SECURITY.md, LICENSE
 ├── .clinerules, .cursorrules     pointers to AGENTS.md for AI coding tools
-├── .dockerignore, .gitignore, .git-blame-ignore-revs
+├── .dockerignore, .gitignore, .git-blame-ignore-revs, .mailmap
 ├── .ai/                          skills for AI assistants (E2E quality)
 ├── .github/                      CI and release workflows, CODEOWNERS, issue/PR templates
 ├── crates/
@@ -97,6 +97,7 @@ procurar, mas partes dele estão desactualizadas; confirma no código o que ele 
 | `.dockerignore` | Mantém `target/`, `dist/` e `.git` fora do contexto de build do `Delonixfile`. | Raramente. | — |
 | `.gitignore` | Ignora `target/`, `__pycache__/` e ficheiros locais de ferramentas de agente. | Raramente. | — |
 | `.git-blame-ignore-revs` | Commits que o `git blame` deve saltar (a corrida de `rustfmt` em todo o workspace). Activa-se com `git config blame.ignoreRevsFile .git-blame-ignore-revs`. | Quem fizer um commit de reformatação em massa. | — |
+| `.mailmap` | Mapeia os nomes e emails alternativos do dono numa identidade canónica, para que o `git shortlog`, o `git blame --use-mailmap` e a página de contribuidores contem uma pessoa em vez de seis. Não reescreve nada: cada commit fica com o autor com que foi gravado. | Sempre que aparecer uma identidade nova no `git shortlog -sne`. | — |
 | `AGENTS.md` | Diário do projecto e regras de agente, em português: a identidade e fronteira do motor (canónica), os gates, e um histórico longo por funcionalidade. Algumas secções estão desactualizadas. | Mantenedores e contribuidores que registam decisões e achados; conflitos resolvem-se mantendo os dois lados. | [Começa aqui](start-here.md) |
 | `ARCHITECTURE.md` | Modelo C4 (contexto, containers, componentes) e desenho funcional do sistema, em português, renderizado no site do utilizador. | Escrito à mão, mantido em sincronia com o código em mudanças estruturais. | [Arquitectura](architecture.md) |
 | `README.rst` | O ponto de entrada visível ao utilizador: o que é o Delonix, instalação, primeiros comandos. | Mudado com funcionalidades visíveis ao utilizador e releases. | [Publicar a documentação](publishing-docs.md) |

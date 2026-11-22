@@ -247,7 +247,7 @@ below, or when a table names a path that no longer exists.</p>
 ├── GOVERNANCE.md, MAINTAINERS.md, CODE_OF_CONDUCT.md, SECURITY.md, LICENSE
 ├── CNCF-SANDBOX-READINESS.md     CNCF Sandbox Phase A readiness checklist
 ├── .clinerules, .cursorrules     pointers to AGENTS.md for AI coding tools
-├── .dockerignore, .gitignore, .git-blame-ignore-revs
+├── .dockerignore, .gitignore, .git-blame-ignore-revs, .mailmap
 ├── .ai/                          versioned AI harness: skills/ and agents/
 ├── .claude/                      agents/ bridge (symlinks to .ai/agents/); rest gitignored
 ├── .github/                      CI and release workflows, CODEOWNERS, issue/PR templates
@@ -362,6 +362,12 @@ below, or when a table names a path that no longer exists.</p>
 <td><code>.git-blame-ignore-revs</code></td>
 <td>Commits <code>git blame</code> should skip (the workspace-wide <code>rustfmt</code> run). Enable with <code>git config blame.<wbr>ignoreRevsFile .<wbr>git-blame-ignore-revs</code>.</td>
 <td>Whoever lands a mass reformatting commit.</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>.mailmap</code></td>
+<td>Maps the owner's alternate names and emails onto one canonical identity, so <code>git shortlog</code>, <code>git blame --use-mailmap</code> and the contributors page count one person instead of six. Rewrites nothing: each commit keeps the author it was recorded with.</td>
+<td>Whenever a new identity shows up in <code>git shortlog -sne</code>.</td>
 <td>—</td>
 </tr>
 <tr>

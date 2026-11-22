@@ -246,7 +246,7 @@ procurar, mas partes dele estão desactualizadas; confirma no código o que ele 
 ├── README.rst, CONTRIBUTING.md   user entry point, contributor entry point
 ├── GOVERNANCE.md, MAINTAINERS.md, CODE_OF_CONDUCT.md, SECURITY.md, LICENSE
 ├── .clinerules, .cursorrules     pointers to AGENTS.md for AI coding tools
-├── .dockerignore, .gitignore, .git-blame-ignore-revs
+├── .dockerignore, .gitignore, .git-blame-ignore-revs, .mailmap
 ├── .ai/                          skills for AI assistants (E2E quality)
 ├── .github/                      CI and release workflows, CODEOWNERS, issue/PR templates
 ├── crates/
@@ -358,6 +358,12 @@ procurar, mas partes dele estão desactualizadas; confirma no código o que ele 
 <td><code>.git-blame-ignore-revs</code></td>
 <td>Commits que o <code>git blame</code> deve saltar (a corrida de <code>rustfmt</code> em todo o workspace). Activa-se com <code>git config blame.<wbr>ignoreRevsFile .<wbr>git-blame-ignore-revs</code>.</td>
 <td>Quem fizer um commit de reformatação em massa.</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>.mailmap</code></td>
+<td>Mapeia os nomes e emails alternativos do dono numa identidade canónica, para que o <code>git shortlog</code>, o <code>git blame --use-mailmap</code> e a página de contribuidores contem uma pessoa em vez de seis. Não reescreve nada: cada commit fica com o autor com que foi gravado.</td>
+<td>Sempre que aparecer uma identidade nova no <code>git shortlog -sne</code>.</td>
 <td>—</td>
 </tr>
 <tr>

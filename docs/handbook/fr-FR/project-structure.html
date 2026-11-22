@@ -247,7 +247,7 @@ chercher, mais certaines parties sont obsolètes ; vérifiez dans le code ce qu�
 ├── README.rst, CONTRIBUTING.md   user entry point, contributor entry point
 ├── GOVERNANCE.md, MAINTAINERS.md, CODE_OF_CONDUCT.md, SECURITY.md, LICENSE
 ├── .clinerules, .cursorrules     pointers to AGENTS.md for AI coding tools
-├── .dockerignore, .gitignore, .git-blame-ignore-revs
+├── .dockerignore, .gitignore, .git-blame-ignore-revs, .mailmap
 ├── .ai/                          skills for AI assistants (E2E quality)
 ├── .github/                      CI and release workflows, CODEOWNERS, issue/PR templates
 ├── crates/
@@ -359,6 +359,12 @@ chercher, mais certaines parties sont obsolètes ; vérifiez dans le code ce qu�
 <td><code>.git-blame-ignore-revs</code></td>
 <td>Commits que <code>git blame</code> doit sauter (l’exécution <code>rustfmt</code> sur tout le workspace). Activez avec <code>git config blame.<wbr>ignoreRevsFile .<wbr>git-blame-ignore-revs</code>.</td>
 <td>Quiconque fait atterrir un commit de reformatage massif.</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>.mailmap</code></td>
+<td>Associe les noms et adresses alternatifs du propriétaire à une seule identité canonique, pour que <code>git shortlog</code>, <code>git blame --use-mailmap</code> et la page des contributeurs comptent une personne au lieu de six. Ne réécrit rien : chaque commit garde l'auteur avec lequel il a été enregistré.</td>
+<td>Dès qu'une nouvelle identité apparaît dans <code>git shortlog -sne</code>.</td>
 <td>—</td>
 </tr>
 <tr>
