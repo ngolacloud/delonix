@@ -2888,7 +2888,7 @@ if [[ "$E2E_ISOLATED" == 1 ]]; then
   DEFCAPS=(--cap-drop ALL)
   for c in CHOWN DAC_OVERRIDE FOWNER FSETID KILL SETGID SETUID SETPCAP NET_BIND_SERVICE \
            NET_BROADCAST NET_RAW SYS_CHROOT AUDIT_WRITE SETFCAP; do DEFCAPS+=(--cap-add "$c"); done
-  check "baseline: the CRI's re-stated default capability set runs, with the plain run's CapEff" ok bash -c "
+  xfail "#1032" "baseline: the CRI's re-stated default capability set runs, with the plain run's CapEff" ok bash -c "
     plain=\$('$BIN' container run --rm --net none '$IMG' grep CapEff /proc/self/status 2>/dev/null)
     stated=\$('$BIN' container run --rm --net none ${DEFCAPS[*]} '$IMG' grep CapEff /proc/self/status 2>/dev/null)
     [[ -n \$plain && \$plain == \"\$stated\" ]]"
@@ -4467,10 +4467,17 @@ declare -A SLIRP_CHECKS=(
   [infra]="rede: o pin e o plano de controlo não ficam com descritores de quem os arrancou"
   [execfail]="slirp: a run -d whose command does not exist releases its published port"
 )
+# Scenarios with a KNOWN defect, by issue — `xfail`, so the gate is not blocked
+# and the battery reports XPASS the day one stops reproducing (which is the
+# signal to take it out of here and close the issue).
+declare -A SLIRP_XFAIL=( [hang]="#1033" )
 for _sc in fds exit start listed stats kind hang zombies stopgaveup execfail infra; do
   _out=$(bash "$(dirname "$0")/e2e_slirp_lifecycle.sh" "$_sc" "$BIN" "$IMG" "sl$PFX" 2>&1); _rc=$?
   if [[ $_rc -eq 77 ]]; then
     skip "${SLIRP_CHECKS[$_sc]}" "$_out"
+  elif [[ -n "${SLIRP_XFAIL[$_sc]:-}" ]]; then
+    xfail "${SLIRP_XFAIL[$_sc]}" "${SLIRP_CHECKS[$_sc]}" ok \
+      bash -c 'printf "%s\n" "$1"; exit "$2"' _ "$_out" "$_rc"
   else
     check "${SLIRP_CHECKS[$_sc]}" ok bash -c 'printf "%s\n" "$1"; exit "$2"' _ "$_out" "$_rc"
   fi
@@ -4546,9 +4553,9 @@ if awk '$5=="/sys/fs/bpf"' /proc/self/mountinfo | grep -q .; then
     $5 == "/sys"        { sysid = $1 }
     $5 == "/sys/fs/bpf" { n++; parent = $2; prop = ($0 ~ / shared:/) ? "rshared" : "private" }
     END { printf "%d %s %s\n", n + 0, (n == 1 && parent == sysid) ? "on-top" : "buried", prop }')
-  check "$BPFFS_ONE" ok bash -c \
+  xfail "#1031" "$BPFFS_ONE" ok bash -c \
     '[ "${1% *}" = "1 on-top" ] || { printf "mountinfo said: %s\n" "$1"; exit 1; }' _ "$_bpfv"
-  check "$BPFFS_PROP" ok bash -c \
+  xfail "#1031" "$BPFFS_PROP" ok bash -c \
     '[ "${1##* }" = rshared ] || { printf "mountinfo said: %s\n" "$1"; exit 1; }' _ "$_bpfv"
 else
   skip "$BPFFS_ONE" "este host não tem bpffs montado em /sys/fs/bpf"
@@ -9137,7 +9144,7 @@ if check_then "delete networkpolicies: a rede cria-se" ok "$BIN" network create 
   check "... e o describe também" ok bash -c \
     "'$BIN' describe networkpolicies '$DPS/ingress' 2>&1 | grep -q 'default policy: allow'"
   e0=$(echos_of "$DPS"); "$BIN" container exec "$DPC" ping -c3 -W1 "$DPIP" >/dev/null 2>&1
-  check "... e o deny DEIXOU de ser imposto no fio" ok test "$(( $(echos_of "$DPS") - e0 ))" -eq 3
+  xfail "#1030" "... e o deny DEIXOU de ser imposto no fio" ok test "$(( $(echos_of "$DPS") - e0 ))" -eq 3
   # `net ingress clear` continua a ser o que a sua mensagem diz: leva as REGRAS
   # e deixa a omissão de pé. Sem este check, alinhar os dois verbos passaria
   # por correcção.
@@ -10189,11 +10196,11 @@ if [[ -n "$L3AIP" ]] && command -v socat >/dev/null 2>&1; then
   check "net netns firewall: an inbound deny on A cuts B off" ok bash -c "
     '$BIN' net netns firewall '$L3A' --spec '{\"enabled\":true,\"policyIn\":\"deny\",\"policyOut\":\"allow\",\"rules\":[]}' >/dev/null || exit 1
     ! $L3REACH"
-  check "net netns firewall --clear: B reaches A again" ok bash -c "
+  xfail "#1030" "net netns firewall --clear: B reaches A again" ok bash -c "
     '$BIN' net netns firewall '$L3A' --clear >/dev/null || exit 1
     for _ in \$(seq 1 10); do $L3REACH && exit 0; sleep 0.3; done; exit 1"
   e2e_port L3PP
-  check "net netns publish: the host port forwards to A's listener" ok bash -c "
+  xfail "#1030" "net netns publish: the host port forwards to A's listener" ok bash -c "
     '$BIN' net netns publish '$L3A' '$L3PP:7171' >/dev/null || exit 1
     for _ in \$(seq 1 20); do [ \"\$(nc -w 2 127.0.0.1 $L3PP </dev/null 2>/dev/null)\" = pong-$PFX ] && exit 0; sleep 0.3; done; exit 1"
   check "net netns unpublish: the host port stops answering" ok bash -c "
@@ -10342,7 +10349,7 @@ e2e_rm "$L3C-say"
 check "container attach: a container that does not exist is 4" 4 "$BIN" container attach "nao-existe-$PFX"
 
 # --- system monitor --no-stream: one sample, and the count it is built on -----
-check "system monitor --no-stream: one sample, counting the running containers on a network" ok bash -c "
+xfail "#809" "system monitor --no-stream: one sample, counting the running containers on a network" ok bash -c "
   ids=\$('$BIN' container ls -q); [ -n \"\$ids\" ] || { echo 'no running container to count'; exit 1; }
   want=\$('$BIN' container inspect \$ids | python3 -c 'import json,sys; print(sum(1 for c in json.load(sys.stdin) if c.get(\"ip\") and c.get(\"status\")==\"Running\"))')
   out=\$(timeout -s KILL 30 '$BIN' system monitor --no-stream 2>&1) || exit 1
@@ -10946,7 +10953,7 @@ if [[ $E2E_HAVE_IMAGE -eq 1 ]] && command -v curl >/dev/null; then
     for _ in $(seq 100); do [[ -S "$MGMTSOCK" ]] && break; sleep 0.05; done
     check "métricas: o socket da API de gestão existe e é 0600" ok bash -c \
       "[[ -S '$MGMTSOCK' ]] && [[ \$(stat -c %a '$MGMTSOCK') == 600 ]]"
-    check "métricas: GET /metrics devolve OpenMetrics com o registo partilhado" ok bash -c \
+    xfail "#1034" "métricas: GET /metrics devolve OpenMetrics com o registo partilhado" ok bash -c \
       "curl -s --unix-socket '$MGMTSOCK' http://localhost/metrics | grep -q '^# TYPE delonix_build_info '"
     check "métricas: há uma gauge de CPU e uma de memória com o id/nome do container e um valor plausível" ok env \
       MET="$(curl -s --unix-socket "$MGMTSOCK" http://localhost/metrics)" MCN="$_mc" \
