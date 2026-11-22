@@ -331,6 +331,43 @@ libvirt_system_usable() {
     && virsh -c qemu:///system list --all >/dev/null 2>&1
 }
 
+# libguestfs can actually BUILD its appliance. The tool being INSTALLED is not
+# the tool WORKING, and the 16 guestfish sections guarded on `command -v
+# guestfish` alone — so on a host where libguestfs is present but broken they
+# did not skip, they FAILED, and the report read as an engine regression.
+# Measured on device-sentinel, 2026-11-22: `/boot/vmlinuz-7.0.0-43-generic` is
+# mode 0600, supermin dies with «cp: cannot open ... Permission denied» and the
+# data-recovery section gave 4 FAIL. `scripts/install.sh --with-image-build` is
+# the documented remedy — it chmods `/boot/vmlinuz-*` and says why that lowers a
+# boundary, which is why it is opt-in and not done here.
+# Probed ONCE, for real (a trivial appliance boot), never by reconstructing
+# supermin's own kernel search: that is its business, and a proxy for it would
+# be a second opinion about someone else's rule.
+GUESTFS_OK=""
+GUESTFS_WHY=""
+guestfs_usable() {
+  command -v guestfish >/dev/null 2>&1 || { GUESTFS_WHY="guestfish not installed"; return 1; }
+  command -v qemu-img >/dev/null 2>&1 || { GUESTFS_WHY="qemu-img not installed"; return 1; }
+  if [[ -z "$GUESTFS_OK" ]]; then
+    local probe="$OUT/.guestfs-probe.qcow2" out
+    qemu-img create -f qcow2 "$probe" 1M >/dev/null 2>&1
+    if out=$(timeout 240 guestfish -a "$probe" run 2>&1); then
+      GUESTFS_OK=yes
+    else
+      GUESTFS_OK=no
+      GUESTFS_WHY=$(printf '%s\n' "$out" \
+        | grep -m1 -iE "permission denied|supermin|no such file|cannot open" \
+        || echo "libguestfs could not build its appliance")
+      case "$GUESTFS_WHY" in
+        *supermin*|*"ermission denied"*|*"annot open"*)
+          GUESTFS_WHY="$GUESTFS_WHY (supermin copies /boot/vmlinuz-$(uname -r), 0600 on this host; \`scripts/install.sh --with-image-build\` makes it readable)" ;;
+      esac
+    fi
+    rm -f "$probe"
+  fi
+  [[ "$GUESTFS_OK" == yes ]]
+}
+
 # The host can boot a Cloud Hypervisor VM: what the provider's own probe
 # (`CloudHypervisorHost::probe`) asks for — the binary, `/dev/kvm` and one of
 # the firmwares in `DEFAULT_CH_FIRMWARES` — plus `qemu-img` for the test disks,
@@ -4915,8 +4952,8 @@ check "vm create com disco inexistente recusa" fail "$BIN" vm create "vm-$PFX" -
 # refusal has to come first, or it is not "before anything is created".
 check "vm create --require com nome desconhecido recusa (1)" 1 "$BIN" vm create "vm-$PFX-req" --disk /nao/existe.qcow2 --require vm.snapshot.memry
 check "vm create --require de capacidade que o CH não tem recusa (69)" 69 "$BIN" vm create "vm-$PFX-req" --disk /nao/existe.qcow2 --backend cloud-hypervisor --require vm.snapshot.memory
-check "vm create --require de capacidade que o libvirt não tem recusa (69)" 69 "$BIN" vm create "vm-$PFX-req" --disk /nao/existe.qcow2 --backend libvirt --require vm.namespace-isolation
-check "vm create --require: a recusa nomeia a capacidade e o estado" ok bash -c "\"$BIN\" vm create vm-$PFX-req --disk /nao/existe.qcow2 --backend libvirt --require vm.namespace-isolation 2>&1 | grep -q 'vm.namespace-isolation: unsupported-by-provider'"
+check "vm create --require de capacidade que o libvirt não tem recusa (69)" 69 "$BIN" vm create "vm-$PFX-req" --disk /nao/existe.qcow2 --backend libvirt --require vm.network.sdn
+check "vm create --require: a recusa nomeia a capacidade e o estado" ok bash -c "\"$BIN\" vm create vm-$PFX-req --disk /nao/existe.qcow2 --backend libvirt --require vm.network.sdn 2>&1 | grep -q 'vm.network.sdn: unsupported-by-provider'"
 # `describe`, e não `vm inspect`: este verbo deixou de existir, e o check
 # passava por «unrecognized subcommand» (rc=2), nunca por a VM não existir.
 check "vm create --require: nenhum registo de VM ficou para trás (4)" 4 "$BIN" describe virtualmachines "vm-$PFX-req"
@@ -4925,7 +4962,7 @@ check "vm create --require: nenhum registo de VM ficou para trás (4)" 4 "$BIN" 
 # refused the VM with Cloud Hypervisor installed and able to serve it.
 if command -v cloud-hypervisor >/dev/null && command -v virsh >/dev/null; then
   check "vm create --require sem --backend: um requisito que só o CH cumpre não é recusado pelo libvirt" ok bash -c "! \"\$0\" vm create vm-$PFX-req --disk /nao/existe.qcow2 --require vm.namespace-isolation 2>&1 | grep -q \"'libvirt' backend does not support\"" "$BIN"
-  check "vm create --require sem --backend: nenhum candidato serve, a recusa nomeia os dois (69)" 69 "$BIN" vm create "vm-$PFX-req" --disk /nao/existe.qcow2 --require vm.namespace-isolation --require vm.snapshot.memory
+  check "vm create --require sem --backend: nenhum candidato serve, a recusa nomeia os dois (69)" 69 "$BIN" vm create "vm-$PFX-req" --disk /nao/existe.qcow2 --require vm.network.sdn --require vm.snapshot.memory
 else
   skip "vm create --require sem --backend (auto-selecção)" "precisa de cloud-hypervisor e libvirt instalados"
 fi
@@ -5244,11 +5281,14 @@ section "vm: o restore de snapshot RECUPERA dados de disco (libvirt, guestfish)"
 # parada nos passos de guestfish porque o QEMU segura o qcow2 em exclusivo quando
 # corre; é por isso que a prova de DISCO usa o caminho offline (= vm.snapshot-disk)
 # e demonstra, pelo mesmo `snapshot-revert`, que o vm.snapshot-restore repõe dados.
-if libvirt_system_usable && command -v guestfish >/dev/null 2>&1; then
+if libvirt_system_usable && guestfs_usable; then
   DVM="snapdata-$PFX"; DDISK="$OUT/$DVM.qcow2"
   qemu-img create -f qcow2 "$DDISK" 128M >/dev/null 2>&1
   # Filesystem + payload ORIGINAL, antes de a VM existir.
-  guestfish -a "$DDISK" >/dev/null 2>&1 <<'GF'
+  # The setup swallowed its own error, so the payload checks then failed three
+  # steps away from the cause. It is the precondition of the whole section, so
+  # it gates it instead of being discarded.
+  if ! guestfish -a "$DDISK" >/dev/null 2>&1 <<'GF'
 run
 part-disk /dev/sda mbr
 mkfs ext4 /dev/sda1
@@ -5256,7 +5296,11 @@ mount /dev/sda1 /
 write /payload.txt "DADO-ORIGINAL-v1"
 umount /
 GF
-  if check_then "vm create libvirt (data-recovery)" ok \
+  then
+    skip "vm: restore recupera dados de disco" \
+      "o guestfish não preparou o disco de prova (payload ORIGINAL)"
+    rm -f "$DDISK"
+  elif check_then "vm create libvirt (data-recovery)" ok \
        "$BIN" vm create "$DVM" --disk "$DDISK" --backend libvirt --memory 256M --require vm.snapshot.memory; then
     DQCOW="$SROOT/vms/$DVM.qcow2"
     check "vm stop (data-recovery)" ok "$BIN" vm stop "$DVM"
@@ -5282,7 +5326,7 @@ GF
   rm -f "$DDISK"
 else
   skip "vm: restore recupera dados de disco" \
-    "sem libvirt utilizável (virsh/qemu) ou sem guestfish"
+    "sem libvirt utilizável (virsh/qemu), ou libguestfs não arranca: ${GUESTFS_WHY:-guestfish em falta}"
 fi
 
 ########################################
@@ -5312,7 +5356,7 @@ CIIMG="${E2E_CLOUDINIT_IMAGE:-}"
 if [[ -z "$CIIMG" ]]; then
   CIIMG="$(ls -1 "$SROOT"/vm-images/_base/*cloudimg*.img 2>/dev/null | head -1 || true)"
 fi
-if libvirt_system_usable && command -v guestfish >/dev/null 2>&1 \
+if libvirt_system_usable && guestfs_usable \
      && command -v cloud-localds >/dev/null 2>&1 && [[ -n "$CIIMG" && -r "$CIIMG" ]]; then
   CIVM="ciseed-$PFX"; CIBASE="$OUT/$CIVM-base.qcow2"; CIUD="$OUT/$CIVM-user-data.yaml"
   cp "$CIIMG" "$CIBASE" && qemu-img resize "$CIBASE" 5G >/dev/null 2>&1
@@ -5395,7 +5439,7 @@ HPIMG="${E2E_CLOUDINIT_IMAGE:-}"
 if [[ -z "$HPIMG" ]]; then
   HPIMG="$(ls -1 "$SROOT"/vm-images/_base/*cloudimg*.img 2>/dev/null | head -1 || true)"
 fi
-if libvirt_system_usable && command -v guestfish >/dev/null 2>&1 \
+if libvirt_system_usable && guestfs_usable \
      && command -v cloud-localds >/dev/null 2>&1 && [[ -n "$HPIMG" && -r "$HPIMG" ]]; then
   HPVM="hpadd-$PFX"; HPBASE="$OUT/$HPVM-base.qcow2"; HPHOT="$OUT/$HPVM-hot.qcow2"
   HPUD="$OUT/$HPVM-user-data.yaml"; HPPOLL="$OUT/$HPVM-poll.sh"
@@ -5520,7 +5564,7 @@ NICIMG="${E2E_CLOUDINIT_IMAGE:-}"
 if [[ -z "$NICIMG" ]]; then
   NICIMG="$(ls -1 "$SROOT"/vm-images/_base/*cloudimg*.img 2>/dev/null | head -1 || true)"
 fi
-if libvirt_system_usable && command -v guestfish >/dev/null 2>&1 \
+if libvirt_system_usable && guestfs_usable \
      && command -v cloud-localds >/dev/null 2>&1 && [[ -n "$NICIMG" && -r "$NICIMG" ]] \
      && virsh -c qemu:///system net-info ingress >/dev/null 2>&1; then
   NICVM="nicadd-$PFX"; NICBASE="$OUT/$NICVM-base.qcow2"
@@ -5654,7 +5698,7 @@ HG_NEED=0
 if [[ "${HGSIZE_KB:-0}" -gt 0 ]]; then
   HG_NEED=$(( HG_MEM_MIB * 1024 / HGSIZE_KB ))
 fi
-if libvirt_system_usable && command -v guestfish >/dev/null 2>&1 \
+if libvirt_system_usable && guestfs_usable \
      && command -v cloud-localds >/dev/null 2>&1 && [[ -n "$HGIMG" && -r "$HGIMG" ]] \
      && [[ "${HGSIZE_KB:-0}" -gt 0 && "$HG_NEED" -gt 0 && "${HGFREE_PAGES:-0}" -ge "$HG_NEED" ]]; then
   HGVM="hugepg-$PFX"; HGBASE="$OUT/$HGVM-base.qcow2"; HGUD="$OUT/$HGVM-user-data.yaml"
@@ -5737,7 +5781,7 @@ HRIMG="${E2E_CLOUDINIT_IMAGE:-}"
 if [[ -z "$HRIMG" ]]; then
   HRIMG="$(ls -1 "$SROOT"/vm-images/_base/*cloudimg*.img 2>/dev/null | head -1 || true)"
 fi
-if libvirt_system_usable && command -v guestfish >/dev/null 2>&1 \
+if libvirt_system_usable && guestfs_usable \
      && command -v cloud-localds >/dev/null 2>&1 && [[ -n "$HRIMG" && -r "$HRIMG" ]]; then
   HRVM="hprm-$PFX"; HRBASE="$OUT/$HRVM-base.qcow2"; HRHOT="$OUT/$HRVM-hot.qcow2"
   HRUD="$OUT/$HRVM-user-data.yaml"; HRPOLL="$OUT/$HRVM-poll.sh"
@@ -5861,7 +5905,7 @@ NRIMG="${E2E_CLOUDINIT_IMAGE:-}"
 if [[ -z "$NRIMG" ]]; then
   NRIMG="$(ls -1 "$SROOT"/vm-images/_base/*cloudimg*.img 2>/dev/null | head -1 || true)"
 fi
-if libvirt_system_usable && command -v guestfish >/dev/null 2>&1 \
+if libvirt_system_usable && guestfs_usable \
      && command -v cloud-localds >/dev/null 2>&1 && [[ -n "$NRIMG" && -r "$NRIMG" ]] \
      && virsh -c qemu:///system net-info ingress >/dev/null 2>&1; then
   NRVM="nicrm-$PFX"; NRBASE="$OUT/$NRVM-base.qcow2"
@@ -5989,7 +6033,7 @@ CPUIMG="${E2E_CLOUDINIT_IMAGE:-}"
 if [[ -z "$CPUIMG" ]]; then
   CPUIMG="$(ls -1 "$SROOT"/vm-images/_base/*cloudimg*.img 2>/dev/null | head -1 || true)"
 fi
-if libvirt_system_usable && command -v guestfish >/dev/null 2>&1 \
+if libvirt_system_usable && guestfs_usable \
      && command -v cloud-localds >/dev/null 2>&1 && [[ -n "$CPUIMG" && -r "$CPUIMG" ]]; then
   CPUVM="cpuadd-$PFX"; CPUBASE="$OUT/$CPUVM-base.qcow2"
   CPUUD="$OUT/$CPUVM-user-data.yaml"; CPUPOLL="$OUT/$CPUVM-poll.sh"
@@ -6108,7 +6152,7 @@ MEMIMG="${E2E_CLOUDINIT_IMAGE:-}"
 if [[ -z "$MEMIMG" ]]; then
   MEMIMG="$(ls -1 "$SROOT"/vm-images/_base/*cloudimg*.img 2>/dev/null | head -1 || true)"
 fi
-if libvirt_system_usable && command -v guestfish >/dev/null 2>&1 \
+if libvirt_system_usable && guestfs_usable \
      && command -v cloud-localds >/dev/null 2>&1 && [[ -n "$MEMIMG" && -r "$MEMIMG" ]]; then
   MEMVM="memadd-$PFX"; MEMBASE="$OUT/$MEMVM-base.qcow2"
   MEMUD="$OUT/$MEMVM-user-data.yaml"; MEMPOLL="$OUT/$MEMVM-poll.sh"
@@ -6211,7 +6255,7 @@ XDIMG="${E2E_CLOUDINIT_IMAGE:-}"
 if [[ -z "$XDIMG" ]]; then
   XDIMG="$(ls -1 "$SROOT"/vm-images/_base/*cloudimg*.img 2>/dev/null | head -1 || true)"
 fi
-if libvirt_system_usable && command -v guestfish >/dev/null 2>&1 && [[ -n "$XDIMG" && -r "$XDIMG" ]]; then
+if libvirt_system_usable && guestfs_usable && [[ -n "$XDIMG" && -r "$XDIMG" ]]; then
   XDVM="xdisk-$PFX"; XDBASE="$OUT/$XDVM-base.qcow2"; XDEXTRA="$OUT/$XDVM-extra.qcow2"
   XDUD="$OUT/$XDVM-user-data.yaml"; XDPOLL="$OUT/$XDVM-poll.sh"; XDMAN="$OUT/$XDVM.yaml"
   cp "$XDIMG" "$XDBASE" && qemu-img resize "$XDBASE" 5G >/dev/null 2>&1
@@ -6306,7 +6350,7 @@ XNIMG="${E2E_CLOUDINIT_IMAGE:-}"
 if [[ -z "$XNIMG" ]]; then
   XNIMG="$(ls -1 "$SROOT"/vm-images/_base/*cloudimg*.img 2>/dev/null | head -1 || true)"
 fi
-if libvirt_system_usable && command -v guestfish >/dev/null 2>&1 && [[ -n "$XNIMG" && -r "$XNIMG" ]] \
+if libvirt_system_usable && guestfs_usable && [[ -n "$XNIMG" && -r "$XNIMG" ]] \
      && virsh -c qemu:///system net-info ingress >/dev/null 2>&1; then
   XNVM="xnic-$PFX"; XNBASE="$OUT/$XNVM-base.qcow2"
   XNUD="$OUT/$XNVM-user-data.yaml"; XNPOLL="$OUT/$XNVM-poll.sh"; XNMAN="$OUT/$XNVM.yaml"
@@ -6402,7 +6446,7 @@ XCIMG="${E2E_CLOUDINIT_IMAGE:-}"
 if [[ -z "$XCIMG" ]]; then
   XCIMG="$(ls -1 "$SROOT"/vm-images/_base/*cloudimg*.img 2>/dev/null | head -1 || true)"
 fi
-if libvirt_system_usable && command -v guestfish >/dev/null 2>&1 && [[ -n "$XCIMG" && -r "$XCIMG" ]]; then
+if libvirt_system_usable && guestfs_usable && [[ -n "$XCIMG" && -r "$XCIMG" ]]; then
   XCVM="xcpu-$PFX"; XCBASE="$OUT/$XCVM-base.qcow2"
   XCUD="$OUT/$XCVM-user-data.yaml"; XCPOLL="$OUT/$XCVM-poll.sh"; XCMAN="$OUT/$XCVM.yaml"
   cp "$XCIMG" "$XCBASE" && qemu-img resize "$XCBASE" 5G >/dev/null 2>&1
@@ -6483,7 +6527,7 @@ XRIMG="${E2E_CLOUDINIT_IMAGE:-}"
 if [[ -z "$XRIMG" ]]; then
   XRIMG="$(ls -1 "$SROOT"/vm-images/_base/*cloudimg*.img 2>/dev/null | head -1 || true)"
 fi
-if libvirt_system_usable && command -v guestfish >/dev/null 2>&1 && [[ -n "$XRIMG" && -r "$XRIMG" ]]; then
+if libvirt_system_usable && guestfs_usable && [[ -n "$XRIMG" && -r "$XRIMG" ]]; then
   XRVM="xrst-$PFX"; XRBASE="$OUT/$XRVM-base.qcow2"; XRUD="$OUT/$XRVM-user-data.yaml"; XRMAN="$OUT/$XRVM.yaml"
   cp "$XRIMG" "$XRBASE" && qemu-img resize "$XRBASE" 5G >/dev/null 2>&1
   {
@@ -6548,7 +6592,7 @@ XMIMG="${E2E_CLOUDINIT_IMAGE:-}"
 if [[ -z "$XMIMG" ]]; then
   XMIMG="$(ls -1 "$SROOT"/vm-images/_base/*cloudimg*.img 2>/dev/null | head -1 || true)"
 fi
-if libvirt_system_usable && command -v guestfish >/dev/null 2>&1 && [[ -n "$XMIMG" && -r "$XMIMG" ]]; then
+if libvirt_system_usable && guestfs_usable && [[ -n "$XMIMG" && -r "$XMIMG" ]]; then
   XMSRC="mgsrc-$PFX"; XMDST="mgdst-$PFX"; XMTAG="migrated-$XMSRC"
   XMBASE="$OUT/$XMSRC-base.qcow2"; XMFLAT="$OUT/$XMSRC-flat.qcow2"; XMUD="$OUT/$XMSRC-user-data.yaml"; XMMAN="$OUT/$XMSRC.yaml"
   cp "$XMIMG" "$XMBASE" && qemu-img resize "$XMBASE" 5G >/dev/null 2>&1
@@ -6655,7 +6699,7 @@ CMIMG="$("$BIN" vm image ls 2>/dev/null | awk '/cloud-init/{print $1; exit}')"
 if [[ -n "${DELONIX_ROOT:-}" && -z "${DELONIX_NET_RUNTIME_DIR:-}" ]]; then
   skip "vm: a stopped CH VM cold-migrates — flatten, import, boot on the target with state intact" \
     "DELONIX_ROOT isolado sem DELONIX_NET_RUNTIME_DIR — isola os DOIS ou nenhum"
-elif ch_usable && command -v guestfish >/dev/null 2>&1 && [[ -n "$CMIMG" ]]; then
+elif ch_usable && guestfs_usable && [[ -n "$CMIMG" ]]; then
   CMSRC="cmsrc-$PFX"; CMDST="cmdst-$PFX"; CMTAG="migrated-$CMSRC"
   CMFLAT="$OUT/$CMSRC-flat.qcow2"
   CMSOVL="$SROOT/vms/$CMSRC.qcow2"; CMDOVL="$SROOT/vms/$CMDST.qcow2"
@@ -6973,7 +7017,7 @@ BVIMG="${E2E_CLOUDINIT_IMAGE:-}"
 if [[ -z "$BVIMG" ]]; then
   BVIMG="$(ls -1 "$SROOT"/vm-images/_base/*cloudimg*.img 2>/dev/null | head -1 || true)"
 fi
-if libvirt_system_usable && command -v guestfish >/dev/null 2>&1 \
+if libvirt_system_usable && guestfs_usable \
      && command -v cloud-localds >/dev/null 2>&1 && [[ -n "$BVIMG" && -r "$BVIMG" ]]; then
   BVVM="bkvm-$PFX"; BVBASE="$OUT/$BVVM-base.qcow2"; BVUD="$OUT/$BVVM-user-data.yaml"
   BVDIR="$OUT/vmbackups-$PFX"; rm -rf "$BVDIR"; mkdir -p "$BVDIR"
@@ -7260,7 +7304,11 @@ if libvirt_system_usable; then
        "$BIN" vm create "$RVM" --disk "$RDISK" --backend libvirt --memory 256M; then
     check "vm resize --disk-size com a VM a correr recusa (5)" 5 "$BIN" vm resize "$RVM" --disk-size 1
     check "vm stop (disk resize)" ok "$BIN" vm stop "$RVM"
-    check "vm resize --disk-size 0 recusa (1)" 1 "$BIN" vm resize "$RVM" --disk-size 0
+    # 2 and not 1: a flag's VALUE is clap's to refuse, and `parse_disk_gib`
+    # rejects 0 on purpose, with its own test
+    # (`delonix-compute`, domain::vm_backend, `parse_disk_gib("0") == None`).
+    # The engine keeps its own `Some(0)` guard for callers that are not clap.
+    check "vm resize --disk-size 0 recusa (2, o clap)" 2 "$BIN" vm resize "$RVM" --disk-size 0
     # O disco vazio tem 64 MiB — bem abaixo de 1 GiB, por isso é sempre um grow.
     check "vm resize --disk-size de uma VM parada" ok "$BIN" vm resize "$RVM" --disk-size 1
     check "the overlay grew to exactly 1 GiB" ok bash -c \
@@ -7375,7 +7423,7 @@ elif ch_usable; then
     done
     check "CH: --disk-size com a VM a correr recusa (5)" 5 "$BIN" vm resize "$RCVM" --disk-size 1
     check "CH: vm stop (disk resize)" ok "$BIN" vm stop "$RCVM"
-    check "CH: --disk-size 0 recusa (1)" 1 "$BIN" vm resize "$RCVM" --disk-size 0
+    check "CH: --disk-size 0 recusa (2, o clap)" 2 "$BIN" vm resize "$RCVM" --disk-size 0
     check "CH: --disk-size de uma VM parada" ok "$BIN" vm resize "$RCVM" --disk-size 1
     check "CH: the overlay grew to exactly 1 GiB" ok bash -c \
       "qemu-img info -U --output=json '$SROOT/vms/$RCVM.qcow2' | python3 -c \"import json,sys; sys.exit(0 if json.load(sys.stdin)['virtual-size']==1073741824 else 1)\""

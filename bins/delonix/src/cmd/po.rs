@@ -75,6 +75,13 @@ const ERROR_WRAPPERS: &[(&str, &str)] = &[
     ("unavailable: ", ""),
     ("timed out: ", ""),
     ("permission denied: ", ""),
+    // LAST on purpose: it is a PREFIX of the two specific ones above, and
+    // `split_error_wrapper` takes the first match. It covers the GENERIC
+    // `Error::NotFound` Display (`no such {0}`), whose prefix was in no wrapper
+    // at all — so `no such volume x`, `no such secret x` and `no such network
+    // x` all printed in English under `--l18n=pt` (measured 2026-11-22), and a
+    // message whose interior WAS translated at construction came out mixed.
+    ("no such ", ""),
 ];
 
 /// Variant for DYNAMIC strings — the clap help and the ERROR PRINTER of

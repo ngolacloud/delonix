@@ -170,8 +170,8 @@ fn cmd_generate(store: &Store, name: &str) -> Result<()> {
         .collect();
     let members = if members.is_empty() {
         vec![store.load(name).map_err(|_| {
-            Error::Invalid(super::po::tf(
-                "nothing to generate for '{name}' (no such pod or container)",
+            Error::NotFound(super::po::tf(
+                "pod or container '{name}' — nothing to generate",
                 &[("name", name)],
             ))
         })?]

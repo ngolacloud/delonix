@@ -199,6 +199,9 @@ msgstr "erro"
 
 # ---- wrappers `#[error(...)]` de delonix-runtime-core::Error (ver po::t_dyn) -
 
+msgid "no such "
+msgstr "não existe "
+
 msgid "no such VM: "
 msgstr "sem essa VM: "
 
@@ -2618,8 +2621,8 @@ msgstr "a medir…"
 msgid "rx / tx (cumulative) — {n} container(s) not measured (host/none network)"
 msgstr "rx / tx (cumulativo) — {n} container(s) não medido(s) (rede host/none)"
 
-msgid "nothing to generate for '{name}'"
-msgstr "nada a gerar para '{name}'"
+msgid "pod or container '{name}' — nothing to generate"
+msgstr "pod ou container '{name}' — nada para gerar"
 
 msgid "Generates a `kind: Pod` from a container (or from every member of a pod) and prints it to stdout"
 msgstr "Gera um `kind: Pod` a partir de um container (ou de todos os membros de um pod) e imprime-o em stdout"

@@ -732,7 +732,15 @@ const FACTS: &[KindFacts] = &[
     KindFacts {
         kind: NETWORK_GATEWAY,
         plural: "routers",
-        short: &["rtr"],
+        // `networkgateways` is the plural this Kind answered to before the
+        // ADR-0049 D4 rename, kept as a SHORTNAME for the same reason
+        // `clusters` is kept on `KubernetesCluster`: ADR-0005 promises a renamed
+        // Kind keeps answering to its old name, and that promise covers the
+        // generic verbs too, not only the manifest loader (where `kind:
+        // NetworkGateway` already resolves, via `KIND_ALIASES`). Without it,
+        // `delonix get/delete networkgateways` answered «no such resource kind»
+        // — the regression #166 already fixed once, for `clusters`.
+        short: &["rtr", "networkgateways"],
         api_version: "networking.delonix.io/v1beta1",
         domain: Domain::NetConnectivity,
         form: Form::Primary,
