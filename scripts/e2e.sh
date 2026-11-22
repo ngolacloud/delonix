@@ -9276,16 +9276,16 @@ check "uma config editada à mão NÃO é glue e não trava nada" ok bash -c \
 if [[ -z "$SCAFP" || -z "$SCAFTP" || "$SCAFP" == "$SCAFTP" ]]; then
   skip "stack init --template httpd --up" "não foi possível escolher duas portas livres"
 elif check_then "--up: stack init --template httpd constrói e aplica (180 s)" ok bash -c \
-    "timeout 180 '$BIN' stack init --template httpd '$SCAFDIR/$SCAFN' --port \"\$SCAFP\" --tls-port \"\$SCAFTP\" --up --force >'${TMPDIR:-/tmp}/e2e-scaffold-up.log' 2>&1 \
+    "timeout 180 '$BIN' stack init --template httpd '$SCAFDIR/$SCAFN' --port $SCAFP --tls-port $SCAFTP --up --force >'${TMPDIR:-/tmp}/e2e-scaffold-up.log' 2>&1 \
      || { rc=\$?; tail -15 '${TMPDIR:-/tmp}/e2e-scaffold-up.log'; exit \$rc; }"; then
   check "--up: o container tem memory_max do manifesto (não só o run cru)" ok bash -c \
     "$BIN container inspect '$SCAFN' | grep -q '\"memory_max\": \"512M\"'"
   check "--up: o HTTPS responde, com HTTP/2, e o HTTP redirecciona para lá" ok bash -c \
-    "[ \"\$(curl -ks -o /dev/null -w '%{http_code} %{http_version}' https://127.0.0.1:\$SCAFTP/)\" = '200 2' ] && curl -s -o /dev/null -D - http://127.0.0.1:\$SCAFP/x | grep -qi '^location: https://127.0.0.1:\$SCAFTP/x'"
+    "[ \"\$(curl -ks -o /dev/null -w '%{http_code} %{http_version}' https://127.0.0.1:$SCAFTP/)\" = '200 2' ] && curl -s -o /dev/null -D - http://127.0.0.1:$SCAFP/x | grep -qi '^location: https://127.0.0.1:$SCAFTP/x'"
   check "--up: o resumo final dá o endereço HTTPS a abrir" ok \
-    grep -q 'open:    https://localhost:\$SCAFTP/' "${TMPDIR:-/tmp}/e2e-scaffold-up.log"
+    grep -q 'open:    https://localhost:$SCAFTP/' "${TMPDIR:-/tmp}/e2e-scaffold-up.log"
   check "--up: o smoke do próprio template passa" ok bash -c \
-    "cd '$SCAFDIR/$SCAFN' && PATH=\"$(dirname "$BIN"):\$PATH\" sh scripts/smoke.sh https://127.0.0.1:\$SCAFTP http://127.0.0.1:\$SCAFP"
+    "cd '$SCAFDIR/$SCAFN' && PATH=\"$(dirname "$BIN"):\$PATH\" sh scripts/smoke.sh https://127.0.0.1:$SCAFTP http://127.0.0.1:$SCAFP"
   check "--up: o container está mesmo a correr" ok bash -c \
     "$BIN container ls | grep -q '$SCAFN'"
   # Um segundo `--up` sobre o projecto que já está de pé. Medido 2026-10-02: a
@@ -9294,12 +9294,12 @@ elif check_then "--up: stack init --template httpd constrói e aplica (180 s)" o
   # ficava «is UP» com o container antigo a servir a página anterior.
   _cid1=$("$BIN" container inspect "$SCAFN" 2>/dev/null | grep -m1 '"id"')
   check "--up outra vez, sem alterações: passa e o container é o mesmo" ok bash -c \
-    "timeout 180 '$BIN' stack init --template httpd '$SCAFDIR/$SCAFN' --port \"\$SCAFP\" --tls-port \"\$SCAFTP\" --up --force >/dev/null 2>&1 \
+    "timeout 180 '$BIN' stack init --template httpd '$SCAFDIR/$SCAFN' --port $SCAFP --tls-port $SCAFTP --up --force >/dev/null 2>&1 \
      && [ \"\$('$BIN' container inspect '$SCAFN' | grep -m1 '\"id\"')\" = '$_cid1' ]"
   echo '<h1>e2e second build</h1>' > "$SCAFDIR/$SCAFN/public/index.html"
   check "--up depois de alterar o projecto: serve a versão nova" ok bash -c \
-    "timeout 420 '$BIN' stack init --template httpd '$SCAFDIR/$SCAFN' --port \"\$SCAFP\" --tls-port \"\$SCAFTP\" --up --force >/dev/null 2>&1 \
-     && curl -ks https://127.0.0.1:\$SCAFTP/ | grep -q 'e2e second build'"
+    "timeout 420 '$BIN' stack init --template httpd '$SCAFDIR/$SCAFN' --port $SCAFP --tls-port $SCAFTP --up --force >/dev/null 2>&1 \
+     && curl -ks https://127.0.0.1:$SCAFTP/ | grep -q 'e2e second build'"
   "$BIN" stack destroy -f "$SCAFDIR/$SCAFN/delonix-manifest.yaml" >/dev/null 2>&1
 else
   e2e_rm "$SCAFN"
