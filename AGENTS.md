@@ -551,6 +551,66 @@ What you do when it happens: the path reference goes into a **docstring**
 gate does not count, and the comment in place points there. The reference is never
 deleted — it is what makes the claim verifiable.
 
+**`ao` LEFT the lexicon, and the measurement decided (2026-11-22).** Of the two
+precedents above, this is the one that goes, not the one that stays:
+
+```
+nas  — 6 false, 0 real  → removed
+     — the word that stays: 11 false, 9 real → kept
+ao   — 29 false, 1 real → removed
+```
+
+It is not even a PT/EN homograph; it collides with identifiers of OURS: the locale
+tag this repo writes everywhere (`pt-AO`, `pt_AO`, `docs/dev/pt-AO/`, `*.pt-AO.md`)
+and Angola's TLD (`loja.exemplo.ao`). Measured with
+and without the word: **30** entries depended only on it — 26 in `docs`, 4 in
+`comments` — and reading them one by one, **29 were lines in ENGLISH** whose only
+«Portuguese word» was the tag («the pt-AO help strings are in the `pt.po` catalog»,
+and the four doc-comments of `cmd/po.rs`/`main.rs` that name the catalogue), against
+**1** genuine line. So it loses 1 real detection to remove 29 false ones — and the
+perverse part is that the word invented MORE debt the more the project documented
+its own i18n. The baselines went down in the same commit (`docs` 380→358 by this,
+`comments` 57→53), and `scripts/test_lang_ratchet.py` now pins both halves: the tag
+does not read as Portuguese, and a real Portuguese line still does.
+
+**A GENERATED `.md` is not source, and `docs/providers/capability-matrix.md` was
+being counted (2026-11-22).** It is produced by `delonix provider matrix` and a test
+keeps the file equal to that output, so the language it carries is the language of
+the SOURCE strings — each `Capability`'s `Evidence`, which cite the TITLES of
+`scripts/e2e.sh` checks, and those are Portuguese. Counting the artefact asks for
+exactly the edit the repo forbids. It joined `docs/handbook/` in the skip set
+(`GENERATED_MD`), for the same reason the handbook is there. Measured: **17** of its
+lines counted, **14** of them already inside the 380, so the gate had been reporting
+the battery's Portuguese in the wrong place for as long as the matrix has existed —
+`docs` 358→344 on both sides. Translating it belongs to the English-source campaign,
+at the source and together with the battery; doing it in the generated file would be
+undone by the next `--update`.
+
+**And the proof that the baseline moved for the false positives ONLY**: the commit
+that fixed the baseline (`53d26589`), re-measured with the two corrections above,
+gives exactly `docs: 344` / `comments: 53` — the new numbers. The **+119** lines of
+real drift that had entered since were PAID, not absorbed: three reports that had
+been written in Portuguese while every sibling in their own series was in English
+(`reports/conformance/B1d`, `B1e` — next to `B1b`/`B1c` in English — and
+`reports/interop/h1-sonobuoy/finding-home-nonroot.md`, next to an English `README`)
+were translated, keeping every number, command and quoted output verbatim.
+
+**A lone `*.pt-AO.md` is a translation of nothing.** Measured the same day: of the
+five in the tree, four are ADRs and each one SAYS so in its own first line, with
+the English beside it:
+
+```
+> Cópia de revisão interna em pt-AO. O texto canónico é
+> `0065-ipv6-dataplane.md` (inglês); as decisões são as mesmas.
+```
+
+The suffix means «the Portuguese review copy of the source next door», not «this
+file is Portuguese» — so using it to silence the gate on a document with no
+canonical English is bending the mechanism, and
+`tests/cli-parity/audit/RELATORIO-AUDITORIA-CLI.pt-AO.md` is the one case of that in
+the tree (2026-11-21). It is recorded here instead of being renamed by a third
+party: what it needs is its canonical English text, which is the owner's call.
+
 ## The direction of dependencies is a gate (ADR-0040, phase P0)
 
 `scripts/arch_fitness.py` enforces the structure ADR-0040 decided, and it entered
@@ -609,6 +669,50 @@ if it GOES UP and fails if it GOES DOWN without the baseline lowering in the sam
 `Command::new` is **not** counted: an adapter exists precisely to call
 `ip`, `nft`, `qemu-img` or `ssh`. What is counted is the engine re-executing
 its OWN binary.
+
+**A counter whose only hit is the sentence describing the rule measures nothing
+(2026-11-22).** Two of the patterns match the anti-pattern they TEACH, so a
+comment explaining the rule read as a breach of it. Measured before the fix:
+`raw_error_variant_matches` was **1 of 1** a comment (`bins/delonix/src/cmd/util.rs`,
+saying why the code asks `code()` instead of matching the variant directly) and
+`self_exec_sites` **2 of 37** (`delonix-node/src/app/host.rs`,
+`delonix-cri/src/spdy.rs`). It is the same defect the `build.rs` exclusion had
+already fixed for `library_prints`, and the one the language ratchet pays for in
+`nas`. `code_only` blanks whole-line `//` comments for those two patterns only,
+and **the gate was verified to still go red on live code** — a real
+`Err(Error::NotFound(_)) =>` counts, a comment about it does not. Baselines:
+`raw_error_variant_matches` stays **0**, `self_exec_sites` went **37 → 35**.
+
+**PRINTS and ENV_WRITES stay comment-SIGHTED, and that is a measurement too**:
+both scored **0** hits inside comments on the same day, so filtering them would
+change no number today while widening what the gate stops seeing tomorrow — a
+commented-out `println!` is code someone is about to restore.
+
+**Two of the four ratchets have debt that cannot be paid by editing the line, and
+the numbers say which (same day).** `library_prints` went 116 → **121** and
+`env_writes` 23 → **25**, both declared rather than quietly absorbed:
+
+- Of the 121 prints, **59 are in `delonix-linux`, which has NO `tracing`
+  dependency on purpose**: most of that code runs in the container child, after
+  `clone()` and before `execve`, where a subscriber would allocate and take locks
+  the parent held — `eprintln!` on the inherited stderr is the child's only way to
+  say why it died. **44 more are in `tests/`**, where a live test's `println!` IS
+  its reporting channel. And the interface servers (`delonix-mgmt` 6,
+  `delonix-cri` 5) are the half of the rule that says whoever prints is the
+  interface. Paying any of those means moving the code, not the macro.
+- The two new `env_writes` are the warm plane's `run_spec_resident_isolated`
+  (ADR-0095) setting `DELONIX_REEXEC_ID`/`_IP` **in-process** to reuse the cold
+  re-exec's contract — the same pair read in **11** places inside `cmd_run` and its
+  helpers, single-threaded by construction at that point. Paying it means threading
+  `(id, ip)` explicitly through all 11: ADR-0095 follow-up, not a gate tweak.
+
+**`cli_context_lines` 126,181 → 127,907, and the bump comes with the breakdown**
+(the precedent is `79be3eaa`, which bumped it for the prune/ls merge). The +1,726
+is feature work landing in the CLI: `cmd/container` +564, `cmd/stack` +481,
+`cmd/oci_runtime` +258, `cmd/distroless` +188 (new), `cmd/vm` +155, and sixteen
+smaller ones — against three modules that SHRANK (`cmd/kindmode` −11, `cmd/kube`
+−3, `cmd/httproute` −1). Paying it is moving code into the context crates, which
+is the ADR-0040 R5 restructuring itself.
 
 ## Method: one worktree per session (read BEFORE editing)
 

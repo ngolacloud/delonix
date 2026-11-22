@@ -39,6 +39,17 @@ SKIP_FILES = {"scripts/lang_ratchet.py", "scripts/lang_pt_lexicon.txt"}
 # fail for doing exactly what the handbook is for.
 SKIP_PREFIXES = ("docs/handbook/",)
 
+# Same argument, other generated artefact: `docs/providers/capability-matrix.md`
+# is produced by `delonix provider matrix` and a test keeps the file equal to that
+# output, so it cannot be edited by hand — the language it carries is the language
+# of the SOURCE strings (the `Evidence` of each `Capability`, which cite the
+# titles of `scripts/e2e.sh` checks). Counting the artefact asks for the one edit
+# the repo forbids. Measured 2026-11-22: 17 of its lines counted, 14 of them
+# already inside the baseline, so the gate was reporting the battery's Portuguese
+# in the wrong place for as long as the matrix has existed. Translating it belongs
+# to the English-source campaign, at the source, together with the battery.
+GENERATED_MD = ("docs/providers/capability-matrix.md",)
+
 # Documentação `.md`: a FONTE escreve-se em inglês, mas há locales traduzidos de
 # propósito ao lado da fonte (docs/dev/<página>.md ↔ docs/dev/pt-AO/<página>.md,
 # ADRs `*.pt-AO.md`). Contá-los como dívida faria o gate exigir que se
@@ -147,6 +158,8 @@ def scan(pt: set[str]):
         except OSError:
             continue
         rel = path.relative_to(ROOT).as_posix()
+        if ext == ".md" and rel in GENERATED_MD:
+            continue
         if ext == ".md":
             # Prosa: uma linha conta se tiver pelo menos uma palavra do léxico PT.
             # Saltar blocos de código (``` … ```): comandos e output não são prosa

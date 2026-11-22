@@ -1,74 +1,73 @@
-# B1d — `delonix oci-runtime` a root: modelo de capabilities OCI (5 conjuntos) + validação de namespace
+# B1d — `delonix oci-runtime` at root: the OCI capability model (5 sets) + namespace validation
 
-Medido 2026-11-21 na `h3-root-vm` (qemu/KVM, Ubuntu 26.04, cgroup v2 unified,
-uid 0, `cap_last_cap=40`), com um `delonix` **release** construído do working
-tree (caps 5-conjuntos + validação ns + trabalho não-committado de seccomp-args
-do dono). Suite: `runtime-tools@v0.9.1-...bd3b0bd`, via
+Measured 2026-11-21 on `h3-root-vm` (qemu/KVM, Ubuntu 26.04, cgroup v2 unified,
+uid 0, `cap_last_cap=40`), with a **release** `delonix` built from the working
+tree (5-set caps + ns validation + the owner's uncommitted seccomp-args work).
+Suite: `runtime-tools@v0.9.1-...bd3b0bd`, through
 `scripts/oci-runtime-rt4-wrapper.sh`.
 
-## Resultado
+## Result
 
-| binário | ok | not ok |
+| binary | ok | not ok |
 |---|---|---|
-| delonix 0.1.2 (B1c, ANTES — guard ambient) | **19** | 31 |
-| delonix 0.1.2 (ESTE run — 5 conjuntos + raise ambient + ns path/type) | **21** | 58 |
-| runc 1.5.3 (referência, B1c) | 53 | 53 |
+| delonix 0.1.2 (B1c, BEFORE — ambient guard) | **19** | 31 |
+| delonix 0.1.2 (THIS run — 5 sets + ambient raise + ns path/type) | **21** | 58 |
+| runc 1.5.3 (reference, B1c) | 53 | 53 |
 
-(O total de `not ok` sobe porque mais casos passam a CRIAR o container e a
-emitir asserções de lifecycle que antes nem corriam — o número não é monótono,
-como documentado.)
+(The `not ok` total rises because more cases now get as far as CREATING the
+container and emitting lifecycle assertions that previously did not even run —
+the number is not monotonic, as documented.)
 
-## O que mudou e porquê (+2, sem regressão)
+## What changed and why (+2, no regression)
 
-Os 19 originais mantêm-se **todos**: `linux_ns_path_type` (14 asserções: 7
-negativas por recusa de path-de-tipo-errado + 7 "matches") continua 14/14 —
-preservado pela nova regra «qualquer namespace com `path` é recusado» (o engine
-cria namespaces frescos, não faz setns por path), mais os 5 casos de
-"operation MUST error if no container ID".
+All 19 of the original ones hold: `linux_ns_path_type` (14 assertions: 7
+negative ones for refusing a path of the wrong type + 7 "matches") is still
+14/14 — preserved by the new rule "any namespace with a `path` is refused" (the
+engine creates fresh namespaces, it does not setns by path), plus the 5 "operation
+MUST error if no container ID" cases.
 
-Os **+2** vêm directamente de o guard ambient ter deixado de bloquear o
-`create`:
+The **+2** come straight from the ambient guard no longer blocking `create`:
 
-- `kill_no_effect` — cria um container e mata-o antes do `start`; só precisava
-  de o `create` passar (a config default traz ambient).
-- `misc_props` — cria um container com uma annotation desconhecida e exige que
-  NÃO haja erro; idem, só precisava do `create`.
+- `kill_no_effect` — creates a container and kills it before `start`; all it
+  needed was for `create` to pass (the default config carries ambient).
+- `misc_props` — creates a container with an unknown annotation and requires
+  that there be NO error; likewise, all it needed was `create`.
 
-Ambos falhavam antes em `create` com `error[DX-1000] … process.capabilities.ambient
+Both used to fail at `create` with `error[DX-1000] … process.capabilities.ambient
 — ambient capabilities are not raised by this engine`.
 
-## O modelo de 5 conjuntos funciona end-to-end (prova independente)
+## The 5-set model works end to end (independent proof)
 
-A suite não consegue observar as ~205 asserções de capability do `runtimetest`
-porque o `oci-runtime start` corre o container **detached** (log próprio) em vez
-de ligar o stdout aos fds de `create` (modelo runc de fd herdado); o TAP do
-`runtimetest` nunca volta ao `prove` → «No subtests run». Isto é um gap de
-**plumbing de stdio**, ORTOGONAL a capabilities/namespaces.
+The suite cannot observe `runtimetest`'s ~205 capability assertions because
+`oci-runtime start` runs the container **detached** (with a log of its own)
+instead of wiring stdout to `create`'s fds (runc's inherited-fd model);
+`runtimetest`'s TAP never makes it back to `prove` → "No subtests run". That is a
+**stdio plumbing** gap, ORTHOGONAL to capabilities/namespaces.
 
-Prova directa, container `delonix oci-runtime` a root com os 5 conjuntos iguais
-`{CHOWN, KILL, NET_RAW}` (máscara `0x2021`), ambient incluído, lendo
-`/proc/self/status` do próprio init:
+Direct proof, a `delonix oci-runtime` container at root with all five sets equal
+to `{CHOWN, KILL, NET_RAW}` (mask `0x2021`), ambient included, reading
+`/proc/self/status` from its own init:
 
 ```
 CapInh: 0000000000002021
 CapPrm: 0000000000002021
 CapEff: 0000000000002021
 CapBnd: 0000000000002021
-CapAmb: 0000000000002021   ← ambient LEVANTADO (antes 0 / recusado)
+CapAmb: 0000000000002021   ← ambient RAISED (previously 0 / refused)
 ```
 
-Os cinco conjuntos instalam-se exactamente como a bundle pede, e o ambient é
-levantado via `PR_CAP_AMBIENT_RAISE` (precondição `ambient ⊆ permitted ∩
-inheritable`, validada no `create`). É precisamente o que
-`runtimetest.validateCapabilities` verificaria (5 × 41 asserções).
+The five sets install exactly as the bundle asks, and ambient is raised through
+`PR_CAP_AMBIENT_RAISE` (precondition `ambient ⊆ permitted ∩ inheritable`,
+validated in `create`). It is precisely what
+`runtimetest.validateCapabilities` would check (5 × 41 assertions).
 
-## Próxima alavanca rumo a 53 (sessão nova)
+## The next lever towards 53 (a new session)
 
-O bloqueador dominante dos ~30 casos `RuntimeInsideValidate`
-(`default`/`process`/`hostname`/`linux_readonly_paths`/`mounts`/…) é o plumbing
-de stdout do par `create`+`start`: o container tem de herdar os fds de stdio de
-`create` (ficheiros `stdout-<uuid>`/`stderr-<uuid>` na bundle, lidos por
-`ReadStandardStreams`). Além disso, `process_capabilities` falha a montante em
-`config.json: serde failed` (a crate `oci-spec` não desserializa a lista
-privilegiada que `SetupPrivileged(true)` gera) — gap separado da crate, não do
-engine.
+The dominant blocker for the ~30 `RuntimeInsideValidate` cases
+(`default`/`process`/`hostname`/`linux_readonly_paths`/`mounts`/…) is the stdout
+plumbing of the `create`+`start` pair: the container has to inherit `create`'s
+stdio fds (the `stdout-<uuid>`/`stderr-<uuid>` files in the bundle, read by
+`ReadStandardStreams`). Beyond that, `process_capabilities` fails upstream with
+`config.json: serde failed` (the `oci-spec` crate does not deserialize the
+privileged list that `SetupPrivileged(true)` generates) — a gap in the crate, not
+in the engine.
