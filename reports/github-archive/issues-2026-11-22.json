@@ -1,0 +1,1049 @@
+{
+  "archived_at": "2026-11-22T14:47:13+00:00",
+  "repo": "ngolacloud/delonix",
+  "why": "Issues closed and deleted from GitHub by the owner (2026-11-22) as part of the repository clean-up. This file is the record: deleting an issue is permanent and several of these are the only written description of defects that are still open.",
+  "counts": {
+    "total": 37,
+    "open_when_archived": 18,
+    "closed_when_archived": 19
+  },
+  "issues": [
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "Um contentor **privilegiado** recebe `/proc/sys` montado só de leitura. O `kube-proxy` do kubeadm falha por isso, e com ele fica todo o plano de serviço do cluster: sem `kube-proxy` não há ClusterIP, e o `coredns` fica preso em `ContainerCreating` à espera dele.\n\n## O erro, textual\n\n```\nI sysctls.go:147 \"Setting nf_conntrack_max\" nfConntrackMax=131072\nE server.go:136  \"Error running ProxyServer\" err=\"could not set conntrack parameters\n                 from kube-proxy configuration: open /proc/sys/net/netfilter/nf_conntrack_max:\n                 read-only file system\"\nrunning command: exit status 1\n```\n\n## O que está medido\n\n| | |\n|---|---|\n| o `kube-proxy` pede privilégio | `kubectl get ds -n kube-system kube-proxy -o jsonpath='{…securityContext}'` → `{\"privileged\":true}` |\n| o ficheiro existe no host | `/proc/sys/net/netfilter/nf_conntrack_max` — presente, escrevível |\n| dentro do contentor | `read-only file system` |\n| efeito | `kube-proxy` em `CrashLoopBackOff` nos dois nós; `coredns` em `ContainerCreating` |\n\n## Comportamento esperado\n\nPela OCI runtime spec, e pelo que o containerd e o CRI-O fazem, um contentor com `privileged: true` recebe `/proc/sys` **escrevível** — sem `maskedPaths` nem `readonlyPaths`. É precisamente por isso que o `kube-proxy` pode existir como carga de Kubernetes em vez de um daemon do host.\n\n## O que NÃO é\n\nVale a pena dizer, porque persegui as duas hipóteses erradas antes desta:\n\n- **Não é** o kubelet a matar os pods. Medido: `computePodActions` dá `KillPod: false` para o `etcd` (×20) e para o `kube-apiserver` (×17). Os `KillPod: true` que aparecem no jornal são quase todos do `coredns`, que é vítima e não causa.\n- **Não é** o `PodSandboxStatus` do #233. Esse está corrigido e nota-se: os quatro static pods do control-plane sobrevivem, o cluster converge, e os dois nós ficam `Ready`.\n\n## Estado do cluster com este defeito presente\n\n```\ndelonix-stage-cp1   Ready   control-plane   81m   v1.36.4\ndelonix-stage-w1    Ready   <none>          76m   v1.36.4\n\netcd / kube-apiserver / kube-controller-manager / kube-scheduler   Running\nkube-proxy                                                        CrashLoopBackOff\ncoredns                                                           ContainerCreating\n```\n\nOu seja: o control-plane inteiro funciona. **Este é o único componente partido**, e é o que separa um cluster que arranca de um cluster que serve.\n\n## Como reproduzir\n\n```bash\ndelonix cluster kubeadm --name t --network <rede> --control-plane 1 --workers 1 \\\n  --vm-image delonix-vm-k8s:1.36 --k8s-version 1.36.4\n# depois, no nó:\nkubectl -n kube-system logs -l k8s-app=kube-proxy | grep conntrack\n```\n\nOu, mais directo, sem Kubernetes pelo meio:\n\n```bash\ndelonix container run --privileged --rm alpine \\\n  sh -c 'echo 131072 > /proc/sys/net/netfilter/nf_conntrack_max'\n```\n\n## Não validado\n\nNão li o código que monta o `/proc` no `delonix-cri`, nem confirmei se o mesmo acontece pelo caminho do `delonix container run --privileged` fora do CRI — a segunda reprodução acima é uma hipótese por confirmar, não uma medição. O que está medido é o caminho do CRI, com o `kube-proxy` real.\n\nMedido a 2026-09-07 contra a golden `delonix-vm-k8s:1.36-motor2` (`delonix 2.0.0`, commit `4eaf44355`), Kubernetes 1.36.4, backend libvirt.\n",
+      "closedAt": "2026-09-19T18:14:53Z",
+      "comments": [
+        {
+          "id": "IC_kwDOTaC2l88AAAABTF1OBA",
+          "author": {
+            "login": "angolardevops"
+          },
+          "authorAssociation": "MEMBER",
+          "body": "**Correcção ao corpo desta issue.** Escrevi lá:\n\n> «o control-plane inteiro funciona. **Este é o único componente partido**»\n\n**É falso.** Li um instante e chamei-lhe estado. Medido depois, ao longo do tempo:\n\n```\nreinícios totais:  125 → 126 em 75 segundos\n\netcd                       20 reinícios\nkube-apiserver             20\nkube-controller-manager    19   CrashLoopBackOff\nkube-scheduler             21   CrashLoopBackOff\n```\n\nE numa observação de quatro minutos, amostrada de minuto a minuto, o apiserver esteve **indisponível nas quatro amostras**.\n\nO que continua verdadeiro, e é o âmbito desta issue: o `kube-proxy` falha por `/proc/sys` só de leitura num contentor privilegiado. Isso é determinístico, literal, e independente do resto.\n\nO ciclo de reinícios do control-plane é **outro defeito**, com outra cadeia, e não depende deste — o `etcd` não precisa de `kube-proxy` para funcionar. Fica em issue própria para não misturar dois problemas num sítio só.\n\nNota de método, porque custou três conclusões erradas nesta investigação: `kubectl get nodes` dizia `Ready` nos dois nós enquanto o control-plane reiniciava vinte vezes. A coluna que conta é a de reinícios, e a amostra tem de ser repetida.\n",
+          "createdAt": "2026-09-07T22:18:04Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/ngolacloud/delonix/issues/237#issuecomment-5576150532",
+          "viewerDidAuthor": true
+        },
+        {
+          "id": "IC_kwDOTaC2l88AAAABTKzMow",
+          "author": {
+            "login": "angolardevops"
+          },
+          "authorAssociation": "MEMBER",
+          "body": "**Resolvido e provado contra um cluster real** — correcção no [#239](https://github.com/angolardevops/delonix-runtime/pull/239).\n\n```\nCRI no nó:   12 882 328 bytes   ← binário com a correcção\nkube-proxy:  sem erro de read-only no log\ncluster:     rc=0\n```\n\nA causa final não era só a que esta issue descreve. Os `--masked-path`/`--readonly-path` explícitos eram **metade** do problema: retirá-los faz o motor cair nas omissões do runc, que também contêm `/proc/sys`. O que faltava era o CRI **passar `--privileged` ao motor** — traduzia `privileged: true` em `--cap-add ALL` e parava aí.\n\nCapacidades e montagens são eixos separados do `--privileged`. A nota do `cap_ceiling` já o dizia; o código fazia metade.\n\nFica aberto o [#238](https://github.com/angolardevops/delonix-runtime/issues/238), que é independente: neste mesmo cluster, com o `kube-proxy` a funcionar, o apiserver continua a cair.\n",
+          "createdAt": "2026-09-08T07:53:47Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/ngolacloud/delonix/issues/237#issuecomment-5581360291",
+          "viewerDidAuthor": true
+        },
+        {
+          "id": "IC_kwDOTaC2l88AAAABTNLzpA",
+          "author": {
+            "login": "angolardevops"
+          },
+          "authorAssociation": "MEMBER",
+          "body": "**Reaberta: a correcção do #239 não resolve isto, e a minha validação estava errada.**\n\nMedido no cluster `prova239`, construído com a golden que leva o binário corrigido:\n\n```\nopen /proc/sys/net/netfilter/nf_conntrack_max: read-only file system\nkube-proxy   Error   r=41 / r=33     (log 42 do contentor)\ncoredns      Pending\n```\n\nO erro é o mesmo, no cluster que devia prová-lo resolvido.\n\n**Onde falhei:** o meu script de validação procurava `read-only file system` no log *mais recente* num instante único — e nesse momento o contentor tinha acabado de arrancar e ainda não tinha escrito a linha. Li «não encontrei» como «não acontece». Com base nisso afirmei que estava provado, o #239 foi fundido e esta issue fechada.\n\n**O que falta distinguir**, e são duas medições simples:\n\n1. o `--privileged` não chega ao contentor — vê-se no comando com que o CRI o arrancou;\n2. chega e o motor não o honra neste caminho — vê-se com `delonix container run --privileged … sh -c 'echo 1 > /proc/sys/net/netfilter/nf_conntrack_max'`.\n\nNão fiz nenhuma das duas. O #239 fica na `main` como está; não proponho recuá-lo sem saber qual das duas é.",
+          "createdAt": "2026-09-08T10:40:14Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/ngolacloud/delonix/issues/237#issuecomment-5583860644",
+          "viewerDidAuthor": true
+        },
+        {
+          "id": "IC_kwDOTaC2l88AAAABVmJkpw",
+          "author": {
+            "login": "angolardevops"
+          },
+          "authorAssociation": "MEMBER",
+          "body": "Corrigido na main: #318 (a038c87b) devolve `/proc/sys` gravável a um container privileged, e #322 fecha o resto do caminho do nó root. Reconfirmado em 2026-09-19 no HEAD 85c19674: `--privileged` escreve `/proc/sys/net/ipv4/ip_forward`; um container normal continua com `/proc/sys` em ro.",
+          "createdAt": "2026-09-19T18:14:52Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/ngolacloud/delonix/issues/237#issuecomment-5744256167",
+          "viewerDidAuthor": true
+        }
+      ],
+      "createdAt": "2026-09-07T21:56:27Z",
+      "labels": [],
+      "number": 237,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "cri: um contentor privilegiado recebe /proc/sys só de leitura — o kube-proxy não arranca",
+      "url": "https://github.com/ngolacloud/delonix/issues/237"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "O control-plane de um cluster `delonix cluster kubeadm` reinicia em ciclo. Os nós dizem `Ready`, e mesmo assim o `etcd` e o `kube-apiserver` vão em vinte reinícios cada, com o `scheduler` e o `controller-manager` em `CrashLoopBackOff` atrás deles.\n\nNão é o `#237` — o `etcd` não precisa do `kube-proxy`.\n\n## A cadeia, medida ponta a ponta\n\n```\n1.  kubelet  worker.go:296   \"Non-running container probed\"  pod=kube-system/etcd-…\n                                                              22:03:30, :31, :32\n2.  CRI      StopContainer  container=cri-3ebbc670d4bb182a    22:03:38.364034\n3.  etcd     osutil/interrupt_unix.go:65\n             \"received signal; shutting down...\"              22:03:38.421763\n4.  etcd     sai 0 (encerramento ordeiro)\n5.  apiserver  F hooks.go:203  PostStartHook\n             \"priority-and-fairness-config-producer\" failed   → exit status 1\n6.  scheduler / controller-manager\n             \"Unable to connect to the server: unexpected EOF\" → CrashLoopBackOff\n```\n\n**57 ms** entre o passo 2 e o passo 3. O `cri-3ebbc670d4bb182a` é o contentor do `etcd` — confirmado pela coluna `NAMES` do `delonix container ps -a`, cujo `COMMAND` é `etcd --advertise-cli…`.\n\nO passo 5 e o 6 são consequência: o apiserver morre por perder o etcd, e os outros dois por perderem o apiserver.\n\n## O ponto de partida é o passo 1\n\nO kubelet acredita que o contentor **não está a correr** e, por isso, manda pará-lo. O `StopContainer` é uma chamada gRPC que só o kubelet faz, portanto o remetente do sinal está identificado; o que falta explicar é **porque é que ele acredita nisso**.\n\n## O que está medido\n\n| | |\n|---|---|\n| ritmo | 125 → 126 reinícios totais em 75 s |\n| disponibilidade | 4 amostras de minuto a minuto, apiserver **indisponível nas 4** |\n| intermitência | noutra janela, `etcd` esteve `Up 3 minutos` com o processo vivo e zero queixas |\n| nós | `Ready` os dois, durante tudo isto |\n| `computePodActions` | `KillPod: false` para `etcd` (×20) e `kube-apiserver` (×17) — a paragem **não** vem por aí |\n\nO último ponto importa: o kubelet não está a decidir `KillPod`. A paragem entra por outro caminho, e o `\"Non-running container probed\"` é o único candidato que aparece no jornal.\n\n## A hipótese, e o que falta para a confirmar\n\nSe o processo do `etcd` estiver **vivo** no instante em que o kubelet o dá como não-corrente, então é o `ContainerStatus` do CRI a reportar mal o estado — a mesma família do #233, que corrigiu o `PodSandboxStatus`, mas noutro RPC.\n\n**Não confirmei isso.** Observei os dois estados, nunca no mesmo segundo. A alternativa continua viva: o contentor podia estar mesmo parado nesse instante, por uma razão anterior que não observei.\n\nO que fecharia a questão, e não corri:\n\n```bash\n# no nó, durante um ciclo — capturar os dois no MESMO segundo\nwhile :; do\n  date +%T\n  pgrep -f '^etcd --advertise' >/dev/null && echo \"  processo VIVO\" || echo \"  processo MORTO\"\n  journalctl -u kubelet --since -1s | grep -c 'Non-running container probed.*etcd'\n  sleep 1\ndone\n```\n\nSe aparecer `processo VIVO` na mesma linha de tempo em que o kubelet conta uma sonda de contentor não-corrente, a hipótese fica provada.\n\n## Ambiente\n\nGolden `delonix-vm-k8s:1.36-motor2` (`delonix 2.0.0`, commit `4eaf44355`), Kubernetes **1.36.4**, backend libvirt, 1 control-plane + 1 worker, kubelet com `--v=4`. Medido a 2026-09-07.\n\nO cluster de teste está de pé e disponível para quem quiser correr a captura acima.\n",
+      "closedAt": "2026-09-19T18:14:56Z",
+      "comments": [
+        {
+          "id": "IC_kwDOTaC2l88AAAABVmJm3g",
+          "author": {
+            "login": "angolardevops"
+          },
+          "authorAssociation": "MEMBER",
+          "body": "Corrigido na main: #315 (705fc5ff). O CRI passa a anunciar `cgroupfs` ao kubelet (`engine_cgroup_driver()`), em vez de deixar o driver `systemd` criar slices vazios que perdiam o `cpuset` — a causa dos kills do etcd. Teste `the_kubelet_is_told_cgroupfs` verde no HEAD 85c19674. A prova com kubelet real (`/livez` estável, 0 StopContainer) está registada no #315; não foi repetida agora.",
+          "createdAt": "2026-09-19T18:14:55Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/ngolacloud/delonix/issues/238#issuecomment-5744256734",
+          "viewerDidAuthor": true
+        }
+      ],
+      "createdAt": "2026-09-07T22:18:36Z",
+      "labels": [],
+      "number": 238,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "cri: o control-plane reinicia em ciclo — o kubelet dá o etcd como não-corrente e manda pará-lo",
+      "url": "https://github.com/ngolacloud/delonix/issues/238"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "Uma correcção do `delonix-cri` **não chega a um nó existente**. O instalador pergunta se há um CRI a correr, não se está lá o CRI certo:\n\n```rust\n// cmd/cluster.rs, prepare_host()\nif !remote::ssh_check(target, \"systemctl is-active --quiet delonix-cri\") {\n    remote::scp_to(target, cri_bin, \"/tmp/delonix-cri\")?;\n    remote::ssh_run(target, \"mv /tmp/delonix-cri /usr/local/bin/delonix-cri && …\")?;\n    // … instala o serviço e faz `enable --now`\n}\n```\n\nA golden traz o `delonix-cri` **e** o serviço ligado. Logo o `is-active` acerta, o bloco inteiro é saltado, e o binário da imagem ganha sempre — por mais recente que seja o que o `resolve_cri_bin` escolheu.\n\n## O que isto custa\n\nMedido a 2026-09-07, a validar uma correcção do CRI (#237/#239). Três tentativas gastas antes de encontrar a linha:\n\n| tentativa | o que fiz | porque não funcionou |\n|---|---|---|\n| 1 | instalei o CRI corrigido no host | o `cluster kubeadm` não o usa se a imagem já tem um activo |\n| 2 | dei-o ao `cluster kubeadm` | esse comando nem aceita `--cri-bin` — chama `resolve_cri_bin(None)` |\n| 3 | pu-lo ao lado do `delonix` invocado, para o passo 2 do `resolve_cri_bin` o encontrar | o `resolve_cri_bin` **nunca é consultado**: está atrás deste `if` |\n\nSó reconstruindo a golden — o passo que ninguém quer dar para testar uma linha — é que o binário chega.\n\n## Porque é que isto é um problema de entrega, e não só de conveniência\n\nUma correcção do runtime fica **presa** até alguém reconstruir imagens. Num cluster já entregue a um cliente não há caminho nenhum: nem `delonix cluster` actualiza, nem existe comando que o faça.\n\nE o efeito silencioso é pior do que a inconveniência: um operador que instale o binário novo, corra o `cluster kubeadm` e veja o cluster subir **acredita, com razão, que o nó tem o binário que ele instalou**. Não tem. Não há aviso nenhum.\n\n## O que se esperaria\n\nComparar antes de decidir — versão, `sha256`, ou ambos — e substituir quando diferirem, em vez de perguntar apenas se algo está vivo. E, no mínimo, **dizer** qual dos dois ficou quando são diferentes: um instalador que salta em silêncio é a falha que este repo já persegue noutros sítios.\n\n## Não validado\n\nNão medi o que acontece quando o `is-active` falha e o bloco corre — presumo que instala correctamente, mas não o exercitei. E não li se existe outro caminho de actualização do CRI fora do `prepare_host`.\n\nMedido contra `origin/main` (`7e67c6dd`), `delonix 2.0.0`, backend libvirt.\n",
+      "closedAt": "2026-09-19T23:31:33Z",
+      "comments": [
+        {
+          "id": "IC_kwDOTaC2l88AAAABVn7tOw",
+          "author": {
+            "login": "angolardevops"
+          },
+          "authorAssociation": "MEMBER",
+          "body": "Corrigido em 5eb622d3 (fundido em main, ainda sem tag): o `prepare_host` compara o sha256 do CRI do nó com o resolvido (`cri_action`) — igual e vivo não faz nada, igual e parado arranca, diferente substitui, faz `restart` e avisa. Testes: `the_binary_decides_before_the_service` (verde em main). Não validado contra um nó real por SSH.",
+          "createdAt": "2026-09-19T23:31:32Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/ngolacloud/delonix/issues/242#issuecomment-5746126139",
+          "viewerDidAuthor": true
+        }
+      ],
+      "createdAt": "2026-09-08T07:41:24Z",
+      "labels": [],
+      "number": 242,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "cluster: o CRI de um nó nunca é actualizado — o guarda pergunta se está vivo, não se é o certo",
+      "url": "https://github.com/ngolacloud/delonix/issues/242"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "Quando não encontra um `delonix-cri` ao lado do `delonix` em execução, o `resolve_cri_bin` **compila-o a partir do código-fonte que estiver perto do `cwd`**:\n\n```rust\npub(crate) fn resolve_cri_bin(explicit: Option<PathBuf>) -> Result<PathBuf> {\n    if let Some(p) = explicit { … }                     // 1. flag explícita\n    if let Ok(exe) = std::env::current_exe() {          // 2. ao lado do binário\n        let candidate = exe.parent()?.join(\"delonix-cri\");\n        if candidate.exists() { return Ok(candidate); }\n    }\n    if let Some(workspace_root) = find_workspace_root() {   // 3. compila do cwd\n        eprintln!(\"compiling delonix-cri (release) from {dir}...\");\n        Command::new(\"cargo\").args([\"build\", …\n    }\n}\n```\n\nO passo 3 faz do **directório de trabalho de quem corre o comando** a fonte do runtime que vai para os nós de um cluster.\n\n## Como isto acontece sem ninguém escolher\n\nInstalação normal, medida a 2026-09-07:\n\n```\ndelonix                      /usr/local/bin/delonix\n/usr/local/bin/delonix-cri   NÃO EXISTE\n~/.local/bin/delonix-cri     10 872 896 bytes  (asset da release v2.0.0)\n```\n\nO passo 2 procura `/usr/local/bin/delonix-cri` — que não existe, porque o `install.sh` e a instalação manual não põem os dois lado a lado. Cai no passo 3.\n\nResultado observado num cluster: o binário nos nós tinha **12 882 208 bytes** — uma build local, não o asset de 10 872 896 que estava instalado na máquina. Ninguém pediu isso e nada o anunciou além de uma linha de `eprintln!` no meio da saída.\n\n## Porque é que isto é grave e não só estranho\n\nÉ a falha que a nossa própria doutrina de entrega regista como incidente de produção:\n\n> «até 2026-08-20, a produção instalava **o que estivesse na árvore de trabalho de quem corria o playbook**. Correram-se binários de 15-08 que não correspondiam a commit nenhum. Isso não é uma release — é uma alteração não registada em produção.»\n\nAqui é o mesmo, do lado do motor, e o resultado é idêntico: **o runtime de um cluster não corresponde a commit nenhum publicado**, e não há como saber qual foi depois do facto. Se a árvore estiver suja — e neste workspace estão quase sempre — o binário nem sequer é reproduzível.\n\n## O que se esperaria\n\nO passo 3 é uma conveniência de desenvolvimento válida, mas não devia ser silencioso nem ser o comportamento por omissão fora de um checkout deliberado. As opções que fariam sentido, por ordem de preferência:\n\n1. **Recusar** e dizer o que falta, quando o comando cria um cluster (por oposição a um teste local): «não encontrei `delonix-cri` ao lado de `/usr/local/bin/delonix`; instala-o ou passa `--cri-bin`».\n2. **Carimbar a proveniência** — imprimir commit e `sha256` do que foi compilado, e registá-lo com o cluster.\n3. **Deixar o `cluster kubeadm` aceitar `--cri-bin`**, que hoje não aceita; só o `image --vm build` o aceita.\n\n## Relacionado\n\nO #242 explica porque é que, na prática, nem o passo 3 chega aos nós quando a golden já traz um CRI activo. Os dois juntos fazem com que a origem do runtime de um cluster seja difícil de prever e de auditar.\n\n## Não validado\n\nNão confirmei se o passo 3 é alcançado noutros caminhos além do `cluster kubeadm`, nem li o `find_workspace_root` para saber a partir de que profundidade do `cwd` ele encontra um workspace.\n",
+      "closedAt": "2026-09-19T23:31:36Z",
+      "comments": [
+        {
+          "id": "IC_kwDOTaC2l88AAAABVn7uRA",
+          "author": {
+            "login": "angolardevops"
+          },
+          "authorAssociation": "MEMBER",
+          "body": "Corrigido em 5eb622d3 (fundido em main, ainda sem tag): compilar do cwd só com `DELONIX_CRI_FROM_SOURCE=1`; por omissão usa o `delonix-cri` ao lado do `delonix` e depois o asset verificado da release; a proveniência (origem, caminho, sha256) é sempre impressa; `cluster apply` e `cluster kubeadm` ganham `--cri-bin`. Teste: `building_cri_from_the_cwd_needs_an_explicit_opt_in` (verde em main).",
+          "createdAt": "2026-09-19T23:31:35Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/ngolacloud/delonix/issues/243#issuecomment-5746126404",
+          "viewerDidAuthor": true
+        }
+      ],
+      "createdAt": "2026-09-08T07:41:55Z",
+      "labels": [],
+      "number": 243,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "cluster: o runtime de um cluster pode vir do código-fonte que estiver perto do cwd",
+      "url": "https://github.com/ngolacloud/delonix/issues/243"
+    },
+    {
+      "author": {
+        "id": "MDQ6VXNlcjUyMjkxOTU=",
+        "is_bot": false,
+        "login": "AlexJuca",
+        "name": "Alexandre Antonio Juca"
+      },
+      "body": "**`delonix --version`**\n\n```\ndelonix 4.0.0 commit: c3e49bce2\n```\n\n**Environment**\n- Distro / kernel version: ```Linux ubuntu 7.0.14-orbstack-00374-gbbca68e8d741 #1 SMP PREEMPT Fri Jul 31 00:11:41 UTC 2026 aarch64 aarch64 aarch64 GNU/Linux```\n- Rootless or root: `root`\n- built from source: `built from source`\n\n**What did you run?**\n\n```\n./delonix container run  --rm --name fleet-smoke --net host --memory 128M --cpus 1 postgres:14 /bin/true\n```\n\n**What did you expect to happen?**\n```txt\nI expected the container to run initially but after looking at the code and ci, it's clear there is no support for arm64\n```\n\n**What actually happened?**\n\n```\n2026-09-18T13:02:19.526811Z  INFO delonix_oci::registry: pulling library/postgres:14 from registry-1.docker.io repo=library/postgres reference=14 host=registry-1.docker.io\n2026-09-18T13:02:21.285265Z  INFO delonix_oci::registry: platform selected: linux/arm64 arch=arm64\n ✓ unpacking the image 📦 8.0s\nerror[DX-9000] system call `cgroup limit` failed: cpu.max=100000 100000: Permission denied (os error 13)\n```\n\n**Can you reproduce it reliably?**\n- [x] Yes, every time\n- [ ] Sometimes\n- [ ] Only once, not sure how to reproduce\n\n**Anything else that might be relevant?** (a previous crash, unusual host config, a container\nimage with unusual entrypoint behavior, etc.)\n\n---\n\nIf this looks like a security vulnerability (privilege escalation, namespace escape, command\ninjection, path traversal) — please **don't** file it here. See\n[SECURITY.md](../../SECURITY.md) for private disclosure instead.\n",
+      "closedAt": "2026-09-19T16:34:37Z",
+      "comments": [],
+      "createdAt": "2026-09-18T13:12:40Z",
+      "labels": [
+        {
+          "id": "LA_kwDOTaC2l88AAAACr7nb4w",
+          "name": "bug",
+          "description": "Something isn't working",
+          "color": "d73a4a"
+        }
+      ],
+      "number": 414,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "cgroup issue on arm64",
+      "url": "https://github.com/ngolacloud/delonix/issues/414"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "## Objectivo\n\n`delonix` (motor, CRI, MCP, mgmt) a compilar, testar, ser publicado e a correr em **linux/aarch64**, com a mesma garantia de gate que o x86_64 tem hoje. Sucede ao #414 (fechado sem resolver a causa de fundo) e retoma o que o PR #431 propunha (fechado por ter sido aberto antes de ser pedido).\n\nOrdem já decidida no ADR-0018: **artefactos de release arm64 primeiro, imagens de VM arm64 depois** (as imagens VM ficam amd64 por agora, ver `docs/adr/0018-vm-images-stay-amd64.md`).\n\n## Estado medido (`origin/main`, 2026-09-20)\n\nJá é arch-aware (não refazer): tabela de syscalls do seccomp (#101), `close_range` por número (#87), selecção de plataforma OCI (`registry::target_arch`, `image::` e `build::` mapeiam `aarch64→arm64`), mensagem de falha de `cpu.max` sem delegação (#415).\n\n## Lacunas\n\n### 1. CI: nenhum job corre em arm64\n- `grep aarch64|arm64 .github/workflows` → zero. As ramificações `#[cfg(target_arch)]` nunca são executadas por ninguém. Uma cross-build só type-checka; é preciso runner nativo (`ubuntu-24.04-arm`) com **build + suite completa**.\n- Gate a sério, sem `continue-on-error`.\n\n### 2. Release só publica x86_64\n- `.github/workflows/release.yml` copia/assina apenas `delonix{,-cri,-mcp,-mgmt}-x86_64[-v3]-linux`.\n- Falta job aarch64 (build, strip, verificação de `--version`) e incluir os 4 binários no mesmo `SHA256SUMS`, assinatura minisign e proveniência SLSA.\n- A variante `-v3` é só x86; em arm64 há um único binário por componente.\n\n### 3. `scripts/install.sh` recusa tudo o que não é x86_64\n- L183-184: `[ \"$ARCH\" = x86_64 ] || die \"no prebuilt binary for $ARCH yet\"`.\n- L358-371: nome do asset fixo `-x86_64${CPU_VARIANT}-linux`; a detecção de `-v3` (AVX2/BMI2/FMA) tem de ficar condicionada a x86.\n- L725: sonda de QEMU pede `qemu-system-x86_64` — em arm64 reporta QEMU em falta e instala o emulador x86 errado (deve ser `qemu-system-aarch64`).\n\n### 4. Código com x86 fixo\n- `crates/adapters/delonix-sdn/build.rs:32,34`: `-D__TARGET_ARCH_x86` e `-I/usr/include/x86_64-linux-gnu` na compilação do objecto BPF. Em arm64 o build falha **em silêncio** (o `build.rs` engole o erro e o datapath eBPF sai sem existir). Derivar de `CARGO_CFG_TARGET_ARCH` (`__TARGET_ARCH_arm64`, multiarch dir por arch).\n- `crates/adapters/delonix-vm/src/lib.rs:2711,2758,3330`: `<type arch='x86_64'>`, `<emulator>/usr/bin/qemu-system-x86_64`, e a sonda `available()` do backend libvirt. Em arm64 o domínio libvirt não é válido (`aarch64`, machine `virt`, UEFI/AAVMF obrigatório, sem VGA/`hvm` legacy).\n- `crates/adapters/delonix-linux/src/cdi.rs`: caminhos `libcuda` em `x86_64-linux-gnu` (`aarch64-linux-gnu` em arm64; só afecta GPU).\n- `bins/delonix-runtime-bin/src/cmd/vmimage.rs`: nomes de cloud image e `node_exporter` `amd64`/`x86_64` (fica coberto pelo ADR-0018 enquanto as imagens VM forem amd64, mas o erro tem de ser explícito em arm64, não um 404).\n- Firmware do Cloud Hypervisor (`CLOUDHV.fd`/`hypervisor-fw`) é x86; em arm64 é outro artefacto.\n\n### 5. Validação em runtime nunca feita fora do x86\n- O #414 (aarch64, kernel 7.0 orbstack, root) chegou a `cgroup limit … cpu.max: Permission denied`. A causa era `cpu` não delegado (mensagem entretanto corrigida), mas **não há evidência de um `container run` completo em arm64** — rede SDN, overlay (`fsopen`/`fsconfig`), seccomp real, `exec`, CRI.\n\n## Critérios de aceitação\n\n- [ ] Job `test-arm64` nativo (`ubuntu-24.04-arm`): `cargo build --workspace` + `cargo test --workspace` verdes, sem `continue-on-error`.\n- [ ] `release.yml` publica os 4 binários aarch64, incluídos em SHA256SUMS + minisign + SLSA.\n- [ ] `install.sh` instala em aarch64 (verificação de checksum incluída) e a sonda de QEMU usa o binário certo.\n- [ ] `delonix-sdn/build.rs` sem arch fixa; se o BPF não compilar, **avisa** em vez de calar.\n- [ ] Backend libvirt gera XML válido para aarch64 (ou recusa com erro que diga porquê).\n- [ ] Prova ao vivo num host arm64 real: `container run` (rootless e root), `--net <custom>`, `-p`, `exec`, `--privileged`, e `serve cri` contra o `crictl`. Relatório com o que ficou provado **e** o que não foi.\n- [ ] `docs/` e README a dizerem a matriz de arquitecturas suportada.\n\n## Fora de âmbito\nImagens VM arm64 (ADR-0018), variante `-v3`, macOS/Windows (ADR-0036).\n",
+      "closedAt": null,
+      "comments": [],
+      "createdAt": "2026-09-20T00:19:51Z",
+      "labels": [
+        {
+          "id": "LA_kwDOTaC2l88AAAACr7ncFw",
+          "name": "enhancement",
+          "description": "New feature or request",
+          "color": "a2eeef"
+        }
+      ],
+      "number": 438,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "arm64: compilar, testar, publicar e correr em linux/aarch64",
+      "url": "https://github.com/ngolacloud/delonix/issues/438"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "**`delonix --version`**\n\n```\ndelonix 4.5.0\ncommit: 7b1a766f8 · built: 2026-09-28 · Apache-2.0\n```\n\n**Environment**\n- Distro / kernel version: `Linux delonix 7.0.0-38-generic #38~24.04.4-Ubuntu SMP PREEMPT_DYNAMIC Mon Sep 14 16:37:11 UTC 2 x86_64 GNU/Linux`\n- Rootless or root: rootless (daemonless) — `delonix system info` → `mode: rootless (daemonless)`, `cgroup2 delegated: yes`\n- Installed via: binary at `/usr/local/bin/delonix` (not re-verified install method, host already provisioned)\n\n**What did you run?**\n\n```\n# 1. control-plane + 2 workers, kind-mode, no Docker\ndelonix cluster create --name delonix --workers 2\n\n# 2. direct pod-to-pod connectivity test, same podCIDR, no NAT involved\n#    (ping repeated from inside one pod to another pod's IP, both on nodes\n#    managed by the same `dlx-delonix` network)\nkubectl run pingtest --image=busybox --restart=Never -- sleep 3600\nkubectl exec pingtest -- ping -c 5 <other-pod-ip>\n\n# 3. control test: recreated single-node to isolate node count as the variable\ndelonix cluster destroy delonix --force\ndelonix cluster create --name delonix --workers 0\n# repeated the same pod-to-pod test → 0% packet loss, 5/5\n\n# 4. follow-up (single-node, days later, same cluster instance): first-time\n#    cross-NAMESPACE connections from freshly scheduled pods, via a Kubernetes\n#    Service ClusterIP, time out — even with the destination's NetworkPolicy\n#    egress rule set to fully open (`egress: [{}]`, no restriction at all)\nkubectl run netpol-test --rm -i --restart=Never --image=curlimages/curl:8.11.1 -- \\\n  curl -sS -o /dev/null -w \"HTTP_CODE=%{http_code}\\n\" --max-time 8 \\\n  http://some-service.other-namespace.svc.cluster.local:8080/\n# → curl: (28) Connection timed out after 8002ms, 5/5 attempts, 0% success\n```\n\n**What did you expect to happen?**\n\nReliable pod-to-pod connectivity regardless of node count (multi-node) or\nnamespace (single-node, first connection from a freshly scheduled pod),\nmatching standard `kind`/kubeadm behavior on Docker.\n\n**What actually happened?**\n\nTwo related but distinct symptoms, both pointing at the same underlying area\n(the routing/forwarding fabric between node containers / for freshly created\npods), traced over two sessions on the same `delonix`-managed cluster:\n\n1. **Multi-node (2+ workers): pod-to-pod is almost entirely broken.**\n   - Node→node direct connectivity (curl/ping from inside a node's own\n     netns, outside any pod) to another node's `:6443` and to the service VIP\n     `10.96.0.1:443`: always fast (4–6ms). Rules out node-to-node network\n     hardware/bridge issues.\n   - Pod→VIP from inside a pod: **first attempt always succeeds**, every\n     subsequent attempt from the *same* pod **times out completely** (no\n     SYN-ACK, `time_connect=0`).\n   - Ruled out double-masquerade (`KIND-MASQ-AGENT` re-masquerading traffic\n     already masqueraded by `KUBE-POSTROUTING`): added\n     `iptables -t nat -I KIND-MASQ-AGENT 1 -d 10.247.0.0/16 -j RETURN` on all\n     3 nodes — no change.\n   - Decisive test: **pod-to-pod ping on the *same* node** (no NAT, same\n     podCIDR, local bridge only) — **100% packet loss**, including the very\n     first attempt (not just subsequent ones).\n   - Control test: recreated the cluster **single-node**\n     (`--workers 0`) — same pod-to-pod test: **0% packet loss, 5/5**.\n     This isolates the defect to the inter-node fabric specifically\n     (the `dlx-delonix` network between node containers), not pod\n     networking in general.\n\n2. **Single-node, days later, same cluster: first-time cross-namespace\n   connections from freshly scheduled pods also fail**, with a notably\n   similar signature (works once established / for long-running pods, fails\n   for brand-new connection attempts):\n   - Long-running pods with an already-established traffic pattern keep\n     working fine (e.g. an Envoy Gateway pod that's been proxying to a\n     backend Service for ~75 minutes continues to work without issue).\n   - A **brand-new pod** (`kubectl run ... --rm`) making its **first**\n     connection to a Service in a **different namespace** times out\n     consistently — 5/5 attempts, every fresh pod.\n   - Confirmed this is unrelated to `NetworkPolicy` content/scope: tested\n     with the destination's egress policy completely removed in favor of a\n     fully permissive one (`egress: [{}]`, no namespaceSelector, no port\n     restriction) — **still times out**. Also confirmed same-namespace\n     traffic (both Service-ClusterIP and direct pod-IP) from a fresh pod in\n     the *same* namespace as the target works fine and fast.\n   - This suggests the fault may not be strictly multi-node-only — possibly\n     the same routing-setup-for-new-pod/new-conntrack-entry class of bug,\n     with the single-node mitigation only reducing (not eliminating) the\n     blast radius down to specifically *new* cross-namespace flows.\n\n**Can you reproduce it reliably?**\n- [x] Yes, every time (for both symptoms, each within their respective\n  scenario — multi-node pod-to-pod, and single-node first-time\n  cross-namespace from a fresh pod)\n\n**Anything else that might be relevant?**\n\n- Both scenarios run through `kindnet` (the CNI bundled in\n  `kindest/node:v1.34.0`) — Cilium was evaluated as an alternative CNI but is\n  currently blocked by a separate, unrelated issue on this same host\n  (`RLIMIT_MEMLOCK` cannot be raised from inside a userns-remapped node\n  container without `CAP_SYS_RESOURCE` on the real host root — a rootless\n  design constraint, not a delonix bug per se, happy to file separately if\n  useful).\n- `NetworkPolicy` enforcement itself (via kindnet) is otherwise confirmed\n  working correctly in this cluster for established/already-working rule\n  shapes (default-deny, same-namespace allow, ingress-from-another-namespace\n  with and without a port restriction) — this report is specifically about\n  connectivity itself (not policy enforcement) for (a) multi-node pod-to-pod\n  and (b) first-time cross-namespace flows from freshly scheduled pods.\n- Full write-up with the complete multi-node diagnosis (point 1) was done in\n  an earlier session; point 2 is a new data point from a follow-up session on\n  the same cluster, added for anyone else hitting the same class of issue\n  while believing single-node mode fully resolves it.\n",
+      "closedAt": null,
+      "comments": [
+        {
+          "id": "IC_kwDOTaC2l88AAAABaYLohQ",
+          "author": {
+            "login": "angolardevops"
+          },
+          "authorAssociation": "MEMBER",
+          "body": "Proposta de diagnóstico/correção (hipóteses + comandos de teste): #737",
+          "createdAt": "2026-10-08T17:12:42Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/ngolacloud/delonix/issues/736#issuecomment-6065154181",
+          "viewerDidAuthor": true
+        },
+        {
+          "id": "IC_kwDOTaC2l88AAAABbAoHNw",
+          "author": {
+            "login": "angolardevops"
+          },
+          "authorAssociation": "MEMBER",
+          "body": "Re-measured on 2026-10-11 against the published **v5.0.2** (`152fccd8`). Neither symptom reproduces.\n\nSetup: `delonix cluster create --name n736 --workers 2` (kind mode, `kindest/node:v1.34.0`, kindnet), rootless, isolated `DELONIX_ROOT`/`DELONIX_NET_RUNTIME_DIR`/`HOME`/`KUBECONFIG`. All 3 nodes `Ready`.\n\n**Symptom 1: multi-node pod-to-pod**\n\n| test | result |\n|---|---|\n| same node, `p0 → p0b`, 5 pings | 0% loss (the report had 100%) |\n| across nodes, `p0 → p1`, 5 pings | 0% loss |\n| across nodes, `p1 → p2`, 5 pings | 0% loss |\n| across nodes, `p0 → p2`, 20 pings at 0.2 s | 0% loss |\n| ONE pod making 6 consecutive connections to a `ClusterIP` (the report: first OK, the rest time out) | 6/6 OK, same namespace and cross-namespace |\n\n**Symptom 2: first connection of a fresh pod by `ClusterIP`**\n\n| test | result |\n|---|---|\n| fresh pod, same namespace, no policy | 3/3 OK |\n| fresh pod, other namespace, no policy | 3/3 OK |\n| fresh pod, other namespace, with a `NetworkPolicy` that allows it | 3/3 OK |\n| same namespace while that policy allows only the other namespace | 6/6 timeout: enforcement works, which is the expected result |\n\nkindnet's NFQUEUE rules were present on all three nodes (8 lines each).\n\n**Likely what changed since 4.5.0** (by reading the history, not bisected): the bridge anti-spoof moved to a `bridge` table and each Kind node's PodCIDR is now authorised on its own port (2026-10-02). Before that, pod traffic between nodes kept the pod's source address and was dropped.\n\n**Not covered:**\n\n- the single-node cluster «days later» with long-running pods;\n- `curlimages/curl` and the reporter's exact Service and policy shapes;\n- the `RLIMIT_MEMLOCK`/Cilium note.\n\n**Separate finding** while reproducing: #798, a worker start that failed and detached the network of a container that was still running. It happened once in two runs and blocked the first attempt.\n",
+          "createdAt": "2026-10-11T09:25:07Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/ngolacloud/delonix/issues/736#issuecomment-6107563831",
+          "viewerDidAuthor": true
+        }
+      ],
+      "createdAt": "2026-10-08T17:05:04Z",
+      "labels": [
+        {
+          "id": "LA_kwDOTaC2l88AAAACr7nb4w",
+          "name": "bug",
+          "description": "Something isn't working",
+          "color": "d73a4a"
+        }
+      ],
+      "number": 736,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "cluster: pod-to-pod falha em kind multi-nó, e a 1ª ligação cross-namespace de um pod novo falha mesmo em single-node",
+      "url": "https://github.com/ngolacloud/delonix/issues/736"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "Follow-up to #736 — that issue has the symptoms and reproduction steps; this\none is a proposed debugging/fix plan, since the root cause was never\nconfirmed (only several hypotheses ruled out: double-masquerade, mount vs.\nmemlock for the unrelated BLOQ-01). Both symptoms in #736 share a signature —\n**new** connections/flows fail, **established** ones keep working — which\nnarrows the search considerably. Ranked by how well that signature fits:\n\n### 1. ARP/FDB learning race on the bridge for newly-attached veths (most likely)\n\nIf a new pod's veth is attached to the node's bridge (or the `dlx-delonix`\ninter-node bridge, for the multi-node case) but the bridge's FDB / the\npeer's ARP cache hasn't learned the new MAC/IP yet, the first packet(s) can\nsilently black-hole until something triggers learning (a broadcast, a GARP,\nor ARP resolution timing out and retrying). This fits \"first pod-to-pod ping\non the same node: 100% packet loss, including the very first attempt\" from\n#736 — not just \"works once then breaks,\" but genuinely never establishes if\nnothing ever triggers the learn.\n\n**To test:**\n```\n# right after scheduling a new pod that will fail its first cross-ns/cross-node call:\nip netns exec <node-netns> bridge fdb show | grep <new-pod-veth-mac>\nip netns exec <node-netns> ip neigh show | grep <new-pod-ip>\n# does delonix send a gratuitous ARP when it brings the veth up? grep the engine's\n# veth/bridge-attach code path for anything calling arping/send_garp or equivalent\n# does manually priming it fix the very first connection?\nip netns exec <pod-netns> arping -c 1 -I eth0 <default-gw-ip>\n# then immediately retry the curl that was timing out\n```\nIf priming the ARP/neigh entry before the real traffic fixes it, the engine's\nveth-attach sequence needs to either send a GARP on attach or pre-populate\nthe neighbor table, instead of relying on lazy resolution.\n\n### 2. rp_filter (strict reverse-path filtering) dropping asymmetric first packets\n\nCommon cause of \"first SYN just vanishes, no RST, no ICMP\" on exactly this\nkind of multi-bridge/multi-netns topology, especially if the return path for\na brand-new flow briefly differs from the forward path before routes/conntrack\nsettle.\n\n**To test:**\n```\nsysctl net.ipv4.conf.all.rp_filter net.ipv4.conf.default.rp_filter\n# per-interface too, for the bridge + veth + any dlx-delonix uplink:\nfor i in /proc/sys/net/ipv4/conf/*/rp_filter; do echo \"$i: $(cat $i)\"; done\n# if any relevant interface is at 1 (strict), test with it set to 2 (loose) or 0:\nsysctl -w net.ipv4.conf.<iface>.rp_filter=2\n# retry the failing connection\n```\n\n### 3. conntrack entry not created / wrong zone for the first packet\n\n**To test:**\n```\n# tail conntrack during a failing attempt\nconntrack -E &\n<run the failing curl>\n# look for the SYN_SENT entry — does it appear at all, does it ever flip to\n# ESTABLISHED, does it get created in a conntrack zone the return path isn't\n# looking at (relevant if delonix uses network namespaces + veth pairs with\n# per-zone conntrack for its rootless networking model)\nconntrack -L | grep <pod-ip>\n```\n\n### 4. A readiness race in the veth/route bring-up sequence itself\n\nIf delonix marks a pod \"running\" and lets kubelet/CNI report Ready before the\nhost-side veth + routes + iptables rules for it are fully programmed, the\npod's very first outbound packet can race the setup. This would also explain\nwhy established pods (already past that window) keep working fine, and why\nsingle-node mode reduces but doesn't eliminate it (shorter/fewer hops still\nhas *a* window, multi-node just has more of them to fall into).\n\n**To test:** add a deliberate `sleep 2` (or poll `ip route get` until the\nexpected route appears) right after pod start, before the first real request\n— if that reliably \"fixes\" it, it's a race, not a permanent block, and the\nreal fix is making pod-ready gate on network-ready, not just\ncontainer-started.\n\n### Suggested next step\n\nWhichever of the above reproduces/explains it, the actual fix almost\ncertainly lives in delonix's pod network setup path (wherever the veth pair,\nbridge attach, and initial routes/ARP get programmed for a new pod) — happy\nto help narrow further with `delonix system events`/`net flow -w` output\ncaptured live during a failing first-connection attempt, if that's useful\ncontext to attach here.\n",
+      "closedAt": null,
+      "comments": [],
+      "createdAt": "2026-10-08T17:12:34Z",
+      "labels": [
+        {
+          "id": "LA_kwDOTaC2l88AAAACr7nb4w",
+          "name": "bug",
+          "description": "Something isn't working",
+          "color": "d73a4a"
+        }
+      ],
+      "number": 737,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "cluster: proposta de diagnóstico/correção para #736 (ARP/FDB, rp_filter, conntrack, race no bring-up do veth)",
+      "url": "https://github.com/ngolacloud/delonix/issues/737"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "## Summary\n\nThe published `delonix-vm-k8s` golden images under tags `1.34` and `1.36`\n(`ghcr.io/angolardevops/delonix-vm-k8s`) do not boot — they drop into GRUB\nrescue mode (`error: no such partition`) instead of reaching the kernel.\nA locally built image from the same recipe boots cleanly in under a\nminute, so the defect is in the publish pipeline (`vm-image.yml`), not in\nthe image recipe (`delonix image vm build --offline`) itself.\n\n## Evidence\n\n1. **The two published tags are byte-identical.** SHA-256 of the qcow2\n   blob behind `:1.34` and `:1.36` matches exactly, after `delonix vm pull`\n   of each into an isolated `DELONIX_ROOT`/`DELONIX_NET_RUNTIME_DIR`. Two\n   builds with different `--k8s-version` values producing the same bytes\n   means one tag's build overwrote the other's — the publish workflow is\n   not producing (or is not uploading) a distinct artifact per version.\n2. **Both fail to boot, reproduced two independent ways:**\n   - Plain `qemu-system-x86_64` against the pulled qcow2 — GRUB rescue\n     shell, `error: no such partition`. Rules out any delonix runtime code\n     (rootless netns, cloud-hypervisor, slirp) as the cause: this is QEMU\n     with no delonix process involved.\n   - A real `delonix vm create --backend libvirt` domain from the same\n     pulled image — identical symptom on the console.\n   - `qemu-img check` on the qcow2 reports no corruption — the blob itself\n     is structurally fine; the GRUB/bootloader contents inside it are\n     wrong.\n3. **A locally built image from the exact same recipe works.** Running\n   `delonix image vm build --offline --k8s-version 1.36 -t\n   delonix-vm-k8s:1.36-local` on a clean host produces a 895.9 MiB qcow2\n   that:\n   - boots to a login prompt under plain QEMU + KVM in well under a\n     minute (confirmed via serial console log, not just exit code);\n   - was used end-to-end to bootstrap a real 2-node `kubeadm` cluster\n     (`delonix cluster kubeadm --control-plane 1 --workers 1`) with the\n     control-plane and CNI-wired worker both reaching `Ready`, running a\n     real workload (an `nginx` Deployment) scheduled on the worker's\n     kubelet, reachable via ClusterIP from a pod on the other node.\n\n   The local build's `virt-customize` log shows it running\n   `grub-install --target=i386-pc /dev/sda && update-grub` as one of the\n   last steps before `compacting the image` — this step (or its output)\n   is the most likely place for the published artifact to have diverged\n   from what was actually tested/intended.\n\n## Likely root cause\n\nSomething in `.github/workflows/vm-image.yml` is either:\n- re-running the build for `1.36` against stale/cached state from the\n  `1.34` run and uploading the wrong qcow2 under both tags, or\n- the `qemu-img convert -c -o compression_type=zstd` / sparsify step (see\n  AGENTS.md \"Tamanho do artefacto\") truncating or corrupting the GRUB boot\n  sector/partition table on the path that runs in CI but not locally\n  (different `qemu-img`/`libguestfs` version on the runner image?).\n\nGiven the two tags are byte-identical, the first hypothesis (same blob\npushed to both tags) is the stronger lead — worth checking the workflow's\nactual run logs for the two `k8s_version` dispatches to see if they\nproduced genuinely different artifacts before upload.\n\n## What this blocks\n\nAnyone running `delonix vm pull` (or `cluster kubeadm --vm-image\ndelonix-vm-k8s:1.34|1.36` without a local image already present) gets an\nunbootable VM with no indication anything is wrong until they look at the\nconsole — `vm create`/`cluster kubeadm` both report success because the\nVMM process starts fine; only the guest fails.\n\n## Suggested next step\n\nRe-run `vm-image.yml` for `1.36` with `workflow_dispatch`, diff the\nresulting qcow2's SHA-256 against what's currently published, and check\nthe run logs for the `grub-install`/`update-grub` and the\nsparsify/compress steps specifically. If the new artifact differs and\nboots, replace both published tags (they should not have been identical\nin the first place).\n\n## Not in scope here\n\nThis repo (`delonix-runtime`) only contains the recipe and the workflow\ndefinition — this issue is about the *result* of running that workflow,\nwhich is outside what a code change here can fix. Filed so whoever\nre-runs/triages the publish step has the full repro in one place.\n",
+      "closedAt": "2026-10-11T03:21:15Z",
+      "comments": [
+        {
+          "id": "IC_kwDOTaC2l88AAAABa-KB2w",
+          "author": {
+            "login": "angolardevops"
+          },
+          "authorAssociation": "MEMBER",
+          "body": "Closing: the published `delonix-vm-k8s` golden images boot, and the 1.36 one forms a working kubeadm cluster. Evidence below, measured 2026-10-11.\n\n## What was wrong\n\nThe tags were published before `vm-image.yml` had a boot probe (`scripts/vm_boot_probe.sh`, SeaBIOS + OVMF before push). All three tags were rebuilt and republished from `8605dab0`, each through the probe:\n\n| tag | run | result |\n|---|---|---|\n| `1.36` | 38090529241 | success, boot probe passed |\n| `1.35` | 38090532577 | success, boot probe passed |\n| `1.34` | 38090538286 | success, boot probe passed |\n\n## End-to-end validation (published image + published release)\n\nIsolated `DELONIX_ROOT`, `DELONIX_NET_RUNTIME_DIR`, `HOME` and `KUBECONFIG`, libvirt backend. Release **v5.0.2** binaries, verified by sha256, minisign (key from `scripts/install.sh` on main) and commit `152fccd8`.\n\n1. The local copy was deleted, then pulled again. The qcow2 sha256 is the same as the registry's layer digest: `7ac420229c78a5056a34a8bc0d4f454fee98a13e508b36d8ee1f9ca65bea851e`.\n2. `cluster kubeadm --name k753 --network k753 --control-plane 1 --workers 1 --vm-image delonix-vm-k8s:1.36`: `kubeadm init` in 18.2 s, worker joined in 6.5 s, `delonix://5.0.2` as the runtime, control-plane pods `Running` with 0 restarts.\n3. The nodes went `Ready` after a CNI was applied by hand. The kubeadm path installs a CNI only for a single-node cluster; tracked as #799.\n4. `nginx:alpine` ran on the worker behind a `ClusterIP` Service. A busybox pod pinned to the control-plane fetched `http://web.default.svc.cluster.local` across the nodes and got `<title>Welcome to nginx!</title>`.\n\n## Corrections and side findings\n\n- **The «byte-identical» claim in this issue was wrong.** The `1.34` and `1.36` tags did not have the same layer digest. The real cause was the missing boot probe at publish time, not one blob pushed under two tags.\n- On the way, main had a CRI regression: a `hugetlb` limit of 0 for an empty pool was refused, so no control-plane container could start. Fixed in #787. Neither v5.0.1 nor v5.0.2 contains the commit that introduced it (`f72a4f55`).\n- One validation run failed because `cluster kubeadm` replaces the node's `delonix-cri` with the one next to the operator's `delonix`. That binary was built before #787, so the fixed one on the image was overwritten. Running with matching release binaries removed the problem. This is by design, but worth knowing when validating an image against a dev build.\n- Another run had both VMs paused (`paused (I/O error)`) when the host's root filesystem filled up. This was environmental: resumed with `virsh resume`, the cluster continued without restarts.\n\n## Not validated\n\n- 1.35 and 1.34 were checked by the CI boot probe only, not with a kubeadm cluster.\n- Multi-control-plane (HA) was not exercised.",
+          "createdAt": "2026-10-11T03:21:14Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/ngolacloud/delonix/issues/753#issuecomment-6104973787",
+          "viewerDidAuthor": true
+        }
+      ],
+      "createdAt": "2026-10-09T17:19:23Z",
+      "labels": [
+        {
+          "id": "LA_kwDOTaC2l88AAAACr7nb4w",
+          "name": "bug",
+          "description": "Something isn't working",
+          "color": "d73a4a"
+        }
+      ],
+      "number": 753,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "delonix-vm-k8s:1.34 and :1.36 are byte-identical and both fail to boot (GRUB rescue) — publish pipeline bug",
+      "url": "https://github.com/ngolacloud/delonix/issues/753"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "\n## Summary\n\nTwo related defects in `crates/interfaces/delonix-node-api/src/operations.rs`, found by a\nline-by-line review and reproduced against the real code (commit `2b9087b0`, v5.0.0, `tests/\nachado_a_operation_race.rs` and `tests/achado_b_idempotent_identity.rs` in the review branch):\n\n1. **Concurrency**: `operations::begin()`'s exclusive-creation staging file is not unique per\n   *attempt* (only per `(request_id, pid)`), so two threads racing the same `request_id` —\n   ordinary behaviour of any client retry under `tokio::spawn_blocking`, which every mutation\n   goes through with zero serialization above it — share one staging inode. Measured: **33–40%\n   of racing retries get a hard `Internal`/ENOENT error instead of the clean replay ADR-0042\n   promises** (\"the same request sent again is answered with that operation\").\n2. **Identity**: `operations::replay()` decides \"is this the same request?\" by comparing only\n   `(verb, target)`, where `target` is just the resource's bare name\n   (`format!(\"VirtualMachine/{name}\")` / `format!(\"Network/{name}\")`). A `request_id` reused\n   across two requests that differ in `spec` (image, vcpus, memory, namespace, …) is silently\n   answered with the FIRST request's `Operation` — the second request's distinct content never\n   reaches validation or the work closure.\n\nFull analysis, line numbers, and the alternatives considered: `docs/adr/0076-operation-ledger-\nrace-identity-and-vm-image-defaults.md`, Context sections A and B, Decision D1/D2.\n\n## Reproduction\n\n### Finding 1 (race)\n\n```\ncargo test -p delonix-node-api --test achado_a_operation_race -- --nocapture --test-threads=1\n```\n\nTwo threads call `begin(root, \"create\", \"Network/lab\", &same_request_id)` behind a\n`std::sync::Barrier`, repeated 1500 times with a fresh `request_id` each iteration. Expected:\nevery pair resolves to exactly one `Begun::New` and one `Begun::Replay`. Observed (two\nindependent runs): `New=1500, Replay=911, Err=589` and `New=1500, Replay=999, Err=501` — i.e.\n33–40% of the non-executing thread in each pair gets:\n\n```\nstatus: Internal, message: \"operation record: creating: No such file or directory (os error 2)\"\n```\n\n### Finding 2 (identity)\n\n```\ncargo test -p delonix-node-api --test achado_b_idempotent_identity -- --nocapture --test-threads=1\n```\n\n`create_with_fn` (the crate's own injectable test seam) called twice with the same\n`request_id=\"same-key\"`, `name=\"web\"`, but request 1 is `image=\"alpine:a\", vcpus=2,\nmemory=2048M` and request 2 is `image=\"ubuntu:b\", vcpus=16, memory=65536M`. The work closure —\nwhich would realize the VM — is recorded as called exactly **once**, with request 1's content;\n`op1.id == op2.id`. The client of request 2 is told \"succeeded\" describing a VM it did not ask\nfor.\n\n## Root cause\n\n**Finding 1**: `operations.rs:236`, `std::fs::write(&staged, bytes)` opens the existing path\n`.{id}.{pid}.new` in place (truncate, same inode) rather than creating a fresh one, because the\nstaged name has no per-attempt uniqueness. `delonix_node::write_atomic_mode`\n(`crates/contexts/delonix-node/src/atomic.rs:21-33`) already names this exact failure mode in\nits own doc comment and fixes it with a `pid + sequence` suffix; `operations::begin()`'s staging\npath predates or missed that discipline.\n\n**Finding 2**: `operations.rs:267`, `found.verb != verb || found.target != target` is the entire\nidentity check. `target` carries only the resource name (`network_ops.rs:209,251`,\n`vm_ops.rs:345,385,469`) — nothing from the request body.\n\n## Proposed fix\n\nSee ADR-0076, Decision D1 and D2:\n\n- **D1**: stage at `.{id}.{pid}.{seq}.new` with a process-wide atomic sequence (reusing or\n  mirroring `delonix_node::atomic`'s discipline). One-line change to the staged path, no change\n  to the surrounding `hard_link`/`AlreadyExists`/`replay` logic.\n- **D2**: `Record` gains `#[serde(default)] fingerprint: String`; each mutation computes a\n  canonical, versioned fingerprint of its semantically-relevant fields (map-order-independent,\n  omitted-equals-default) and passes it to `begin`/`replay`, which refuse a `(verb, target)`\n  match whose fingerprint disagrees (a new, distinct error — not silently replayed, not silently\n  treated as a second operation). An empty stored fingerprint (legacy records, or a mutation not\n  yet updated) is not compared, bounded by `RETENTION_SECS` (7 days).\n\n## Acceptance criteria\n\n- [ ] `achado_a_operation_race.rs`'s two tests pass at 0 hard errors across at least 1500\n      iterations and a 12-thread wide race (or the equivalent coverage is folded into\n      `operations.rs`'s own `#[cfg(test)]` module — this review's files are a reproduction, not\n      necessarily the final test shape).\n- [ ] A new regression test proves: two `CreateVirtualMachineRequest`s sharing a `request_id`\n      and resource name but differing in `spec.image`/`vcpus`/`memory_bytes` are **refused**\n      (distinct error, not a silent replay, not a second operation) rather than one being\n      silently answered with the other's result.\n- [ ] A reused `request_id` with the SAME content (genuine retry) continues to replay cleanly —\n      no regression on `operations::tests::the_same_request_id_is_answered_once` or\n      `network_ops::tests::the_same_create_sent_twice_does_the_work_once` /\n      `vm_ops::tests::the_same_create_sent_twice_boots_once`.\n- [ ] A legacy on-disk `Record` with no `fingerprint` field still deserializes and still replays\n      against a matching `(verb, target)` (no `#[serde(default)]` regression).\n- [ ] `scripts/contract_gate.py` / `buf breaking` stay green (no wire-breaking change —\n      `fingerprint` is server-internal state in `Record`, not a new proto field, unless the\n      delivery decides the refusal needs a new `DX-` code surfaced in the response, which is an\n      additive contract change).\n- [ ] E2E battery green.\n\n## Severity / scope\n\nHigh for Finding 1 (production-reachable under ordinary client retry behaviour, no fault\ninjection needed); Medium-High for Finding 2 (requires a client-side key-reuse bug, but the\nengine gives no signal when it happens and the result looks like success).\n\nNot in scope for this issue (see ADR-0076 Context, \"Adjacent, not in scope\"):\n`delonix_vm::set_network` is never called by `delonix-node-api`/`delonix-node-api-bin`, so a VM\ncreate naming a network attachment fails today — tracked separately.\n",
+      "closedAt": "2026-10-10T10:37:03Z",
+      "comments": [],
+      "createdAt": "2026-10-09T23:20:26Z",
+      "labels": [],
+      "number": 759,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "delonix-node-api: the operation ledger loses legitimate retries to a race, and idempotency keys ignore request content",
+      "url": "https://github.com/ngolacloud/delonix/issues/759"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "\n## Summary\n\n`vm_ops::config_from_spec` (`crates/interfaces/delonix-node-api/src/vm_ops.rs:176-184`) resolves\n`spec.vcpus == 0` / `spec.memory_bytes == 0` to a fixed `(1 vCPU, 1 GiB)`, never consulting the\nnamed image's own recorded defaults (`default_vcpus`/`default_memory` in `<root>/vm-\nimages/<name>.json`). This contradicts the contract's own field comment\n(`proto/delonix/node/v1/compute.proto:550-551`):\n\n```proto\nint32 vcpus = 2;        // 0 = image default, then 1\nint64 memory_bytes = 3; // 0 = image default, then 1 GiB\n```\n\nand diverges from `bins/delonix-runtime-bin/src/cmd/vm.rs::resolve_vm_defaults`, which DOES\nconsult the image for the identical \"nothing given\" case. The module's own doc comment already\nnames this as a known, deliberate gap, blocked on ADR-0040's layering rule (an interface crate\ncannot depend on a bin crate, where `VmImageStore` lives today).\n\nFull analysis: `docs/adr/0076-operation-ledger-race-identity-and-vm-image-defaults.md`, Context\nsection C, Decision D3.\n\n## Reproduction\n\n```\ncargo test -p delonix-node-api --test achado_c_vm_defaults -- --nocapture --test-threads=1\n```\n\nA fixture `<root>/vm-images/golden.json` is written in the exact shape and location\n`VmImageStore::save` produces, recommending `default_vcpus: 4, default_memory: \"4G\"`.\n`CreateVirtualMachine` with `spec.image=\"golden\", vcpus=0, memory_bytes=0` resolves, through the\nnode API, to `vcpus=1, memory=\"1G\"` — the fixture is never read. The CLI's own existing,\nunmodified test for the identical scenario corroborates the divergence:\n\n```\ncargo test -p delonix-runtime-bin resolve_vm_defaults_cai_para_a_imagem_quando_o_cli_nao_diz_nada\n```\n\nresolves the same input to `(4, \"4G\")`.\n\nExplicit non-zero `vcpus`/`memory_bytes` are honoured identically by both paths (not the gap);\nan image reference with no recorded metadata at all falls back to `(1, \"1G\")` in both (also not\nthe gap) — the divergence is specifically: image exists, has its own recorded defaults, request\nsays 0.\n\n## Proposed fix\n\nSee ADR-0076, Decision D3: a minimal `ImageDefaults` port in `delonix_compute::ports` (three\nfields: `vcpus`, `memory`, `backend` — not `VmImage`'s full build/registry metadata), wired via\na process-wide `OnceLock` the same way `delonix_compute::vm_registry` already wires\n`VmNetwork` (`set_network`/`network()`), implemented in `delonix-vm::local_ports` by reading\n`<root>/vm-images/<name>.json`'s three optional fields directly — independent of `bins/delonix-\nruntime-bin`'s `VmImageStore`, so no `interfaces`→`bins` dependency is introduced.\n\n## Acceptance criteria\n\n- [ ] `achado_c_vm_defaults.rs`'s `zero_vcpus_and_memory_ignore_the_named_images_own_recorded_\n      defaults` is updated to assert the NEW behaviour (resolves to the image's `4`/`\"4096M\"`,\n      not the fixed `1`/`\"1G\"`) and passes.\n- [ ] `explicit_vcpus_and_memory_are_honored_regardless_of_the_image` and\n      `no_image_metadata_falls_back_to_one_vcpu_one_gig_like_the_cli_does` continue to pass\n      unchanged (no regression on the two scenarios that were never the gap).\n- [ ] `cargo tree -e normal -p delonix-node-api` and `-p delonix-vm` show no new dependency on\n      `delonix-runtime-bin` (the guardrail this fix exists to respect).\n- [ ] `scripts/arch_fitness.py` stays green (no new disallowed crate-direction edge).\n- [ ] A regression test proves `backend` resolution (the module doc comment's other named\n      \"nothing given\" field) is traced the same way vcpus/memory were, and either also converges\n      with the CLI or is explicitly scoped out with a measured reason (ADR-0076's \"Known\n      limitations\" flags this as unverified by this review).\n- [ ] E2E battery green.\n\n## Severity / scope\n\nMedium: silent to the API caller (nothing in the response signals the image's recommendation was\nignored), and the only contract a caller has (the proto field comment) promises the opposite.\nRequires no concurrency or adversarial input — reproduces on the first call with an image that\nhas recorded defaults.\n\nNot in scope for this issue (see ADR-0076 Context, \"Adjacent, not in scope\"):\n`delonix_vm::set_network` is never called by `delonix-node-api`/`delonix-node-api-bin` — a\n`CreateVirtualMachine` naming a network attachment fails today regardless of this fix; tracked\nseparately.\n",
+      "closedAt": "2026-10-10T10:37:32Z",
+      "comments": [
+        {
+          "id": "IC_kwDOTaC2l88AAAABaw64yg",
+          "author": {
+            "login": "angolardevops"
+          },
+          "authorAssociation": "MEMBER",
+          "body": "Correction to the acceptance criteria above: the expected resolved memory for the fixture (`default_memory: \"4G\"`) is **`\"4G\"` verbatim, not `\"4096M\"`**. Re-checked against `cmd::vm::tests::resolve_vm_defaults_cai_para_a_imagem_quando_o_cli_nao_diz_nada` (`bins/delonix-runtime-bin/src/cmd/vm.rs`):\n\n```rust\nassert_eq!(\n    resolve_vm_defaults(None, None, None, Some(&img)),\n    (4, \"4G\".to_string(), Some(\"libvirt\".to_string()))\n);\n```\n\nNeither the CLI's `resolve_vm_defaults` nor the fix normalizes an image's recorded `default_memory` to MiB — it is passed through as-is. My original write-up assumed a normalization step that does not exist. The fix (in progress) resolves to `(4, \"4G\")` for this fixture, matching the CLI exactly.",
+          "createdAt": "2026-10-09T23:36:26Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/ngolacloud/delonix/issues/760#issuecomment-6091094218",
+          "viewerDidAuthor": true
+        }
+      ],
+      "createdAt": "2026-10-09T23:20:31Z",
+      "labels": [],
+      "number": 760,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "delonix-node-api: CreateVirtualMachine ignores the named image's recorded vCPU/memory defaults, unlike the CLI",
+      "url": "https://github.com/ngolacloud/delonix/issues/760"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "## Summary\n\nA control plane reaches each node through a **node agent**: a small per-node process that terminates TLS with client certificates, decides which callers may reach the node, writes an audit line per call, and hands each call **unchanged** to this socket (`delonix serve node-api`). The agent does not interpret the contract: gRPC stays HTTP/2, REST stays HTTP/1.1, so every RPC this socket starts serving is reachable through the agent the same day.\n\nThis keeps the engine's guard-rails as they are (ADR-0010): the node API stays local, on a unix socket, with no remote clients and no caller identities. The agent is where remoteness lives.\n\nWhat blocks the agent from replacing direct local access is what `delonix-node-api` does not serve yet. This issue lists it, measured against `main` at `d7347ac7` (2026-10-10).\n\n## Served on `main` today\n\n| Service | Served | Answers `unserved` |\n|---|---|---|\n| `NodeService` | `GetApiRoot`, `GetNodeInfo`, `GetHealth`, `GetCapacity`, `ListProviders` | `WatchEvents` |\n| `NetworkService` | `GetNetwork`, `ListNetworks`, `CreateNetwork`, `DeleteNetwork` | `ConnectContainer`, `DisconnectContainer` |\n| `VolumeService` | `GetVolume`, `ListVolumes` | `CreateVolume`, `DeleteVolume` |\n| `VirtualMachineService` | everything except `Console` | `Console` |\n| `OperationService` | `GetOperation`, `ListOperations` | `WatchOperation`, `CancelOperation` |\n| `ContainerService`, `PodService`, `ImageService`, `StackService` | — | not registered |\n\n## Requested, in order\n\n1. **`ContainerService`, all of it**: create, get, list, update, delete, start, stop, kill, wait, `Exec`, `Logs`, `Stats`. Almost everything a control plane does to a node's workloads goes through it, and nothing of it is served.\n2. **What is already in the contract but answers `unserved`**: `NetworkService.ConnectContainer` / `DisconnectContainer`, `VolumeService.CreateVolume` / `DeleteVolume`.\n3. **Operations a control plane performs today that have no RPC in `delonix.node.v1`**, to be added to the contract:\n   - pause and resume a container;\n   - mount and unmount a volume into a running container;\n   - set and clear a container's network bandwidth limit;\n   - set a container's scheduling priority (nice);\n   - add a peer to an overlay network;\n   - publish and unpublish a VM port.\n4. **`ImageService`**: pull, delete, scan.\n5. **`WatchEvents`** and **`WatchOperation`**, so a caller can stop polling.\n\n## Not asked\n\nNothing of tenants, quotas, admission or scheduling decisions: those stay above the engine. Nothing remote either — the socket stays local; the agent bridges it.\n\n## How it is checked\n\nThe agent is tested against a fake node API and, live, against `delonix serve node-api` (4.5.0 on the dev host, which serves `GET /v1/providers`): REST over HTTP/1.1 and HTTP/2 reach the engine and its answer comes back unchanged. Each RPC served here becomes usable through the agent without a change to it.\n",
+      "closedAt": null,
+      "comments": [],
+      "createdAt": "2026-10-10T17:25:46Z",
+      "labels": [
+        {
+          "id": "LA_kwDOTaC2l88AAAACr7ncFw",
+          "name": "enhancement",
+          "description": "New feature or request",
+          "color": "a2eeef"
+        }
+      ],
+      "number": 776,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "delonix-node-api: serve ContainerService and the remaining unserved RPCs — what a per-node agent needs",
+      "url": "https://github.com/ngolacloud/delonix/issues/776"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "## Request\n\nShip the multi-homed route fix (#733, `9d0f5ec2` \"fix(sdn): a network route is usable from an additional network\") in the **5.0.x release line**, as a patch release (v5.0.2, or folded into v5.0.1 if it is not published yet).\n\n## Why\n\n- #733 merged into `main` on 2026-10-08 17:54, about 1h45 after the `v5.0.0` tag (16:09).\n- `v5.0.1` was cut from `v5.0.0` with three picked commits (`0851827f`, `01cb0540`, `99e1f3a0`). #733 is not among them.\n- So no released 5.x tag carries it:\n\n  | ref | contains `9d0f5ec2` | `crates/**/route_plan.rs` |\n  |---|---|---|\n  | `v5.0.0` | no | absent |\n  | `v5.0.1` | no | absent |\n  | `origin/main` | yes | present |\n\n- The fix was already backported to the 3.1 line (`3e154c18`, `backport/v3.1-rota-multi-homed`). A consumer that moves from v3.1 to v5.0.x loses it.\n- Behaviour without it: a route between two networks reports itself open, but carries nothing for a workload attached with `network connect`. The workload's packets leave by the default route and never match the `@netpair` element.\n\n## Acceptance\n\n- `git merge-base --is-ancestor 9d0f5ec2 <new tag>` succeeds, or an equivalent cherry-pick is listed in the release notes.\n- The `scripts/e2e.sh` scenario added by #733 runs green against the tagged tree.\n",
+      "closedAt": "2026-10-11T13:17:35Z",
+      "comments": [
+        {
+          "id": "IC_kwDOTaC2l88AAAABbCaKYg",
+          "author": {
+            "login": "angolardevops"
+          },
+          "authorAssociation": "MEMBER",
+          "body": "Resolved by v5.0.2: the release carries the multi-homed route fix of #733 as `9e43cb0e` (`fix(sdn): a network route is usable from an additional network`), cherry-picked onto `release/5.0.x`; the release commit is `152fccd8`.",
+          "createdAt": "2026-10-11T13:17:34Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/ngolacloud/delonix/issues/785#issuecomment-6109432418",
+          "viewerDidAuthor": true
+        }
+      ],
+      "createdAt": "2026-10-10T20:26:48Z",
+      "labels": [],
+      "number": 785,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "release 5.0.x: ship the multi-homed route fix (#733) — no 5.x tag carries it",
+      "url": "https://github.com/ngolacloud/delonix/issues/785"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "## Finding (security assessment)\n\nThe CRI capability ceiling (`crates/interfaces/delonix-cri/src/cap_ceiling.rs`) defaults to\n**no ceiling** when `DELONIX_CRI_CAP_CEILING` is unset. Combined with the engine honouring\n`seccomp: unconfined` and `cap_add` exactly as the kubelet asks, a node whose operator never\nset the ceiling admits a pod with `privileged: true` (or `cap_add: [SYS_ADMIN, …]`) and grants\nit full caps with no seccomp — a straightforward container escape to root on the node. A\n`crictl`/kubelet talking straight to the socket bypasses any admission controller that lives in\nanother process/machine; the ceiling is the only **local** barrier and it is off by default.\n\n**Root cause**: deliberate \"unopinionated engine, consumer hardens\" design decision — not a\ncode bug. A safe default is a minimum ceiling widened explicitly, not the inverse.\n\n## Why this is an issue, not a patch\n\nFlipping the default to `default` (the engine's `KEPT_CAPS`) changes the `serve cri` contract\nand must ride a **major** release. Scope here is `delonix-runtime` only; the consumer-side\nhardening test (`hardening_e2e.rs`) lives in `delonix-paas` and runs in no CI.\n\n## Proposed, non-breaking now\n\n- `serve cri` **warns loudly at startup** when no ceiling is set (stdout banner + `tracing::warn`),\n  so an operator who never configured one is told, instead of discovering it after an escape.\n- The default flip to a minimum ceiling is a separate decision tracked for the next major.\n\nFound during the 2026-10-10 offensive audit. Sibling of #788 (decompression bomb, fixed).\n",
+      "closedAt": "2026-10-11T09:46:23Z",
+      "comments": [
+        {
+          "id": "IC_kwDOTaC2l88AAAABbAxxPg",
+          "author": {
+            "login": "angolardevops"
+          },
+          "authorAssociation": "MEMBER",
+          "body": "Corrigido no PR #794 (merge d53a62c4): o `delonix-cri` avisa no arranque quando não há tecto de capacidades. A grafia «Fecha» no corpo do PR não é palavra-chave do GitHub, por isso não fechou automaticamente.",
+          "createdAt": "2026-10-11T09:46:22Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/ngolacloud/delonix/issues/789#issuecomment-6107722046",
+          "viewerDidAuthor": true
+        }
+      ],
+      "createdAt": "2026-10-10T22:37:32Z",
+      "labels": [],
+      "number": 789,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "security: CRI capability ceiling defaults to no ceiling (serve cri should warn at startup)",
+      "url": "https://github.com/ngolacloud/delonix/issues/789"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "## Finding (security assessment)\n\n`cmd/remote.rs` connects with `StrictHostKeyChecking=accept-new` (`conn_args`), and\n`cluster apply` / `vm migrate` SSH into production hosts as root (`sudo -n bash -c …`). TOFU\nmeans the **first** contact with a new host is trusted unconditionally: an attacker who can\nMITM/ARP-spoof/DNS-spoof that first connection becomes the \"known\" host, captures the `sudo`\nsession and injects commands as root. The window is the first `cluster apply`; after that the\nkey is pinned.\n\n**Root cause**: deliberate usability choice in `conn_args` — `ssh` (the external binary) does\nexactly what it is told. Command injection itself is already closed (`shell_quote` + `--` +\nthe `valid_endpoint`/`valid_cidr`/`valid_version` validators from audit #1); this is only the\nhost-key trust.\n\n## Proposed\n\n- Let the operator pin trust: honour a `known_hosts` / expected fingerprint per host (env or\n  manifest), defaulting to `StrictHostKeyChecking=yes` against it.\n- At minimum, **surface the fingerprint** that `accept-new` just trusted, so a first contact is\n  not silent.\n\nKeep `accept-new` as the opt-in fallback for greenfield bootstraps. Touches sensitive remote\nSSH plumbing — wants careful review. Found during the 2026-10-10 offensive audit.\n",
+      "closedAt": "2026-10-11T09:46:26Z",
+      "comments": [
+        {
+          "id": "IC_kwDOTaC2l88AAAABbAxyeA",
+          "author": {
+            "login": "angolardevops"
+          },
+          "authorAssociation": "MEMBER",
+          "body": "Corrigido no PR #796 (merge d2830291): `DELONIX_SSH_STRICT`/`DELONIX_SSH_KNOWN_HOSTS` permitem fixar a chave do host (StrictHostKeyChecking=yes + UserKnownHostsFile); o argv por omissão fica byte-a-byte igual. A grafia «Fecha» não é palavra-chave do GitHub.",
+          "createdAt": "2026-10-11T09:46:25Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/ngolacloud/delonix/issues/790#issuecomment-6107722360",
+          "viewerDidAuthor": true
+        }
+      ],
+      "createdAt": "2026-10-10T22:37:33Z",
+      "labels": [],
+      "number": 790,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "security: SSH uses TOFU (accept-new) for root operations on cluster apply / vm migrate",
+      "url": "https://github.com/ngolacloud/delonix/issues/790"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "## Finding (security assessment) — LOW, defense-in-depth\n\nLayer extraction keeps setuid/setgid bits (`owners::unpack_recording`,\n`set_preserve_permissions(true)`). The module comment argues this is safe **in rootless mode**:\nthe files are owned by the engine's uid, which is root *inside* the container's user namespace,\nso a setuid bit grants nothing the invoking user lacks. That reasoning is correct for rootless.\n\nOn the **root / CRI path** (engine as real root, kubelet), a setuid-root binary planted in an\nimage layer is setuid-root on the node filesystem, inside the container's rootfs. It is only\nexploitable combined with another primitive (a privileged pod, a bind-mount that exposes the\npath), hence LOW.\n\n## Why there is no clean patch\n\nDropping setuid/setgid on the root path **regresses ADR-0062**: that preservation exists\nbecause `/tmp` came out `777` instead of `1777` and `su`/`ping`/`sudo` lost their bit inside\nevery container. A naive drop re-breaks legitimate setuid binaries in pods. Any mitigation here\nhas to distinguish \"image-declared setuid the workload needs\" from \"planted escalation\", which\nthe extractor cannot do alone.\n\nThis issue is to track the analysis, not to ship a risky change. The real mitigations stay the\nexisting ones: do not admit privileged pods, the default masked/readonly paths, and the cap\nceiling (#<issue2>). Found during the 2026-10-10 offensive audit.\n",
+      "closedAt": "2026-10-11T13:17:41Z",
+      "comments": [
+        {
+          "id": "IC_kwDOTaC2l88AAAABbA4eQA",
+          "author": {
+            "login": "angolardevops"
+          },
+          "authorAssociation": "MEMBER",
+          "body": "Estreitado no PR #800 (merge 218335f5).\n\nA metade que se consegue largar **sem** regredir o ADR-0062 está fechada: numa extracção como **root real** (euid 0 no userns inicial), um bit setuid de um ficheiro cujo dono é um **uid ≠ 0** é largado — é setuid a uma identidade nomeada do nó, que nenhum container precisa e que uma layer plantada usa para tomar um utilizador real da máquina. `sanitize_special_bits` (pura, testada sem ser root) decide; `unpack_recording` larga-o, `scan` não o repõe.\n\nFicam intactos (o container precisa deles): **setuid-root** (o `su`/`mount` da imagem), **setgid a qualquer grupo** (`wall`/`crontab`), **sticky** (`/tmp`), e o **caminho rootless inteiro** byte-a-byte.\n\n**Residual, por desenho:** setuid-**root** de uma layer não confiável continua a ser preservado (largá-lo partiria o `su` nos pods). Fica mitigado pelos controlos já existentes — dirs de layer a 0700, sem pods privilegiados, os masked/readonly paths por omissão, e o tecto de capacidades (#789). Mantenho aberta como registo deste residual aceite.",
+          "createdAt": "2026-10-11T10:00:56Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/ngolacloud/delonix/issues/791#issuecomment-6107831872",
+          "viewerDidAuthor": true
+        },
+        {
+          "id": "IC_kwDOTaC2l88AAAABbCaNyA",
+          "author": {
+            "login": "angolardevops"
+          },
+          "authorAssociation": "MEMBER",
+          "body": "Narrowed by #800: on the real-root extraction path, a setuid/setgid bit owned by a non-root uid is now dropped (it would be setuid to a named host identity, which no container needs). The setuid-root bits stay on purpose: they are what makes a pod's `su`, `mount`, `wall` and a sticky `/tmp` work (ADR-0062), and they are only exploitable combined with another primitive, as the finding says. The residual is accepted by the owner (2026-10-11); closing as not planned.",
+          "createdAt": "2026-10-11T13:17:40Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/ngolacloud/delonix/issues/791#issuecomment-6109433288",
+          "viewerDidAuthor": true
+        }
+      ],
+      "createdAt": "2026-10-10T22:37:35Z",
+      "labels": [],
+      "number": 791,
+      "state": "CLOSED",
+      "stateReason": "NOT_PLANNED",
+      "title": "security: Layer extraction preserves setuid/setgid on the root/CRI path (defense-in-depth, LOW)",
+      "url": "https://github.com/ngolacloud/delonix/issues/791"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "## Summary\n\nWhen `StartContainer` fails, the CRI can report the engine's **progress line** as the reason, which hides the real cause. The kubelet event then shows a step that succeeded.\n\nMeasured on 2026-10-10 on a kubeadm node built from `delonix-vm-k8s:1.36` (k8s 1.36.4, root CRI), while validating #753:\n\n```\nE1010 21:17:52.076213 remote_runtime.go:435] \"StartContainer from runtime service failed\"\n  err=\"rpc error: code = Internal desc = failed to start container 1feeb556fcf0cbb5: ✓ unpacking the image 📦 0.8s\"\n```\n\nA second container failed with `• unpacking the image 📦` as its whole reason. The real cause in that run was found only by reading other containers' errors on the node (`cgroup limit: hugetlb.2MB.limit_in_bytes=0: the hugetlb controller is not delegated…`, fixed in #787).\n\n## Cause\n\n`delonix_detached_why_in` (`crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs`) captures the engine's stderr to a file. When the command fails, it returns the **first line**:\n\n```rust\n// First line only: clap appends usage text, …\nwhy.lines().next().unwrap_or(why).to_string()\n```\n\n`delonix __apirun` writes `output::Progress` lines (`• …`, `✓ … 0.8s`) to stderr before the error. On the non-TTY path these are plain lines, so the first line is the image-unpack step, not the `delonix: …` error that follows it.\n\nThe \"first line\" rule was written for clap usage text (#309/#320 era). It is wrong for any engine path that reports progress before it fails.\n\n## What a fix needs\n\n- Choose the reason line on purpose: prefer the line that starts with `delonix:` (the engine's error prefix). Otherwise use the last line that is not a progress line (`•`/`✓`/`✗`). Fall back to the exit status.\n- Add a unit test with a captured stderr made of progress lines followed by the error. It must fail with the current first-line rule.\n- The same helper serves `RunPodSandbox` (`delonix_detached_why`), so both callers get the fix.\n\n## Not measured\n\n- I did not recover the real cause of the two failures that showed only progress lines. Their stderr files had been removed. This is exactly the information the bug loses.\n",
+      "closedAt": "2026-10-10T23:45:31Z",
+      "comments": [],
+      "createdAt": "2026-10-10T22:42:46Z",
+      "labels": [],
+      "number": 792,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "cri: StartContainer reports the engine's progress line instead of the error",
+      "url": "https://github.com/ngolacloud/delonix/issues/792"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "## Summary\n\nUnder host I/O saturation, a CRI container start can hit the 60 s ceiling of the «mounted» handshake (`wait_for_mounts`, `crates/adapters/delonix-linux/src/lib.rs`). The engine then warns and returns success:\n\n```\n✓ unpacking the image 📦 11.1s\ndelonix: warning: cri-68784787b0fb2c6b did not finish mounting within 60000ms — it is running, but a command that enters it right now may see the HOST's filesystem instead of the container's\n```\n\nMeasured on 2026-10-10 on a kubeadm node (`delonix-vm-k8s:1.36`). Inside the VM, `/proc/pressure/io` showed `full` at ~93%, and a plain `run -d` of `pause` took 19–45 s. The warning appeared on two of four control-plane containers started in the same minute (`cri-68784787b0fb2c6b`, `cri-c4d7f21de43e1c86`).\n\n## Why it matters\n\nThe ceiling is correct: an unbounded wait would hang the `run`. The outcome is `Unknown`, which by design is never read as a failure. But the CRI then answers `StartContainer` with **success**, so the kubelet sees a running container. Any `ExecSync` or probe that enters it in that window can run against the host's filesystem. This is the window that the post-v0.66 fix (\"an exec right after `run -d` ran on the HOST\") closed for the normal case. Here it only moves out to 60 s.\n\n## Questions to decide (measured, not guessed)\n\n1. Should the CRI treat `MountWait::Unknown` differently from the CLI? Options: keep waiting under the kubelet's own deadline, or report `StartContainer` as failed so the kubelet retries. Both change behaviour that the kubelet observes.\n2. Should `exec` (and `ExecSync`) refuse while the container record has no «mounted» proof, instead of relying on the start-time wait? The record already only gets its `pid` after the proof in the normal path. In the `Unknown` path, is it saved before the proof?\n3. Is 60 s the right ceiling for a node, or should it scale with the observed I/O pressure?\n\n## Not measured\n\n- Whether an `exec` actually landed on the host filesystem in this run. The warning says it *may*; no probe was taken.\n- Behaviour on an idle host: the same image mounts in well under a second there.\n",
+      "closedAt": "2026-10-11T14:24:20Z",
+      "comments": [],
+      "createdAt": "2026-10-10T22:42:48Z",
+      "labels": [],
+      "number": 793,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "linux: a container that misses the 60 s mount ceiling under I/O saturation is reported as started",
+      "url": "https://github.com/ngolacloud/delonix/issues/793"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "## Summary\n\nA `container start` into a custom network reports a failure and tears down the network attachment, but the container's init is **alive**. The record says `Running` with an IP. The veth, the ref marker and the IPAM lease are gone. The container keeps running with only `lo`, and its address is free to be leased to the next container on the network.\n\nMeasured on 2026-10-11 with the published **v5.0.2** (`152fccd8`, verified by sha256 and minisign). Run: `delonix cluster create --name n736 --workers 2` (kind mode), rootless, isolated `DELONIX_ROOT`/`DELONIX_NET_RUNTIME_DIR`/`HOME`/`KUBECONFIG`, host calm at start (io full 7.9, load 7.1).\n\n## What the CLI said\n\n```\ndelonix: system call `container start` failed: n736-worker2: the container's init exited with code 126 before its root filesystem was ready, so the container is not running: INFO: detected IPv4 address: 10.229.26.249 | INFO: detected IPv6 address:  | INFO: starting init\n ✗ Joining 2 worker(s) 🚜 6m26s\n  invalid argument: the container did not start inside network 'dlx-n736' — the reason is on the line above (exit 1)\n  invalid argument: join of worker 'n736-worker2' failed on node 'n736-worker2' (exit 1)\n    … dial tcp 10.229.132.236:6443: connect: network is unreachable\n```\n\nThe quoted init output (`INFO: starting init`) is the kind entrypoint's last line before `exec /sbin/init`. So the init had passed the rootfs setup and run its command.\n\n## What was actually there, 7 minutes later\n\n| | |\n|---|---|\n| `container ps` | `n736-worker2  Up 7 minutes` |\n| record | `status: Running`, `pid: 766858`, `ip: 10.229.26.249`, `network: dlx-n736`, `privileged: true` |\n| pid 766858 | `/sbin/init`, alive, parent 766855 = `delonix netns run …/.reexec-4e7b1af9f26c56c2.json` (the 2nd pass, alive) |\n| inside the container | only `lo`: no `eth0`, no route |\n| `ingress/refs` | one marker (the control-plane); the worker's is gone, `refcount 1` |\n| `ipam/*.json` | only the control-plane's lease; `10.229.26.249` is free |\n| `n736-worker` | no record at all (its start also failed: «did not start inside network») |\n\nSo the two sides disagree. The side that reported `InitExited` (exit 126) ran the failure path and detached the network. The 2nd-pass process (`netns run`) kept an init that was running, and the record says `Running`.\n\n## Why it matters\n\n- **Silent wrong state:** a container reported `Up` with the network it asked for removed.\n- **Duplicate IP hazard:** the lease is released while the record and the guest still hold `10.229.26.249`. The next attach on `dlx-n736` can get the same address.\n- The error text says «the container is not running». That is false in this case.\n\n## Where to look\n\n`spawn` turns `MountWait::InitExited` into an error for a detached start, after `waitpid(pid)` (`crates/adapters/delonix-linux/src/lib.rs`, `if mounted == MountWait::InitExited && detach`). The same block is on `origin/main`. The 126 came from **some** process exiting, but not from the init that is now running. Open questions:\n\n1. Which process exited 126? In the privileged / console path (kind nodes are `--privileged`, detached, with a log path), is the process waited on the same one whose child holds the «mounted» pipe?\n2. Can EOF on the «mounted» pipe arrive while the init is alive? For example, the write end closing in an intermediate process, or the byte written after an `execve` that closed it.\n3. On the `--net <custom>` re-exec path, the 1st pass undoes the attach when the 2nd pass reports failure. It never checks whether a process from that start is still alive. Undoing the attach should require proof that nothing from the start survived. A check of the record's pid against its `starttime` would give that.\n\n## Not measured\n\n- Whether this reproduces outside kind mode, or deterministically. Both workers of this run failed; no other attempt was made.\n- `n736-worker`'s own failure line was not printed (only the summary «did not start inside network»).\n- `main` was not run. The suspected code is unchanged there, but this was observed on v5.0.2.\n\nThe cluster is left standing for inspection under `~/.cache/d736` on the reporting host.\n",
+      "closedAt": "2026-10-11T11:11:24Z",
+      "comments": [],
+      "createdAt": "2026-10-11T02:56:18Z",
+      "labels": [],
+      "number": 798,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "start into a custom network: failure path detaches the network of a container that is still running",
+      "url": "https://github.com/ngolacloud/delonix/issues/798"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "## Summary\n\n`delonix cluster kubeadm` with more than one node finishes «ready», but every node stays `NotReady` (`NetworkPluginNotReady: no CNI network config in /etc/cni/net.d`). The default CNI is installed **only** when the cluster has exactly one node. The code says this is a scope decision (`bins/delonix-runtime-bin/src/cmd/cluster.rs`, the `spec.cni == \"default\" && … == 1` block; gap #1 of `docs/discovery/kaas-matrix-2026-10-08.md`). There is no issue that tracks closing it.\n\n## Measured (2026-10-11, while validating #753)\n\nPublished `delonix-vm-k8s:1.36` plus release v5.0.2, `cluster kubeadm --name k753 --network k753 --control-plane 1 --workers 1`:\n\n```\n✓ Bootstrapping control-plane (kubeadm init) 18.2s\n✓ Joining 1 worker(s) 6.5s\ninfo cluster \"k753\" ready\n```\n\nThen:\n\n```\nk753-cp1   NotReady   control-plane\nk753-w1    NotReady   <none>\nReady=False KubeletNotReady: … NetworkPluginNotReady message:no CNI network config in /etc/cni/net.d\ncoredns-…  0/1  Pending\n```\n\nThe CNI plugins are on the image (`/opt/cni/bin`). Only the config is missing.\n\n## The manual step that made it work\n\nThe step every user hits:\n\n- a `bridge` + `host-local` conflist per node, with a different `/24` of the pod subnet on each (`10.244.0.0/24` on the cp, `10.244.1.0/24` on the worker);\n- a static route to the other node's `/24` via its node IP.\n\nBoth nodes went `Ready` within seconds. CoreDNS ran. A pod on the cp fetched `http://web.default.svc.cluster.local` from an nginx pod on the worker.\n\n## What a fix needs to decide\n\n- **Per-node pod CIDR.** The controller-manager can allocate `.spec.podCIDR` (`--allocate-node-cidrs`, which kubeadm sets when `--pod-network-cidr` is given). The bridge conflist on each node can use that node's `podCIDR`.\n- **Routes between nodes.** These are static, written at join time by the same SSH session that runs `kubeadm join`. Each existing node needs a route to the new node, and the new node needs a route to each existing node. They are not persistent across a node reboot unless written as a systemd-networkd/netplan route. That is a requirement, not an option.\n- Or install a real CNI (kindnet is what the kind mode already uses) as a manifest after `kubeadm init`.\n- **Honesty in the meantime.** The run printed `cluster \"k753\" ready` with both nodes `NotReady`. v5.0.2 has no \"Waiting for all nodes to be Ready\" step; main has one. Whichever path ships, a multi-node cluster must not be reported ready while every node is `NotReady`.\n\n## Not measured\n\n- The behaviour of main's «Waiting for all nodes to be Ready» step against this case (it was v5.0.2 that ran).\n- Pod traffic after a node reboot, with routes written as above.\n",
+      "closedAt": null,
+      "comments": [],
+      "createdAt": "2026-10-11T03:20:56Z",
+      "labels": [],
+      "number": 799,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "cluster kubeadm: a multi-node cluster gets no CNI and stays NotReady",
+      "url": "https://github.com/ngolacloud/delonix/issues/799"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "Found by the S15 CLI coverage batch (plan 68 §0, wave A), not fixed.\n\n`delonix net l4guard set 30 60` prints `active — up to 30 … 60` with rc 0, but `net l4guard status` still shows the boot rules (50/s, 200 concurrent). `net l4guard clear` prints `cleared` with rc 0 and the rules stay.\n\n**Cause (read in the code):** in `crates/adapters/delonix-sdn/src/infra.rs`, `clear_l4guard` lists and deletes rules in chain `fwdeny`, while `do_l4guard` adds them to `forward` and `l4guard-show` reads `forward`. With the old rules still present, `nft -c` on the new script fails, and `do_l4guard` returns `Ok` without changing anything.\n\n**Expected:** `set` replaces the guard and `status` reads the new limits; `clear` removes it. A failure to apply must be an error, not rc 0.\n\nThe two leaves were left out of `scripts/e2e.sh` because of this defect; the gate goes in with the fix.\n",
+      "closedAt": null,
+      "comments": [],
+      "createdAt": "2026-10-11T14:06:33Z",
+      "labels": [],
+      "number": 804,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "net l4guard set/clear report success and change nothing",
+      "url": "https://github.com/ngolacloud/delonix/issues/804"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "Found by the S15 CLI coverage batch (plan 68 §0, wave A), not fixed.\n\n`delonix image logout <registry>` prints `credentials for <registry> removed` with rc 0 when nothing was stored for that registry. The CLI ignores the `existed` result of `auth::logout`, so a mistyped registry reads as a successful logout, and the real credentials stay on disk.\n\n**Expected:** say that nothing was stored for that registry (and which registries do have credentials), with a non-success class — or at least not claim a removal that did not happen.\n",
+      "closedAt": "2026-10-18T14:12:49Z",
+      "comments": [
+        {
+          "id": "IC_kwDOTaC2l88AAAABdJWDCw",
+          "author": {
+            "login": "angolardevops"
+          },
+          "authorAssociation": "MEMBER",
+          "body": "Fixed in 08c60fb1 (#885). auth::logout already returned whether credentials existed and the arm dropped the bool; it now refuses, names which registries do have credentials, and leaves them untouched.",
+          "createdAt": "2026-10-18T14:12:48Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/ngolacloud/delonix/issues/805#issuecomment-6250922763",
+          "viewerDidAuthor": true
+        }
+      ],
+      "createdAt": "2026-10-11T14:06:34Z",
+      "labels": [],
+      "number": 805,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "image logout reports a removal for a registry with no stored credentials",
+      "url": "https://github.com/ngolacloud/delonix/issues/805"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "Found by the S15 CLI coverage batch (plan 68 §0, wave A), not fixed.\n\n`delonix hosts sync --off` prints `service names removed from /etc/hosts`, but the block stays while an HTTPRoute still asks for names (`hosts: [host]`). It also names `/etc/hosts` when `DELONIX_HOSTS_FILE` points elsewhere. Its `--help` says it «removes the block».\n\n**Expected:** either it removes the block, or it refuses/explains that routes still declare names and names the file it actually manages.\n",
+      "closedAt": "2026-10-18T14:12:52Z",
+      "comments": [
+        {
+          "id": "IC_kwDOTaC2l88AAAABdJWFbA",
+          "author": {
+            "login": "angolardevops"
+          },
+          "authorAssociation": "MEMBER",
+          "body": "Fixed in 08c60fb1 (#885) — two bugs: (1) a name an HTTPRoute declares is rewritten by sync_hosts_now, so the block survived the announcement of its removal; it now reports from declared_host_names() and names the file hosts_path() manages. (2) A run that published nothing still announced a removal; the count is now read before the flag moves.",
+          "createdAt": "2026-10-18T14:12:52Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/ngolacloud/delonix/issues/806#issuecomment-6250923372",
+          "viewerDidAuthor": true
+        }
+      ],
+      "createdAt": "2026-10-11T14:06:36Z",
+      "labels": [],
+      "number": 806,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "hosts sync --off says the block was removed while it stays",
+      "url": "https://github.com/ngolacloud/delonix/issues/806"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "Found by the S15 CLI coverage batch (plan 68 §0, wave A), not fixed.\n\n`delonix cluster start <name>` stops at the first node that is already running with `… control-plane is already running` (rc 1) and does not start the remaining nodes. Seen live after `cluster stop` gave up with DX-8101 on the worker (busy disk); the code confirms it: `cmd_start(...)?` inside the loop over nodes.\n\n**Expected:** a node that is already running is skipped (and reported), and the others are started; the command fails only if a node that should start does not.\n",
+      "closedAt": "2026-10-18T14:12:55Z",
+      "comments": [
+        {
+          "id": "IC_kwDOTaC2l88AAAABdJWHfw",
+          "author": {
+            "login": "angolardevops"
+          },
+          "authorAssociation": "MEMBER",
+          "body": "Fixed in 08c60fb1 (#885). cmd_start(...)? aborted at the first node already running and left every later node stopped (DX-8101). A running node is now skipped and reported. Not measured live — needs a real multi-node cluster.",
+          "createdAt": "2026-10-18T14:12:54Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/ngolacloud/delonix/issues/807#issuecomment-6250923903",
+          "viewerDidAuthor": true
+        }
+      ],
+      "createdAt": "2026-10-11T14:06:37Z",
+      "labels": [],
+      "number": 807,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "cluster start stops at the first node already running",
+      "url": "https://github.com/ngolacloud/delonix/issues/807"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "Found by the S15 CLI coverage batch (plan 68 §0, wave A), not fixed.\n\nReproduction: `image tag alpine:3.19 l3x:v1` with a container running `alpine:3.19`, then `image remove l3x:v1` → DX-1000 «in use … can no longer be used to recreate them». With `-f` the same command only untags. Removing a second NAME of an image never removes the content another container uses, so the refusal and its message are wrong.\n\n**Expected:** removing one of several names untags without `-f`; the in-use refusal applies only when the last name would go.\n",
+      "closedAt": "2026-10-18T14:12:58Z",
+      "comments": [
+        {
+          "id": "IC_kwDOTaC2l88AAAABdJWJtw",
+          "author": {
+            "login": "angolardevops"
+          },
+          "authorAssociation": "MEMBER",
+          "body": "Fixed in 08c60fb1 (#885). The in-use scan ran before knowing whether the call would delete content or merely drop a name. ImageStore::removes_only_a_tag exposes the predicate remove already branches on. Not measured end-to-end.",
+          "createdAt": "2026-10-18T14:12:58Z",
+          "includesCreatedEdit": false,
+          "isMinimized": false,
+          "minimizedReason": "",
+          "reactionGroups": [],
+          "url": "https://github.com/ngolacloud/delonix/issues/808#issuecomment-6250924471",
+          "viewerDidAuthor": true
+        }
+      ],
+      "createdAt": "2026-10-11T14:06:38Z",
+      "labels": [],
+      "number": 808,
+      "state": "CLOSED",
+      "stateReason": "COMPLETED",
+      "title": "image remove refuses to untag a second name of an image in use",
+      "url": "https://github.com/ngolacloud/delonix/issues/808"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "Found by the S15 CLI coverage batch (plan 68 §0, wave A); only partly proved, not fixed.\n\n`delonix system monitor` probably always reports 0 connections in rootless: it runs `conntrack -L` in the host netns, which as an unprivileged user fails with EPERM; stderr is discarded and the empty list prints as 0. Not fully proved: no flow tracked by the holder was shown side by side.\n\n**Expected:** read the connections where the engine's traffic is tracked (inside the holder's netns), or say «unmeasured» — an unmeasured count is never zero (the same rule as `Usage { bytes, unreadable }`).\n",
+      "closedAt": null,
+      "comments": [],
+      "createdAt": "2026-10-11T14:06:40Z",
+      "labels": [],
+      "number": 809,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "system monitor reports 0 connections in rootless instead of unmeasured",
+      "url": "https://github.com/ngolacloud/delonix/issues/809"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "Found by the Sprint 16 agent (#793 work, plan 68 wave A), not fixed.\n\nFor a container declared with `cgroupParent`, `remove_container_cgroup` never removes the `<base>/<group>/dlx-<id>` leaf, so an empty leaf is left after a successful `rm`. Seen on v5.0.2 and on the #793 branch. `scripts/e2e_mount_ceiling.sh` removes it in its own cleanup as a workaround.\n\n**Expected:** `rm` removes the leaf it created, wherever the group placed it — the same rule as the default `dlx-containers/dlx-<id>` path.",
+      "closedAt": null,
+      "comments": [],
+      "createdAt": "2026-10-11T14:16:40Z",
+      "labels": [],
+      "number": 812,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "rm leaves an empty cgroup leaf under a cgroupParent group",
+      "url": "https://github.com/ngolacloud/delonix/issues/812"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "Found while running the battery on 2026-10-11 (plan 68 N30), not fixed.\n\n**Reproduction (measured).** A `build-cache` entry was partially deleted from outside the engine: `rm -rf` on the state root by the invoking user removed what it could and failed with `Permission denied` on files owned by a mapped subuid. A rebuild of the same Delonixfile then hit that cache:\n\n```\nFROM alpine:3.19\nRUN adduser -D app\nUSER app\nRUN id -u > /home/app/who\nUSER root\nRUN mkdir /srv/own && chown app:app /srv/own\nUSER app\n```\n\n- Root with the partial cache (10 entries): the build succeeds, and running the image gives `--user: user 'app' does not exist in the image (/etc/passwd)`. The entry's `/etc/passwd` was gone, the subuid-owned files stayed, and the cache served the remains as a complete step.\n- Fresh root: `who=1000`, owners `app app app root` — correct.\n\nThe three battery checks «build: um RUN depois de USER…», «build: um rebuild com cache dá os mesmos donos» and «build: um COPY substitui…» fail in that state and pass on a fresh root.\n\n**Why it matters.** Any interrupted or partial cleanup of the state root (an `rm` that hits subuid files, a crash during a cache write, a full disk) leaves entries the next build trusts. The result is a wrong image that builds without error.\n\n**Expected.** A cache entry is used only when it is known to be complete, for example a marker written last and checked before a hit. Otherwise it is discarded and the step is rebuilt.\n\nAlso note: the invoking user cannot remove those entries with `rm` at all (subuid files); the engine's own prune or a mapped removal is the only clean way.",
+      "closedAt": null,
+      "comments": [],
+      "createdAt": "2026-10-11T15:42:48Z",
+      "labels": [],
+      "number": 815,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "build trusts a partially deleted build-cache entry and produces a wrong image",
+      "url": "https://github.com/ngolacloud/delonix/issues/815"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "Found by the cli_funcional_gate on Sprint 20 (#821).\n\n**Measured:** a `credentials.password.secret` that names a secret which does not exist passes `manifest validate` (\"all references resolved\") and `stack apply` (rc 0, no warning). The failure only surfaces at `container ls --credentials --reveal`, as `(secret nope: not readable — secret nope)`, a reason that repeats itself.\n\n**Expected:** the reference is resolved by `validate_graph` like a container's `secret: [name]`, which `validate` already refuses with \"1 unresolved reference(s)\".\n\n**Gate to add:** a battery check that a dangling `credentials.password.secret` is refused by `validate` and by `apply`, before any effect.\n\nAlso seen: a refused `password.secret` containing ESC echoes the raw byte (`cat -v` shows `^[[2J`); names in refusals should be printed escaped.\n",
+      "closedAt": null,
+      "comments": [],
+      "createdAt": "2026-10-12T07:12:43Z",
+      "labels": [],
+      "number": 823,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "credentials: a password.secret that names a missing secret passes validate and apply",
+      "url": "https://github.com/ngolacloud/delonix/issues/823"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "Found by the cli_funcional_gate on Sprint 20 (#821), reproduced twice, and also present on main at `8cd9ddaf`.\n\n**Measured:** a manifest declaring `kind: Container` `kk` in namespace `default` and another `kk` in namespace `other`. `stack plan` says `+ Container/other/kk`, then `stack apply` prints \"already exists, nothing to do\", returns rc 0, and creates nothing.\n\n**Expected:** the plan and the apply agree. Either a second container is created (the plan name is namespace-scoped, `manifest::scoped_plan_name`), or the apply refuses with Conflict (exit 5), as a Pod and a VirtualMachine already do for the same case.\n\n**Gate to add:** a battery check for this step (step k of the Kind cycle in the `delonix-cli-funcional` skill).\n",
+      "closedAt": null,
+      "comments": [],
+      "createdAt": "2026-10-12T07:12:44Z",
+      "labels": [],
+      "number": 824,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "stack: same Container name in another namespace plans + and applies \"already exists\" with rc 0",
+      "url": "https://github.com/ngolacloud/delonix/issues/824"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "Seen in the cli_funcional_gate battery run for #822 (tree `2c9cf7d8` on main `0cdb9282`).\n\n**Measured:** in the full `scripts/e2e.sh` run, check «net: ciclo de vida sem fugas» (`scripts/net-lifecycle-leaks.sh`) failed. After `network rm`, the bridge was still in `@dlxbr`, `@netpair` and `fwdeny` (`dlxbr=1 netpair=2 fwdeny=1`), and the recreated network inherited the egress deny.\n\nRun by hand twice, each in its own isolated root pair, every check passed. Two earlier full runs on the previous base also passed. The diff under test did not touch the SDN path.\n\n**To find out:** whether this is a race in `network rm` (an attach or teardown still in flight), or state left behind by an earlier section of the battery. #821's own gate run also had one unexplained FAIL (stop of a `--restart always` container), which may share the cause; nobody has compared them yet.\n\nLogs: `~/.cache/dlxct14/e2e4.log` and `e2e-run4.results.jsonl` on the runner host.\n",
+      "closedAt": null,
+      "comments": [],
+      "createdAt": "2026-10-12T07:12:46Z",
+      "labels": [],
+      "number": 825,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "e2e: net-lifecycle-leaks fails intermittently in the full battery (bridge left in @dlxbr/@netpair/fwdeny)",
+      "url": "https://github.com/ngolacloud/delonix/issues/825"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "Measured with testcontainers-python 4.8.2 (docker-py 7.2.0) through a logging proxy, in Sprint 20 (#821). Three small gaps were fixed there; this is what remains, recorded in `docs/paridade-docker-podman.md` §8.\n\n- **`GET /containers/{id}/logs` is not served.** It is Testcontainers' main wait strategy (`wait_for_logs`), and it needs stdout and stderr kept apart in the multiplexed stream format.\n- **`v=True` on `DELETE /containers/{id}`** (remove anonymous volumes) is not read.\n- **`HostConfig`** is missing from the inspect response.\n- **`exec`** stays refused by design (HTTP hijacking); recorded here so a Testcontainers user finds the reason.\n",
+      "closedAt": null,
+      "comments": [],
+      "createdAt": "2026-10-12T07:12:48Z",
+      "labels": [],
+      "number": 826,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "docker-api: what Testcontainers still needs — the logs route, v=True on remove, HostConfig",
+      "url": "https://github.com/ngolacloud/delonix/issues/826"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "Found while running a real compose sample and the Docker API in Sprint 20 (#821). Each is small and measured; none was fixed there.\n\n- **`delonix build`:** no glob support in `COPY` (`COPY *.py ./`).\n- **Compose:**\n  - drops network `aliases:`;\n  - creates `<project>_default` even when no service uses it (`docker compose` does not);\n  - the `depends_on` wait prints the probe's stdout into compose output.\n- **Container flags:**\n  - `--network-alias` values are not validated;\n  - `--dns-search` without `--dns` writes a `resolv.conf` with no nameserver;\n  - a bad `--ulimit` (`bogus=5`, `9:5`) is refused only in the init (126 in foreground, DX-9901 detached). `parse_ulimit` is pure and could run in the CLI preflight as DX-1000, before any effect.\n- **Credentials (ADR-0048):**\n  - `kind: Container` warns that Pod is the way forward, but Pod has no `credentials:` support;\n  - there is no `stack ls` column and no `--reveal` on `describe`.\n",
+      "closedAt": null,
+      "comments": [],
+      "createdAt": "2026-10-12T07:12:50Z",
+      "labels": [],
+      "number": 827,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "Small defects found in Sprint 20 (build COPY globs, compose aliases, --dns-search, --ulimit preflight, credentials surface)",
+      "url": "https://github.com/ngolacloud/delonix/issues/827"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "`ContainerService.ListContainers` is declared in the node API contract and not served.\nThe engine answers `501 / DX-6001`, which is the designed signal for \"in the contract,\nnot implemented yet\" — so this is a gap to fill, not a defect to fix.\n\n## Measured\n\nOn a staging node running a real workload, against the node API socket:\n\n```\n$ curl -sS --unix-socket /run/user/1000/delonix-node.sock -i \\\n    http://localhost/v1/namespaces/default/containers\nHTTP/1.1 501 Not Implemented\ncontent-type: application/problem+json\ncontent-length: 365\n\n{\"code\":\"DX_UNAVAILABLE\",\n \"detail\":\"unavailable: ContainerService.ListContainers is in the contract and this engine does not serve it yet\",\n \"dx\":\"DX-6001\",\"exit\":69,\"grpc_status\":12,\n \"instance\":\"/v1/namespaces/default/containers\",\n \"status\":501,\"title\":\"the node API does not serve this yet\",\n \"type\":\"https://angolardevops.github.io/delonix-runtime/codigos.html#DX-6001\"}\n```\n\n`grpc_status: 12` is UNIMPLEMENTED, and the problem+json body is the one\n`delonix-node-api/src/service.rs:168` formats. The behaviour is deliberate and already\ncovered by tests (`delonix-node-api/tests/grpc_list_providers.rs:576-642`).\n\n## Where the gap is\n\n- **Declared:** `proto/delonix/node/v1/compute.proto:22` (`service ContainerService`),\n  with `rpc ListContainers` at line 32, plus `ListContainersRequest` (:245) and\n  `ListContainersResponse` (:280).\n- **Served:** nothing. `grep ListContainers crates/interfaces/delonix-node-api/src/`\n  returns no handler.\n- The node's own `openapi.json` advertises the route, so a client generated from the\n  contract compiles, calls, and gets a 501.\n\n## Why it is worth filling\n\nThe container is visible through the CLI (`delonix container ls` lists it as `Up`) and\ninvisible through the API. Anything that consumes the node API rather than shelling out\nto the CLI — a console, a monitoring probe, a scheduler, a conformance test — cannot\nenumerate containers on a node. It also makes \"is this workload actually running?\"\nanswerable only by the component that started it, which is the weaker kind of evidence.\n\n## Note: CRI already has one, and it is a different surface\n\n`crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs:2225` implements a\n`ListContainers` that returns a `ListContainersResponse` — but that is the **CRI**\nservice (`delonix-cri/proto/api.proto:70`, the Kubernetes runtime interface), not\n`delonix.node.v1.ContainerService`. Worth reading as prior art for the filter semantics\n— `lifecycle.rs:4596` documents a filter bug that was fixed there, and the node API\nversion should not repeat it — but it is not the same RPC and cannot simply be re-exported.\n\n## Done when\n\n- `GET /v1/namespaces/<ns>/containers` returns the containers the node is running, with\n  state, and `delonix container ls` and the API agree on the same node.\n- The filter in `ListContainersRequest` is honoured, not ignored (see\n  `delonix-cri/src/runtime_svc/lifecycle.rs:4596` for how that failed once already).\n- A node with zero containers returns an empty list, not a 404 and not a 501.\n\n## Provenance\n\nSurfaced by a staging session whose goal was to prove a real workload runs and responds\non a fresh node: the workload ran, served HTTP from outside the VM, and this was the one\ncheck that could not be closed. Re-measured independently before filing (the output\nabove). Nothing was explored or modified on the node beyond read-only requests.\n",
+      "closedAt": null,
+      "comments": [],
+      "createdAt": "2026-10-18T11:24:20Z",
+      "labels": [
+        {
+          "id": "LA_kwDOTaC2l88AAAACr7ncFw",
+          "name": "enhancement",
+          "description": "New feature or request",
+          "color": "a2eeef"
+        }
+      ],
+      "number": 881,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "ContainerService.ListContainers is in the node API contract but not served — 501 / DX-6001",
+      "url": "https://github.com/ngolacloud/delonix/issues/881"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "## Context\n\nADR-0043 (`docs/adr/0043-error-code-dictionary.md`) gives every concrete failure a `DX-CDNN` number. The good end-state is already visible in the wild — a mid-pull registry failure (2026-11-17) printed:\n\n```\nerror[DX-9401] registry error: layer sha256:bbe6…: gave up after 5 attempts with 1015788 of 8714240 bytes — last error: … tcp connect error: Connection refused (os error 111)\n```\n\nCode, origin, cause chain, quantified context. That is the bar.\n\nBut the ADR's own measurement (2026-09-17, origin/main) found **~460 call sites in the adapters still building the shared error with a free-text message** (246 `Invalid`, 143 `Runtime`), and 50–90 sites matching directly on shared-error variants. Nothing measures this today, so coverage can regress silently.\n\n## Ask (slice 1 of the campaign — measurement, not fixes)\n\n1. A script (`scripts/`-style, like `lang_ratchet.py`) that counts, per crate: error sites with a DX number vs free-text `Invalid`/`Runtime` construction, with a bilateral baseline so the count can neither rise nor silently drop.\n2. A report naming the top user-facing offenders — messages that state neither origin, cause, nor remedy — each with file+symbol anchors, ordered by user impact (CLI-facing first).\n3. The gate wired into CI like the other ratchets.\n\nRewriting the messages themselves is explicitly out of scope here; each domain gets its own follow-up session fed by the report.\n",
+      "closedAt": null,
+      "comments": [],
+      "createdAt": "2026-11-17T08:39:03Z",
+      "labels": [],
+      "number": 1010,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "errors: measure DX-CDNN dictionary coverage and ratchet it (semantic error tracker, slice 1)",
+      "url": "https://github.com/ngolacloud/delonix/issues/1010"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "## Observed (rootless host, 2026-11-17)\n\n```\n$ delonix container run --rm httpd\nAH00558: httpd: Could not reliably determine the server's fully qualified domain name …\n(13)Permission denied: AH00072: make_sock: could not bind to address [::]:80\n(13)Permission denied: AH00072: make_sock: could not bind to address 0.0.0.0:80\nno listening sockets available, shutting down\n```\n\nThe user gets the workload's own cryptic error, with no hint that the cause is delonix sharing the HOST netns.\n\n## Diagnosis\n\n- Default is `--net host` (`bins/delonix/src/cmd/container.rs`, arg `net`, `default_value = \"host\"`): rootless, the container shares the host netns, where an unprivileged process cannot bind <1024 (`ip_unprivileged_port_start=1024`, no `CAP_NET_BIND_SERVICE`).\n- The own-netns path already works: `run -d -p 8080:80 httpd` + `curl 127.0.0.1:8080` → **200** (measured 2026-11-17), even with the netns sysctl still at 1024 — the mapped-root userns caps allow the bind.\n- The CRI path already solves this for pods: `pod_netns_sysctls` (`crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs`) writes `net.ipv4.ip_unprivileged_port_start=0` (containerd 2.x defaults; CoreDNS uid 65532 died without it, measured 2026-09-15).\n- The HOST side of this is already semantic: `can_bind_host_port` + the \"binding port p on the host needs privilege … publish on a higher port instead\" hint. The inside is what lacks the equivalent.\n\n## Design decision — deliberately open\n\n(a) **Preflight**: rootless + `--net host` + image EXPOSEs a port <1024 → warn or refuse with a DX error naming cause and remedy (`-p 8080:80` or `--net <network>`); or\n(b) **Change the rootless default to an own netns** (parity with rootless Docker/Podman, whose default is bridge/own-netns — why `httpd` just works there). More invasive; touches networks, DNS and the published tables.\n\nEither way: never again the bare AH00072.\n",
+      "closedAt": null,
+      "comments": [],
+      "createdAt": "2026-11-17T08:39:05Z",
+      "labels": [],
+      "number": 1011,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "rootless: container run with default --net host fails to bind ports <1024 with the workload's own cryptic error",
+      "url": "https://github.com/ngolacloud/delonix/issues/1011"
+    },
+    {
+      "author": {
+        "id": "U_kgDOC3ED6w",
+        "is_bot": false,
+        "login": "angolardevops",
+        "name": ""
+      },
+      "body": "## Phase 1 — Windows/WSL2 launcher (ADR-0036)\n\n[ADR-0036](docs/adr/0036-macos-windows-support.md) is now **Accepted** and Phase 1\n(Windows/WSL2) is greenlit. macOS/Windows support is a **guest-VM launcher**, not a\nport of the engine — the host-native binary drives a Linux guest that runs the\nunmodified engine. This issue tracks the Windows half, which rides on WSL2 (a real\nLinux kernel Microsoft already ships), so it needs **no new hypervisor code**.\n\n### Scope (Phase 1)\n- New crate `delonix-machine`, compiled **only** for `target_os = \"windows\"` (and later\n  `\"macos\"`) via `[target.'cfg(...)'.dependencies]`. **Zero** new deps and **zero** new\n  `#[cfg]` branches on any Linux crate — a Linux build stays byte-for-byte unaffected.\n- A `Machine` variant on the CLI `Cmd` enum, compiled only on those targets.\n- A thin Rust wrapper shelling out to `wsl.exe`:\n  - `init [--memory --cpus]` → `wsl --import <distro> <dir> <rootfs>` from the published\n    `delonix-vm-base` image (tar-packaged for `wsl --import`; a packaging step, not an\n    image rebuild).\n  - `start` / `stop` / `rm` / `list`\n  - `ssh` → interactive shell in the guest\n  - `exec -- <any delonix command>` → `wsl -d <distro> -- delonix ...`\n\n### First design question (resolve before code)\nThe CLI **already** uses `delonix machine` for IaC-stack drift (\"what the MACHINE\nchanged since the last apply\"). The launcher **cannot** silently reuse that verb. Pick a\nnon-colliding surface (e.g. `delonix wsl …` on Windows, or a different noun) and record\nthe decision here.\n\n### CI (the honest bar)\nAdd a `windows-latest` job that (a) compiles the crate and (b) round-trips\n`wsl --import` + `exec` against a real (GitHub-hosted) WSL2. A compiled-but-never-run\nbinary is not \"supported\".\n\n### Acceptance criteria\n- [ ] Naming conflict resolved and documented.\n- [ ] `delonix-machine` compiles on `x86_64-pc-windows-msvc`; Linux build unchanged (no new deps/`#[cfg]` on Linux crates).\n- [ ] `init`/`exec` round-trip proven on a `windows-latest` CI job against real WSL2.\n- [ ] Docs: a \"run Delonix on Windows\" quickstart.\n\n### Out of scope (this issue)\n- Phase 2 (macOS/Virtualization.framework) — gated on a GO/NO-GO spike on real Mac hardware.\n- A GUI; host↔guest networking parity with the Linux SDN; `arm64` guest images (ADR-0018, separate gap).\n\nRefs: ADR-0036 (Accepted 2026-11-19).\n",
+      "closedAt": null,
+      "comments": [],
+      "createdAt": "2026-11-19T22:38:57Z",
+      "labels": [
+        {
+          "id": "LA_kwDOTaC2l88AAAACr7ncFw",
+          "name": "enhancement",
+          "description": "New feature or request",
+          "color": "a2eeef"
+        }
+      ],
+      "number": 1021,
+      "state": "OPEN",
+      "stateReason": "",
+      "title": "macOS/Windows Phase 1: Windows/WSL2 launcher (ADR-0036)",
+      "url": "https://github.com/ngolacloud/delonix/issues/1021"
+    }
+  ]
+}
