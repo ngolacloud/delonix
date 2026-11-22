@@ -9283,7 +9283,7 @@ elif check_then "--up: stack init --template httpd constrói e aplica (180 s)" o
   check "--up: o HTTPS responde, com HTTP/2, e o HTTP redirecciona para lá" ok bash -c \
     "[ \"\$(curl -ks -o /dev/null -w '%{http_code} %{http_version}' https://127.0.0.1:$SCAFTP/)\" = '200 2' ] && curl -s -o /dev/null -D - http://127.0.0.1:$SCAFP/x | grep -qi '^location: https://127.0.0.1:$SCAFTP/x'"
   check "--up: o resumo final dá o endereço HTTPS a abrir" ok \
-    grep -q 'open:    https://localhost:$SCAFTP/' "${TMPDIR:-/tmp}/e2e-scaffold-up.log"
+    grep -q "open:    https://localhost:$SCAFTP/" "${TMPDIR:-/tmp}/e2e-scaffold-up.log"
   check "--up: o smoke do próprio template passa" ok bash -c \
     "cd '$SCAFDIR/$SCAFN' && PATH=\"$(dirname "$BIN"):\$PATH\" sh scripts/smoke.sh https://127.0.0.1:$SCAFTP http://127.0.0.1:$SCAFP"
   check "--up: o container está mesmo a correr" ok bash -c \
