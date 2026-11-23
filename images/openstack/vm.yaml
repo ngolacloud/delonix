@@ -1,6 +1,6 @@
 # OpenStack (Kolla Ansible host) — built by the repository's appliance builder.
 #
-#   delonix vm build -f images/openstack/vm.yaml -t 2026.1
+#   delonix vm image build -f images/openstack/vm.yaml -t 2026.1
 #
 # This image is not described as edits to a cloud image: the vendor's installer has
 # to RUN. So the recipe names a BUILDER, not a script path — `builder: X` runs

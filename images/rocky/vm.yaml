@@ -1,6 +1,6 @@
-# Rocky Linux cloud image, built by `delonix vm build`.
+# Rocky Linux cloud image, built by `delonix vm image build`.
 #
-#   delonix vm build -f images/rocky/vm.yaml -t 9
+#   delonix vm image build -f images/rocky/vm.yaml -t 9
 #
 # `-t` is the name of the result AND `${TAG}` below, which this file uses as
 # the major version of the base (`9`, `10`). Every relative path in this file

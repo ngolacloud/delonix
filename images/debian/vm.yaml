@@ -1,6 +1,6 @@
-# Debian cloud image, built by `delonix vm build`.
+# Debian cloud image, built by `delonix vm image build`.
 #
-#   delonix vm build -f images/debian/vm.yaml -t bookworm
+#   delonix vm image build -f images/debian/vm.yaml -t bookworm
 #
 # `-t` is the name of the result AND `${TAG}` below, which this file uses as
 # the codename of the base (`bookworm`, `trixie`). Every relative path in this file

@@ -23,7 +23,7 @@ that in the image's metadata, and `vm create` then:
 ## Building
 
 Every script below can also be run through the same command as any other image:
-`delonix vm build -f images/<name>/vm.yaml` (see `images/<name>/README.md`). It runs the script
+`delonix vm image build -f images/<name>/vm.yaml` (see `images/<name>/README.md`). It runs the script
 with an isolated `OUT_DIR`, registers the result for you and removes the scratch directory; the
 scripts themselves stay here, unchanged.
 
