@@ -6269,7 +6269,7 @@ pub(crate) fn run_tool(bin: &str, args: &[&str]) -> Result<()> {
         let _ = t.join();
     }
     let status = child.wait().map_err(|e| Error::Runtime {
-        context: "vm build",
+        context: "vm image build",
         message: e.to_string(),
     })?;
     if !status.success() {

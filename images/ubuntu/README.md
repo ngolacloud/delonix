@@ -1,6 +1,6 @@
 # Ubuntu — build a qcow2 image
 
-This folder builds an Ubuntu cloud image with `delonix vm build`. Everything the build
+This folder builds an Ubuntu cloud image with `delonix vm image build`. Everything the build
 needs is here. It works **offline inside the guest** (`network: false`), so the
 first build succeeds on any host; the only download is the Ubuntu base image,
 checksum-verified, and only when it is not already in your local store.
@@ -36,7 +36,7 @@ Install the tools on Debian/Ubuntu with `sudo apt install libguestfs-tools qemu-
 From the repository root:
 
 ```bash
-delonix vm build -f images/ubuntu/vm.yaml -t 26.04
+delonix vm image build -f images/ubuntu/vm.yaml -t 26.04
 ```
 
 `-t` is two things at once: the name of the result **and** `${TAG}` inside
@@ -44,20 +44,20 @@ delonix vm build -f images/ubuntu/vm.yaml -t 26.04
 be a release here.
 
 ```bash
-delonix vm build -f images/ubuntu/vm.yaml -t 24.04
+delonix vm image build -f images/ubuntu/vm.yaml -t 24.04
 ```
 
 From inside the folder, exactly like `docker build .`:
 
 ```bash
-cd images/ubuntu && delonix vm build .
+cd images/ubuntu && delonix vm image build .
 ```
 
-`vm build .` looks for a `vm.yaml` in the folder (then a `VMfile`, then falls back
+`vm image build .` looks for a `vm.yaml` in the folder (then a `VMfile`, then falls back
 to the built-in golden recipe). With `-t` omitted, the image's own `tag:` is used
 (`ubuntu-26.04` here). To name the image differently from the release, read the
 release from another variable: change `release:` to `"${RELEASE:-26.04}"` and run
-`RELEASE=24.04 delonix vm build … -t ubuntu-24.04`. Any `${NAME}` other than
+`RELEASE=24.04 delonix vm image build … -t ubuntu-24.04`. Any `${NAME}` other than
 `TAG` is read from the environment.
 
 The base is resolved in this order: your local store (`delonix-vm-base:ubuntu-<release>`), the
@@ -138,7 +138,7 @@ images:
 ```
 
 Those recipes install their own software and ignore custom fields like
-`hostname:`, so `vm build` rejects the combination and tells you which field.
+`hostname:`, so `vm image build` rejects the combination and tells you which field.
 `profile: k8s` is only available for Ubuntu/Debian (apt).
 
 ## Troubleshooting

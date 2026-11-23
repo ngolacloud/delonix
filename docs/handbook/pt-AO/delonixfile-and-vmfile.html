@@ -221,7 +221,7 @@ consegue ler os dois. O que constroem é diferente.</p>
   <code>delonix build</code>.</li>
 <li>Um <strong>VMfile</strong> constrói um <strong>disco qcow2 arrancável</strong> para uma VM. Pede emprestada a <em>forma</em> do
   Dockerfile, mas o mecanismo é <code>qemu-img</code> + <code>virt-customize</code> sobre um disco inteiro, construído por
-  <code>delonix image vm build</code>.</li>
+  <code>delonix vm image build</code>.</li>
 </ul>
 <p>Esta página descreve o que os parsers deste repositório aceitam de facto — não o que o Docker
 aceita. Cada regra abaixo aponta para o código que a impõe. Depois dela consegues escrever os dois
@@ -579,7 +579,7 @@ funcionalidade foi validada. Não o uses como exemplo da gramática Delonix; usa
 </tbody>
 </table></div>
 <h3 id="scaffold">Scaffold<a class="hanchor" href="#scaffold" aria-label="#">#</a></h3>
-<div class="code" data-shell><div class="code-head"><span class="lang">shell</span><button class="copy" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span>Copiar</span></button></div><pre><code class="language-bash">delonix vm init --vmfile [DIR] [--name &lt;n&gt;]   # or: delonix image vm init &lt;name&gt; [-d DIR]
+<div class="code" data-shell><div class="code-head"><span class="lang">shell</span><button class="copy" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span>Copiar</span></button></div><pre><code class="language-bash">delonix vm image init [DIR] [--name &lt;n&gt;]
 </code></pre></div>
 <p>Os dois escrevem <code>VMfile</code> e <code>cloud-init/user-data.yaml</code> (<em>corrido</em> num directório de rascunho). O
 scaffold pretende ser uma receita que funciona, e o teste <code>parseia_o_scaffold_que_escrevemos</code>
@@ -587,9 +587,9 @@ mantém-no analisável. Duas coisas a corrigir à mão na dica «Next:» que ele
 <code>vm create --disk</code>, não <code>--disk-image</code>; e vê a nota sobre <code>CLOUDINIT</code> abaixo quanto ao nome do
 ficheiro.</p>
 <h3 id="building">Construir<a class="hanchor" href="#building" aria-label="#">#</a></h3>
-<div class="code" data-shell><div class="code-head"><span class="lang">shell</span><button class="copy" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span>Copiar</span></button></div><pre><code class="language-bash">delonix vm build [-f vm.yaml|VMfile] [-t &lt;tag&gt;] [--target &lt;image&gt;] [--network] [--no-compress] [CONTEXT]
+<div class="code" data-shell><div class="code-head"><span class="lang">shell</span><button class="copy" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span>Copiar</span></button></div><pre><code class="language-bash">delonix vm image build [-f vm.yaml|VMfile] [-t &lt;tag&gt;] [--target &lt;image&gt;] [--network] [--no-compress] [CONTEXT]
 </code></pre></div>
-<p>O <code>delonix image vm build</code> é o mesmo comando (os dois partilham um único <code>BuildArgs</code>). Qual receita
+<p>O <code>delonix image vm build</code> era uma segunda grafia, independente, deste mesmo comando (os dois partilhavam um único <code>BuildArgs</code>); foi fundido neste único <code>vm image build</code> pela consolidação «image vm → vm image» (Sprint 9 da reestruturação da CLI no AGENTS.md). Qual receita
 corre decide-se como o <code>docker build</code> decide entre ficheiros: um <code>-f</code> explícito ganha (um
 <code>.yaml</code>/<code>.yml</code> é lido como <code>vm.yaml</code>, qualquer outra coisa como <code>VMfile</code>); sem <code>-f</code>, um <code>vm.yaml</code> no
 contexto ganha a um <code>VMfile</code>, que ganha à receita dourada embutida (ver <a href="microvm-setup.html">Construir microVMs</a>). As
@@ -736,7 +736,7 @@ início de uma linha (por isso <code>RUN sed 's/#x/y/'</code> não é estragado)
    descarregada e verificada contra o ficheiro de checksum do publicador (<code>vmimage::download_base</code>).</li>
 <li><strong>URL <code>http://</code> / <code>https://</code></strong> — descarregado; verificado contra <code>&lt;url&gt;.sha256</code> quando o
    publicador oferece um, caso contrário confiado só pelo TLS, e o build di-lo.</li>
-<li><strong>Qualquer outra coisa</strong> — uma imagem de VM que já esteja no store local (<code>delonix image vm ls</code>).
+<li><strong>Qualquer outra coisa</strong> — uma imagem de VM que já esteja no store local (<code>delonix vm image ls</code>).
    Qualquer outro <code>name:tag</code> é tratado como uma tag local, não como uma distro desconhecida.</li>
 </ol>
 <h3 id="what-a-stage-is-and-where-the-result-lands">O que é um estágio, e onde vai parar o resultado<a class="hanchor" href="#what-a-stage-is-and-where-the-result-lands" aria-label="#">#</a></h3>
@@ -797,7 +797,7 @@ LABEL org.opencontainers.image.title=web
 </code></pre></div>
 <p>Sem nenhuma imagem chamada <code>my-base:1.0</code> no store de rascunho, o ficheiro é analisado e o build pára
 na resolução da base — antes de qualquer trabalho em disco:</p>
-<div class="code"><div class="code-head"><span class="lang">text</span><button class="copy" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span>Copiar</span></button></div><pre><code class="language-text">$ delonix image vm build -t web:1.0 .
+<div class="code"><div class="code-head"><span class="lang">text</span><button class="copy" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span>Copiar</span></button></div><pre><code class="language-text">$ delonix vm image build -t web:1.0 .
 [1/2] builder: FROM my-base:1.0
 error invalid argument: FROM my-base:1.0: no such local VM image, and it is not a URL nor a known cloud image (ubuntu:/debian:/rocky:) — see `delonix vm ls`
 </code></pre></div>
@@ -816,7 +816,7 @@ VMfile:2: invalid argument: unknown VM backend: &#x27;vmware&#x27; (use &#x27;cl
 <th></th>
 <th>Dockerfile (Docker/BuildKit)</th>
 <th>Delonixfile (<code>delonix build</code>)</th>
-<th>VMfile (<code>delonix image vm build</code>)</th>
+<th>VMfile (<code>delonix vm image build</code>)</th>
 </tr>
 </thead>
 <tbody>

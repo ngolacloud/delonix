@@ -217,7 +217,7 @@ th:first-child,td:first-child{white-space:nowrap}
 <li>一个 <strong>Delonixfile</strong> 构建出一个 <strong>OCI 容器镜像</strong>（一层层的文件系统）。它是在 Dockerfile
   语法上再加了少数几条 Delonix 指令，由 <code>delonix build</code> 构建。</li>
 <li>一个 <strong>VMfile</strong> 为一台虚拟机构建出一块<strong>可启动的 qcow2 磁盘</strong>。它借用了 Dockerfile 的
-  <em>形状</em>，但机制是对整块磁盘用 <code>qemu-img</code> + <code>virt-customize</code>，由 <code>delonix image vm build</code>
+  <em>形状</em>，但机制是对整块磁盘用 <code>qemu-img</code> + <code>virt-customize</code>，由 <code>delonix vm image build</code>
   构建。</li>
 </ul>
 <p>本页描述的是这个仓库里的解析器实际接受什么——而不是 Docker 接受什么。下面每一条规则都指
@@ -563,16 +563,16 @@ error invalid argument: --platform &#x27;windows/amd64&#x27;: only &#x27;linux/&
 </tbody>
 </table></div>
 <h3 id="scaffold">脚手架<a class="hanchor" href="#scaffold" aria-label="#">#</a></h3>
-<div class="code" data-shell><div class="code-head"><span class="lang">shell</span><button class="copy" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span>复制</span></button></div><pre><code class="language-bash">delonix vm init --vmfile [DIR] [--name &lt;n&gt;]   # or: delonix image vm init &lt;name&gt; [-d DIR]
+<div class="code" data-shell><div class="code-head"><span class="lang">shell</span><button class="copy" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span>复制</span></button></div><pre><code class="language-bash">delonix vm image init [DIR] [--name &lt;n&gt;]
 </code></pre></div>
 <p>两个命令都会写出 <code>VMfile</code> 和 <code>cloud-init/user-data.yaml</code>（<em>在一个临时目录里已运行过</em>）。
 这份脚手架被设计成一份能用的配方，<code>parseia_o_scaffold_que_escrevemos</code> 这个测试保证它
 始终能被解析。它打印出来的"Next:"提示里有两处需要手动改正：那个参数是
 <code>vm create --disk</code>，不是 <code>--disk-image</code>；另外关于文件名，见下面 <code>CLOUDINIT</code> 那条说明。</p>
 <h3 id="building">构建<a class="hanchor" href="#building" aria-label="#">#</a></h3>
-<div class="code" data-shell><div class="code-head"><span class="lang">shell</span><button class="copy" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span>复制</span></button></div><pre><code class="language-bash">delonix vm build [-f vm.yaml|VMfile] [-t &lt;tag&gt;] [--target &lt;image&gt;] [--network] [--no-compress] [CONTEXT]
+<div class="code" data-shell><div class="code-head"><span class="lang">shell</span><button class="copy" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span>复制</span></button></div><pre><code class="language-bash">delonix vm image build [-f vm.yaml|VMfile] [-t &lt;tag&gt;] [--target &lt;image&gt;] [--network] [--no-compress] [CONTEXT]
 </code></pre></div>
-<p><code>delonix image vm build</code> 是同一个命令（两者共用一个 <code>BuildArgs</code>）。用哪一份配方，决定
+<p><code>delonix image vm build</code> 曾是同一个命令的第二种、独立的写法（两者共用一个 <code>BuildArgs</code>）；它已在“image vm → vm image”整合（AGENTS.md 中 CLI 重构的 Sprint 9）中并入这一个 <code>vm image build</code>。用哪一份配方，决定
 方式和 <code>docker build</code> 在各文件之间做决定一样：一个显式给出的 <code>-f</code> 优先（<code>.yaml</code>/<code>.yml</code>
 被当作 <code>vm.yaml</code> 来读，别的一律当作 <code>VMfile</code>）；不带 <code>-f</code> 时，context 里的 <code>vm.yaml</code> 优先
 于 <code>VMfile</code>，<code>VMfile</code> 又优先于内置的黄金配方（见<a href="microvm-setup.html">构建 microVM</a>）。黄金
@@ -718,7 +718,7 @@ cloud-init 文件、产出物和一份 README。</p>
    发布者的校验和文件核实（<code>vmimage::download_base</code>）。</li>
 <li><strong><code>http://</code> / <code>https://</code> URL</strong>——下载它；发布者提供了 <code>&lt;url&gt;.sha256</code> 时就对照校验，
    否则就只信任 TLS，构建过程会说明这一点。</li>
-<li><strong>其他任何情况</strong>——本地存储里已经有的一个虚拟机镜像（<code>delonix image vm ls</code>）。任何
+<li><strong>其他任何情况</strong>——本地存储里已经有的一个虚拟机镜像（<code>delonix vm image ls</code>）。任何
    别的 <code>name:tag</code> 都会被当作一个本地 tag 来处理，而不是当作一个未知的发行版。</li>
 </ol>
 <h3 id="what-a-stage-is-and-where-the-result-lands">什么是一个阶段，结果落在哪里<a class="hanchor" href="#what-a-stage-is-and-where-the-result-lands" aria-label="#">#</a></h3>
@@ -777,7 +777,7 @@ LABEL org.opencontainers.image.title=web
 </code></pre></div>
 <p>临时存储里没有一个叫 <code>my-base:1.0</code> 的镜像时，这个文件能被解析，构建会停在解析 base
 这一步——在任何磁盘操作之前：</p>
-<div class="code"><div class="code-head"><span class="lang">text</span><button class="copy" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span>复制</span></button></div><pre><code class="language-text">$ delonix image vm build -t web:1.0 .
+<div class="code"><div class="code-head"><span class="lang">text</span><button class="copy" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span>复制</span></button></div><pre><code class="language-text">$ delonix vm image build -t web:1.0 .
 [1/2] builder: FROM my-base:1.0
 error invalid argument: FROM my-base:1.0: no such local VM image, and it is not a URL nor a known cloud image (ubuntu:/debian:/rocky:) — see `delonix vm ls`
 </code></pre></div>
@@ -796,7 +796,7 @@ VMfile:2: invalid argument: unknown VM backend: &#x27;vmware&#x27; (use &#x27;cl
 <th></th>
 <th>Dockerfile（Docker/BuildKit）</th>
 <th>Delonixfile（<code>delonix build</code>）</th>
-<th>VMfile（<code>delonix image vm build</code>）</th>
+<th>VMfile（<code>delonix vm image build</code>）</th>
 </tr>
 </thead>
 <tbody>

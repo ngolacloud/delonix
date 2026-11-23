@@ -9,7 +9,7 @@ Delonix 有两种构建文件，它们看起来相像是故意的：任何写过
 - 一个 **Delonixfile** 构建出一个 **OCI 容器镜像**（一层层的文件系统）。它是在 Dockerfile
   语法上再加了少数几条 Delonix 指令，由 `delonix build` 构建。
 - 一个 **VMfile** 为一台虚拟机构建出一块**可启动的 qcow2 磁盘**。它借用了 Dockerfile 的
-  *形状*，但机制是对整块磁盘用 `qemu-img` + `virt-customize`，由 `delonix image vm build`
+  *形状*，但机制是对整块磁盘用 `qemu-img` + `virt-customize`，由 `delonix vm image build`
   构建。
 
 本页描述的是这个仓库里的解析器实际接受什么——而不是 Docker 接受什么。下面每一条规则都指
@@ -258,7 +258,7 @@ error invalid argument: --platform 'windows/amd64': only 'linux/<arch>' is suppo
 ### 脚手架
 
 ```bash
-delonix vm init --vmfile [DIR] [--name <n>]   # or: delonix image vm init <name> [-d DIR]
+delonix vm image init [DIR] [--name <n>]
 ```
 
 两个命令都会写出 `VMfile` 和 `cloud-init/user-data.yaml`（*在一个临时目录里已运行过*）。
@@ -269,10 +269,10 @@ delonix vm init --vmfile [DIR] [--name <n>]   # or: delonix image vm init <name>
 ### 构建
 
 ```bash
-delonix vm build [-f vm.yaml|VMfile] [-t <tag>] [--target <image>] [--network] [--no-compress] [CONTEXT]
+delonix vm image build [-f vm.yaml|VMfile] [-t <tag>] [--target <image>] [--network] [--no-compress] [CONTEXT]
 ```
 
-`delonix image vm build` 是同一个命令（两者共用一个 `BuildArgs`）。用哪一份配方，决定
+`delonix image vm build` 曾是同一个命令的第二种、独立的写法（两者共用一个 `BuildArgs`）；它已在“image vm → vm image”整合（AGENTS.md 中 CLI 重构的 Sprint 9）中并入这一个 `vm image build`。用哪一份配方，决定
 方式和 `docker build` 在各文件之间做决定一样：一个显式给出的 `-f` 优先（`.yaml`/`.yml`
 被当作 `vm.yaml` 来读，别的一律当作 `VMfile`）；不带 `-f` 时，context 里的 `vm.yaml` 优先
 于 `VMfile`，`VMfile` 又优先于内置的黄金配方（见[构建 microVM](microvm-setup.md)）。黄金
@@ -355,7 +355,7 @@ cloud-init 文件、产出物和一份 README。
    发布者的校验和文件核实（`vmimage::download_base`）。
 3. **`http://` / `https://` URL**——下载它；发布者提供了 `<url>.sha256` 时就对照校验，
    否则就只信任 TLS，构建过程会说明这一点。
-4. **其他任何情况**——本地存储里已经有的一个虚拟机镜像（`delonix image vm ls`）。任何
+4. **其他任何情况**——本地存储里已经有的一个虚拟机镜像（`delonix vm image ls`）。任何
    别的 `name:tag` 都会被当作一个本地 tag 来处理，而不是当作一个未知的发行版。
 
 ### 什么是一个阶段，结果落在哪里
@@ -426,7 +426,7 @@ LABEL org.opencontainers.image.title=web
 这一步——在任何磁盘操作之前：
 
 ```text
-$ delonix image vm build -t web:1.0 .
+$ delonix vm image build -t web:1.0 .
 [1/2] builder: FROM my-base:1.0
 error invalid argument: FROM my-base:1.0: no such local VM image, and it is not a URL nor a known cloud image (ubuntu:/debian:/rocky:) — see `delonix vm ls`
 ```
@@ -446,7 +446,7 @@ VMfile:2: invalid argument: unknown VM backend: 'vmware' (use 'cloud-hypervisor'
 
 ## 对照
 
-| | Dockerfile（Docker/BuildKit） | Delonixfile（`delonix build`） | VMfile（`delonix image vm build`） |
+| | Dockerfile（Docker/BuildKit） | Delonixfile（`delonix build`） | VMfile（`delonix vm image build`） |
 |---|---|---|---|
 | 产出物 | OCI 镜像 | OCI 镜像（可推送，也能被 Docker 拉取） | 可启动的 qcow2 + `VmImage` 元数据 |
 | 一个阶段的单位 | 文件系统的层 | 一个工作容器 + 根文件系统 | 一整块拍平的磁盘 |

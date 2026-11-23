@@ -48,7 +48,16 @@ SKIP_PREFIXES = ("docs/handbook/",)
 # already inside the baseline, so the gate was reporting the battery's Portuguese
 # in the wrong place for as long as the matrix has existed. Translating it belongs
 # to the English-source campaign, at the source, together with the battery.
-GENERATED_MD = ("docs/providers/capability-matrix.md",)
+#
+# `docs/RELEASES.md` is the same case: `scripts/gen-releases.sh` concatenates
+# `docs/releases/v*.md` under a fixed header and the release workflow recommits it
+# on every tag ("Do not edit by hand"). Every line it carries is ALREADY counted at
+# its source note, so counting the appendix counted each one twice. Measured
+# 2026-11-23: its 8 remaining counted lines were all duplicates of
+# `docs/releases/v*.md` lines; the regeneration in 5d0d5947 ([skip ci]) added the
+# two `erro[DX-4201]` rows of v5.1.1 (literal pt-locale output, already counted in
+# v5.1.1.md) and turned the gate red on a commit CI never ran.
+GENERATED_MD = ("docs/providers/capability-matrix.md", "docs/RELEASES.md")
 
 # Documentação `.md`: a FONTE escreve-se em inglês, mas há locales traduzidos de
 # propósito ao lado da fonte (docs/dev/<página>.md ↔ docs/dev/pt-AO/<página>.md,

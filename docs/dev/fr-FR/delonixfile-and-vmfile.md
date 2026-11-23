@@ -11,7 +11,7 @@ Dockerfile peut lire les deux. Ce qu'ils construisent est différent.
   `delonix build`.
 - Un **VMfile** construit un **disque qcow2 amorçable** pour une VM. Il emprunte la *forme* du
   Dockerfile, mais le mécanisme est `qemu-img` + `virt-customize` sur un disque entier, construit par
-  `delonix image vm build`.
+  `delonix vm image build`.
 
 Cette page décrit ce que les parseurs de ce dépôt acceptent réellement — et non ce que Docker
 accepte. Chaque règle ci-dessous renvoie au code qui l'impose. Après elle, vous pouvez écrire les deux fichiers, prévoir ce que chaque parseur accepte ou refuse, et trouver où modifier une grammaire.
@@ -279,7 +279,7 @@ modèles.
 ### Scaffold
 
 ```bash
-delonix vm init --vmfile [DIR] [--name <n>]   # or: delonix image vm init <name> [-d DIR]
+delonix vm image init [DIR] [--name <n>]
 ```
 
 Les deux écrivent `VMfile` et `cloud-init/user-data.yaml` (*exécuté* dans un répertoire jetable). Le
@@ -291,10 +291,10 @@ ci-dessous à propos du nom de fichier.
 ### Construire
 
 ```bash
-delonix vm build [-f vm.yaml|VMfile] [-t <tag>] [--target <image>] [--network] [--no-compress] [CONTEXT]
+delonix vm image build [-f vm.yaml|VMfile] [-t <tag>] [--target <image>] [--network] [--no-compress] [CONTEXT]
 ```
 
-`delonix image vm build` est la même commande (les deux partagent un seul `BuildArgs`). La recette exécutée se
+`delonix image vm build` était une seconde orthographe, indépendante, de cette même commande (les deux partageaient un seul `BuildArgs`) ; elle a été fusionnée dans ce seul `vm image build` par la consolidation « image vm → vm image » (Sprint 9 de la restructuration de la CLI dans AGENTS.md). La recette exécutée se
 décide comme `docker build` choisit entre des fichiers : un `-f` explicite l'emporte (un `.yaml`/`.yml` est lu
 comme un `vm.yaml`, tout le reste comme un `VMfile`) ; sans `-f`, un `vm.yaml` dans le contexte l'emporte sur un
 `VMfile`, qui l'emporte sur la recette dorée intégrée (voir [Construire des microVMs](microvm-setup.md)). Les
@@ -378,7 +378,7 @@ proche.
    (`vmimage::download_base`).
 3. **URL `http://` / `https://`** — téléchargée ; vérifiée contre `<url>.sha256` lorsque l'éditeur en
    propose un, sinon considérée fiable sur la seule base de TLS, et le build le signale.
-4. **Tout le reste** — une image VM déjà présente dans le store local (`delonix image vm ls`). Tout
+4. **Tout le reste** — une image VM déjà présente dans le store local (`delonix vm image ls`). Tout
    autre `name:tag` est traité comme un tag local, et non comme une distribution inconnue.
 
 ### Ce qu'est une étape, et où arrive le résultat
@@ -452,7 +452,7 @@ Sans image nommée `my-base:1.0` dans le store jetable, le fichier est analysé 
 la résolution de la base — avant tout travail sur disque :
 
 ```text
-$ delonix image vm build -t web:1.0 .
+$ delonix vm image build -t web:1.0 .
 [1/2] builder: FROM my-base:1.0
 error invalid argument: FROM my-base:1.0: no such local VM image, and it is not a URL nor a known cloud image (ubuntu:/debian:/rocky:) — see `delonix vm ls`
 ```
@@ -473,7 +473,7 @@ relecture**.
 
 ## Comparaison
 
-| | Dockerfile (Docker/BuildKit) | Delonixfile (`delonix build`) | VMfile (`delonix image vm build`) |
+| | Dockerfile (Docker/BuildKit) | Delonixfile (`delonix build`) | VMfile (`delonix vm image build`) |
 |---|---|---|---|
 | Sortie | image OCI | image OCI (poussable, récupérable par Docker) | qcow2 amorçable + métadonnées `VmImage` |
 | Unité d'une étape | couches de système de fichiers | un container de travail + rootfs | un disque entier aplati |

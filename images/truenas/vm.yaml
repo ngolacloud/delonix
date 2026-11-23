@@ -1,6 +1,6 @@
 # TrueNAS SCALE — built by the repository's appliance builder.
 #
-#   delonix vm build -f images/truenas/vm.yaml -t 25.10.5
+#   delonix vm image build -f images/truenas/vm.yaml -t 25.10.5
 #
 # This image is not described as edits to a cloud image: the vendor's installer has
 # to RUN. So the recipe names a BUILDER, not a script path — `builder: X` runs

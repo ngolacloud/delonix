@@ -1,6 +1,6 @@
-# Fedora cloud image, built by `delonix vm build`.
+# Fedora cloud image, built by `delonix vm image build`.
 #
-#   delonix vm build -f images/fedora/vm.yaml -t 42
+#   delonix vm image build -f images/fedora/vm.yaml -t 42
 #
 # `-t` is the name of the result AND `${TAG}` below, which this file uses as
 # the release of the base (`42`). Every relative path in this file

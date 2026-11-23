@@ -1,6 +1,6 @@
 # Proxmox (VE, Backup Server, Mail Gateway, Datacenter Manager) — built by the repository's appliance builder.
 #
-#   delonix vm build -f images/proxmox/vm.yaml --target pve -t 9.2-1
+#   delonix vm image build -f images/proxmox/vm.yaml --target pve -t 9.2-1
 #
 # This image is not described as edits to a cloud image: the vendor's installer has
 # to RUN. So the recipe names a BUILDER, not a script path — `builder: X` runs

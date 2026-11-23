@@ -31,7 +31,7 @@ before using it; it is cached under `scripts/appliances/.media/` and reused.
 From the repository root:
 
 ```bash
-delonix vm build -f images/monitoring/vm.yaml
+delonix vm image build -f images/monitoring/vm.yaml
 ```
 
 Expect under half an hour (the build allows 30 minutes).
@@ -42,14 +42,14 @@ This image's versions are read from environment variables (see `appliance.env` i
 
 ```bash
 # another version (example)
-ZABBIX_SERIES=X.Y.Z delonix vm build -f images/monitoring/vm.yaml
+ZABBIX_SERIES=X.Y.Z delonix vm image build -f images/monitoring/vm.yaml
 ```
 
-`vm build` runs the builder with its own scratch directory next to your image
+`vm image build` runs the builder with its own scratch directory next to your image
 store, streams the builder's output, then registers the resulting disk with the
 recipe's defaults and deletes the scratch directory whether it worked or not.
 The builder prints an `vm image import …` command at the end: that is what
-`vm build` has just done for you, so you do not run it.
+`vm image build` has just done for you, so you do not run it.
 
 `--network` means nothing here and is refused: the builder decides its own
 network. Tune the build with `appliance.env` (for example `MEM`, `SMP`,
@@ -97,5 +97,5 @@ delonix vm image push monitoring-7.0-r5 ghcr.io/angolardevops/delonix-vm-applian
   the scratch directory is already removed.
 - **`No space left on device`** — see the disk figure in section 1; the scratch
   directory is created next to your image store (`$DELONIX_ROOT`), not in `/tmp`.
-- **Nothing to build with `vm build .`** — from inside this folder it finds
+- **Nothing to build with `vm image build .`** — from inside this folder it finds
   `vm.yaml` as it would in any other.

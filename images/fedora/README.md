@@ -1,6 +1,6 @@
 # Fedora — build a qcow2 image
 
-This folder builds a Fedora cloud image with `delonix vm build`. Everything the build
+This folder builds a Fedora cloud image with `delonix vm image build`. Everything the build
 needs is here. It works **offline inside the guest** (`network: false`), so the
 first build succeeds on any host; the only download is the Fedora base image,
 checksum-verified, and only when it is not already in your local store.
@@ -36,7 +36,7 @@ Install the tools on Debian/Ubuntu with `sudo apt install libguestfs-tools qemu-
 From the repository root:
 
 ```bash
-delonix vm build -f images/fedora/vm.yaml -t 42
+delonix vm image build -f images/fedora/vm.yaml -t 42
 ```
 
 `-t` is two things at once: the name of the result **and** `${TAG}` inside
@@ -47,14 +47,14 @@ be a release here.
 From inside the folder, exactly like `docker build .`:
 
 ```bash
-cd images/fedora && delonix vm build .
+cd images/fedora && delonix vm image build .
 ```
 
-`vm build .` looks for a `vm.yaml` in the folder (then a `VMfile`, then falls back
+`vm image build .` looks for a `vm.yaml` in the folder (then a `VMfile`, then falls back
 to the built-in golden recipe). With `-t` omitted, the image's own `tag:` is used
 (`fedora-42` here). To name the image differently from the release, read the
 release from another variable: change `release:` to `"${RELEASE:-42}"` and run
-`RELEASE=42 delonix vm build … -t fedora-42`. Any `${NAME}` other than
+`RELEASE=42 delonix vm image build … -t fedora-42`. Any `${NAME}` other than
 `TAG` is read from the environment.
 
 The base is resolved in this order: your local store (`delonix-vm-base:fedora-42`), the
@@ -135,7 +135,7 @@ images:
 ```
 
 Those recipes install their own software and ignore custom fields like
-`hostname:`, so `vm build` rejects the combination and tells you which field.
+`hostname:`, so `vm image build` rejects the combination and tells you which field.
 Kubernetes (`profile: k8s`) is not available for Fedora.
 
 ## Troubleshooting

@@ -39,7 +39,7 @@ October 2025 — so it was not built.
 From the repository root:
 
 ```bash
-delonix vm build -f images/freepbx/vm.yaml
+delonix vm image build -f images/freepbx/vm.yaml
 ```
 
 The build allows 60 minutes. What it pins, and checks before using:

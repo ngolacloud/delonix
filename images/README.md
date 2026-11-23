@@ -5,7 +5,7 @@ need, the command, what to check) and whatever the recipe ships. Build any of
 them from a clone of this repository:
 
 ```bash
-delonix vm build -f images/<folder>/vm.yaml -t <version>
+delonix vm image build -f images/<folder>/vm.yaml -t <version>
 ```
 
 | Folder | What it builds | Kind |
@@ -14,7 +14,7 @@ delonix vm build -f images/<folder>/vm.yaml -t <version>
 | [`opnsense`](opnsense/README.md) · [`proxmox`](proxmox/README.md) · [`truenas`](truenas/README.md) | vendor appliances (no cloud-init) | runs a builder from `scripts/appliances/` |
 | [`openstack`](openstack/README.md) · [`monitoring`](monitoring/README.md) · [`carbonio`](carbonio/README.md) · [`glpi`](glpi/README.md) · [`wazuh`](wazuh/README.md) · [`freepbx`](freepbx/README.md) | a cloud image with software installed | runs a builder from `scripts/appliances/` |
 
-`vm.yaml` is to `vm build` what a `compose.yaml` is to `docker compose`; a
+`vm.yaml` is to `vm image build` what a `compose.yaml` is to `docker compose`; a
 `VMfile` is the `Dockerfile`. The schema and its rules are in
 [`docs/dev/delonixfile-and-vmfile.md`](../docs/dev/delonixfile-and-vmfile.md).
 
@@ -22,7 +22,7 @@ delonix vm build -f images/<folder>/vm.yaml -t <version>
 
 # Verifying the recipes
 
-`vm build` returning 0 proves the builder ran, not that the image is right.
+`vm image build` returning 0 proves the builder ran, not that the image is right.
 `scripts/verify-images.sh` builds the recipes and **reads what came out** — the
 content of the qcow2, or of the booted VM — against what the recipe declared.
 
@@ -62,7 +62,7 @@ but cannot prove the recipe acted.
 | `--appliance` | RAM | Free disk | Notes |
 |---|---|---|---|
 | `opnsense` | — | 4 GiB | a verified download and a conversion; the lightest place to start |
-| `proxmox` | 4 GiB | 20 GiB | the script builds Proxmox VE only (`--target pve`); build `pbs`, `pmg` or `pdm` by hand with `delonix vm build -f images/proxmox/vm.yaml --target <name>` |
+| `proxmox` | 4 GiB | 20 GiB | the script builds Proxmox VE only (`--target pve`); build `pbs`, `pmg` or `pdm` by hand with `delonix vm image build -f images/proxmox/vm.yaml --target <name>` |
 | `truenas` | 6 GiB | 20 GiB | |
 | `openstack` | 4 GiB | 65 GiB | pulls ~20 GiB of container images; the build allows 4 hours |
 | `monitoring` | 4 GiB | 20 GiB | |

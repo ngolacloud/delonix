@@ -75,6 +75,18 @@ TARGETS = (
     # The contributor handbook: a stale command there teaches every new
     # contributor the wrong CLI on day one.
     "docs/dev/*.md",
+    # ...and its translations. Only the English root was scanned, so when #772
+    # removed `vm build`, `docs/dev/delonixfile-and-vmfile.md` was fixed and its
+    # pt-AO/fr-FR/zh-CN copies kept teaching the removed spelling.
+    "docs/dev/*/*.md",
+    # The image recipes and the appliance scripts: each README/`vm.yaml` header
+    # is the command a reader copies to build that image. Measured 2026-11-23:
+    # 30+ of them still said `delonix vm build`, which the binary answers with
+    # `unrecognized subcommand 'build'` (exit 2), and none was in this list.
+    "images/*.md",
+    "images/**/*.md",
+    "images/**/*.yaml",
+    "scripts/**/*.md",
     "CONTRIBUTING.md",
     "examples/*.md",
     "examples/*.yaml",
@@ -371,6 +383,22 @@ def check_site_groups(nodes: set[str], leaves: set[str]) -> list[str]:
     return problems
 
 
+TRANSLATION = re.compile(r"^docs/dev/[a-z]{2}-[A-Z]{2}/([^/]+)$")
+
+
+def translation_source(rel: str) -> str:
+    """`docs/dev/pt-AO/x.md` → `docs/dev/x.md`; anything else → itself.
+
+    A translation of a DELIBERATE citation (a migration note whose subject is
+    that the spelling no longer exists) is deliberate too, so it inherits the
+    English file's exception instead of each language repeating the line. What
+    it does NOT inherit is a citation the English file does not have — which is
+    exactly how a translation that kept teaching a removed verb gets caught.
+    """
+    m = TRANSLATION.match(rel)
+    return f"docs/dev/{m.group(1)}" if m else rel
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--list", action="store_true", help="show each resolved citation")
@@ -393,10 +421,14 @@ def main() -> int:
                 if args.list:
                     print(f"ok    {rel}:{line}\t{cmd}\t→ {hit}")
                 continue
-            if (rel, cmd) in allow:
-                used.add((rel, cmd))
+            key = next(
+                (k for k in ((rel, cmd), (translation_source(rel), cmd)) if k in allow),
+                None,
+            )
+            if key is not None:
+                used.add(key)
                 if args.list:
-                    print(f"excp  {rel}:{line}\t{cmd}\t— {allow[(rel, cmd)]}")
+                    print(f"excp  {rel}:{line}\t{cmd}\t— {allow[key]}")
                 continue
             orphans.append((rel, line, cmd))
 

@@ -1,6 +1,6 @@
-# Ubuntu cloud image, built by `delonix vm build`.
+# Ubuntu cloud image, built by `delonix vm image build`.
 #
-#   delonix vm build -f images/ubuntu/vm.yaml -t 26.04
+#   delonix vm image build -f images/ubuntu/vm.yaml -t 26.04
 #
 # `-t` is the name of the result AND `${TAG}` below, which this file uses as
 # the release of the base (`26.04`, `24.04`). Every relative path in this file

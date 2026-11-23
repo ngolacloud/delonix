@@ -31,25 +31,25 @@ before using it; it is cached under `scripts/appliances/.media/` and reused.
 From the repository root:
 
 ```bash
-delonix vm build -f images/proxmox/vm.yaml --target pve -t 9.2-1
+delonix vm image build -f images/proxmox/vm.yaml --target pve -t 9.2-1
 ```
 
 Expect several minutes per product plus the ISO download (~1.5 GiB).
 
-**Note.** This file declares four images and each one runs a full vendor installer, so name the one you want: `--target pve`. Without `--target`, `vm build` builds all four one after the other, and `-t` is refused (it would name four images the same).
+**Note.** This file declares four images and each one runs a full vendor installer, so name the one you want: `--target pve`. Without `--target`, `vm image build` builds all four one after the other, and `-t` is refused (it would name four images the same).
 
 With `-t`, the value is the **version** (`${TAG}` in `vm.yaml`) and also the name of the image in your store.
 
 ```bash
 # another version
-delonix vm build -f images/proxmox/vm.yaml --target pve -t <version>
+delonix vm image build -f images/proxmox/vm.yaml --target pve -t <version>
 ```
 
-`vm build` runs the builder with its own scratch directory next to your image
+`vm image build` runs the builder with its own scratch directory next to your image
 store, streams the builder's output, then registers the resulting disk with the
 recipe's defaults and deletes the scratch directory whether it worked or not.
 The builder prints an `vm image import …` command at the end: that is what
-`vm build` has just done for you, so you do not run it.
+`vm image build` has just done for you, so you do not run it.
 
 `--network` means nothing here and is refused: the builder decides its own
 network. Tune the build with `appliance.env` (for example `MEM`, `SMP`,
@@ -110,5 +110,5 @@ delonix vm image push 9.2-1 ghcr.io/angolardevops/delonix-vm-appliances:<tag>
   the scratch directory is already removed.
 - **`No space left on device`** — see the disk figure in section 1; the scratch
   directory is created next to your image store (`$DELONIX_ROOT`), not in `/tmp`.
-- **Nothing to build with `vm build .`** — from inside this folder it finds
+- **Nothing to build with `vm image build .`** — from inside this folder it finds
   `vm.yaml` as it would in any other.

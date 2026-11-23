@@ -1,6 +1,6 @@
 # Rocky Linux — build a qcow2 image
 
-This folder builds a Rocky Linux cloud image with `delonix vm build`. Everything the build
+This folder builds a Rocky Linux cloud image with `delonix vm image build`. Everything the build
 needs is here. It works **offline inside the guest** (`network: false`), so the
 first build succeeds on any host; the only download is the Rocky Linux base image,
 checksum-verified, and only when it is not already in your local store.
@@ -36,7 +36,7 @@ Install the tools on Debian/Ubuntu with `sudo apt install libguestfs-tools qemu-
 From the repository root:
 
 ```bash
-delonix vm build -f images/rocky/vm.yaml -t 9
+delonix vm image build -f images/rocky/vm.yaml -t 9
 ```
 
 `-t` is two things at once: the name of the result **and** `${TAG}` inside
@@ -44,20 +44,20 @@ delonix vm build -f images/rocky/vm.yaml -t 9
 be a major version here.
 
 ```bash
-delonix vm build -f images/rocky/vm.yaml -t 10
+delonix vm image build -f images/rocky/vm.yaml -t 10
 ```
 
 From inside the folder, exactly like `docker build .`:
 
 ```bash
-cd images/rocky && delonix vm build .
+cd images/rocky && delonix vm image build .
 ```
 
-`vm build .` looks for a `vm.yaml` in the folder (then a `VMfile`, then falls back
+`vm image build .` looks for a `vm.yaml` in the folder (then a `VMfile`, then falls back
 to the built-in golden recipe). With `-t` omitted, the image's own `tag:` is used
 (`rocky-9` here). To name the image differently from the major version, read the
 major version from another variable: change `release:` to `"${RELEASE:-9}"` and run
-`RELEASE=10 delonix vm build … -t rocky-10`. Any `${NAME}` other than
+`RELEASE=10 delonix vm image build … -t rocky-10`. Any `${NAME}` other than
 `TAG` is read from the environment.
 
 The base is resolved in this order: your local store (`delonix-vm-base:rocky-<major>`), the
@@ -138,7 +138,7 @@ images:
 ```
 
 Those recipes install their own software and ignore custom fields like
-`hostname:`, so `vm build` rejects the combination and tells you which field.
+`hostname:`, so `vm image build` rejects the combination and tells you which field.
 Kubernetes (`profile: k8s`) is not available for Rocky: the k8s path needs an apt repository.
 
 ## Troubleshooting
