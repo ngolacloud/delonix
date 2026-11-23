@@ -78,6 +78,25 @@ Prose notes: [docs/releases/v0.2.0.md](docs/releases/v0.2.0.md).
 - Egress uses the `inet` family and a per-architecture BPF (#438); the cgroup
   leaf is removed under `--cgroup-parent` (#812); a repeated container name in
   another namespace is a conflict, not "already exists" (#824).
+- **A `slirp4netns` with no published ports is no longer un-reapable.** The
+  api-socket was passed only when there were ports, and it is not merely how
+  ports are published — it is the only ownership token the process carries, so
+  one of ours whose supervisor died could never be claimed, and the refusal was
+  right (`slirp4netns` is not our binary; rootless Podman spawns it with the
+  same argv). It leaked one process per container: measured, a chaos run left 19
+  on a clean host while `net netns down` answered "torn down". The socket is now
+  unconditional, `net netns down` reaps and says how many, and the `rm` of a
+  port-less container reaps its own instead of waiting for the next teardown
+  (#1035, #1036). With the bare `run` now getting a netns of its own, every
+  container has such a slirp — which is what made this worth the release.
+- **A `TMPDIR` long enough to overflow `sun_path` refuses `-p` instead of losing
+  the publish in silence.** With a 134-byte socket path, `run -d -p 43225:80`
+  answered rc 0, `container port` printed the mapping and `ss` showed nothing
+  listening: the publishing loop sits behind `if let Some(sock)`, a guard that
+  was safe only while "no socket" meant "no ports". It now refuses before
+  starting anything, naming the length, the limit and the remedy; with nothing
+  to publish the same path still starts, warning that the slirp carries no
+  ownership token.
 
 ### Security / Hardened
 
