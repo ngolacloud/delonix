@@ -59,7 +59,9 @@ pub enum Error {
     CniSysctlKeyInvalid(String),
 
     /// A `-p`/`--publish` spec: bad protocol, bad port, or a host address that
-    /// is not an IPv4 literal.
+    /// is not an IPv4 literal — or a spec this host cannot honour at all,
+    /// because the per-container slirp's api-socket path does not fit a unix
+    /// socket's name and there is therefore nothing to publish through.
     #[error("{0}")]
     InvalidPublishSpec(String),
 

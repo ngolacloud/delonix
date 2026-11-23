@@ -2090,11 +2090,54 @@ fn slirp_attach_args(api_sock: Option<&std::path::Path>, ready_fd: i32) -> Vec<S
     args
 }
 
-/// Whether a per-container slirp gets an api-socket, and which. PURE: the whole
-/// decision lives here so reverting it fails a test instead of only a chaos run.
+/// What to do with a per-container slirp's api-socket when the path does not
+/// fit a unix socket's name. PURE, and the whole decision: `slirp_api_sock`
+/// only maps it onto a `Result`, so reverting the rule fails a test instead of
+/// only a release validation.
+#[derive(Debug, PartialEq, Eq)]
+enum ApiSockFit {
+    /// It fits: the slirp gets the socket, and with it ownership and publishing.
+    Use,
+    /// Too long, and nothing to publish: start anyway, without the ownership
+    /// token. A pathological `TMPDIR` is not a reason to break a `run` that
+    /// worked yesterday; what is lost is the claim, and the caller says so.
+    Degrade,
+    /// Too long, and there ARE ports: refuse. Without the socket there is no
+    /// way to publish, and starting would mean a record that names the port
+    /// with nothing listening on the host — see [`api_sock_fit`].
+    Refuse,
+}
+
+/// `len` is the socket path's length, `has_ports` whether anything is to be
+/// published.
 ///
-/// `publish` is taken and DELIBERATELY not consulted. It used to be the
-/// condition — no ports, no socket — and that is the defect: the api-socket is
+/// The asymmetry is the point, and it is a defect of mine from the same day as
+/// the fix above. The publishing loop in [`slirp_attach`] sits inside
+/// `if let Some(sock) = &api_sock`, and that guard was safe BY CONSTRUCTION
+/// while `None` meant `publish.is_empty()`. Making the socket unconditional
+/// (#1035) broke that invariant and turned the guard into a silent skip:
+/// measured 2026-11-23 with a 134-byte `TMPDIR`, `container run -d -p 43225:80`
+/// answered **rc=0**, `container port` printed `80/tcp -> 127.0.0.1:43225`, and
+/// `ss` showed nothing listening on 43225 — a published port that is not, with
+/// the listing agreeing with the record instead of with the host.
+///
+/// So `publish` IS consulted — not to decide whether a socket is wanted (it
+/// always is), but whether losing it is fatal. That restores the invariant the
+/// guard rests on: `None` ⇒ nothing to publish.
+fn api_sock_fit(len: usize, has_ports: bool) -> ApiSockFit {
+    if len <= SUN_PATH_MAX {
+        ApiSockFit::Use
+    } else if has_ports {
+        ApiSockFit::Refuse
+    } else {
+        ApiSockFit::Degrade
+    }
+}
+
+/// Whether a per-container slirp gets an api-socket, and which.
+///
+/// The socket is wanted ALWAYS, even with no port to publish. It used to be
+/// conditional — no ports, no socket — and that is the defect: the api-socket is
 /// not only how ports are published, it is the only ownership token the process
 /// carries (see [`Slirp::is_ours`]). Without it a slirp of ours whose supervisor
 /// died and whose netns outlived it could never be claimed by
@@ -2103,24 +2146,35 @@ fn slirp_attach_args(api_sock: Option<&std::path::Path>, ready_fd: i32) -> Vec<S
 /// process per container, forever. Measured 2026-11-23: the chaos harness left
 /// 19 on a clean host and the engine's own `net netns down` answered «torn
 /// down» with all 19 alive (#1035).
-fn slirp_api_sock(pid: i32, publish: &[String]) -> Option<std::path::PathBuf> {
-    let _ = publish;
+///
+/// `Ok(None)` means, and is relied upon to mean, that there is nothing to
+/// publish — see [`api_sock_fit`].
+fn slirp_api_sock(pid: i32, publish: &[String]) -> Result<Option<std::path::PathBuf>> {
     let sock = slirp_container_sock(pid);
-    if sock.as_os_str().len() > SUN_PATH_MAX {
-        // Degrade to no token instead of refusing to start the container: a
-        // pathological TMPDIR is not a reason to break a `run` that worked
-        // yesterday. It can leak, and it says so.
-        // `tracing`, not `eprintln!`: a library does not write to the terminal
-        // — the interface does. The `library_prints` ratchet caught this one.
-        tracing::warn!(
-            bytes = sock.as_os_str().len(),
-            max = SUN_PATH_MAX,
-            "slirp api-socket path is too long — this container's slirp will carry \
-             no ownership token and can leak if its supervisor dies (see TMPDIR)"
-        );
-        return None;
+    let len = sock.as_os_str().len();
+    match api_sock_fit(len, !publish.is_empty()) {
+        ApiSockFit::Use => Ok(Some(sock)),
+        ApiSockFit::Degrade => {
+            // `tracing`, not `eprintln!`: a library does not write to the
+            // terminal — the interface does. The `library_prints` ratchet
+            // caught this one.
+            tracing::warn!(
+                bytes = len,
+                max = SUN_PATH_MAX,
+                "slirp api-socket path is too long — this container's slirp will carry \
+                 no ownership token and can leak if its supervisor dies (see TMPDIR)"
+            );
+            Ok(None)
+        }
+        // `InvalidPublishSpec` and not `Command`: the latter renders as «system
+        // call `X` failed», and nothing failed — we refused before spawning.
+        ApiSockFit::Refuse => Err(Error::InvalidPublishSpec(format!(
+            "cannot publish a port: the slirp api-socket would be {len} bytes ({}) and a \
+             unix socket's name takes at most {SUN_PATH_MAX}. Shorten TMPDIR, or run \
+             without -p.",
+            sock.display()
+        ))),
     }
-    Some(sock)
 }
 
 pub fn slirp_attach(pid: i32, publish: &[String]) -> Result<()> {
@@ -2133,7 +2187,11 @@ pub fn slirp_attach(pid: i32, publish: &[String]) -> Result<()> {
     // it leaked, one process per container, forever: measured 2026-11-23, the
     // chaos harness left 19 of them on a clean host and the engine's own
     // `net netns down` answered «torn down» with all 19 still alive (#1035).
-    let api_sock = slirp_api_sock(pid, publish);
+    // `?`: with ports to publish and no socket to publish them through, this
+    // refuses before spawning anything. `None` therefore still means «nothing
+    // to publish», which is the invariant the `if let Some(sock)` below rests
+    // on — see `api_sock_fit`.
+    let api_sock = slirp_api_sock(pid, publish)?;
     let mut fds = [0i32; 2];
     // SAFETY: pipe() fills 2 fds.
     if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
@@ -2189,6 +2247,8 @@ pub fn slirp_attach(pid: i32, publish: &[String]) -> Result<()> {
                 libc::close(rd);
             }
             // Publishes the ports via the api-socket (host → container, in userspace).
+            // `None` only ever reaches here with `publish` empty (`api_sock_fit`),
+            // so this guard skips nothing anyone asked for.
             if let Some(sock) = &api_sock {
                 for spec in publish {
                     if let Ok((addr, hp, cp, proto)) = parse_publish_addr(spec) {
@@ -4440,6 +4500,61 @@ mod tests_slirp_ownership {
     /// #1035: a container with NO published ports still gets an api-socket, so
     /// the reaper can claim its slirp. Without it the process is indistinguishable
     /// from another engine's and is deliberately left alone — which is why it
+    /// The rule of `api_sock_fit`, as a table. The boundary is INCLUSIVE: a
+    /// path of exactly `SUN_PATH_MAX` bytes fits.
+    #[test]
+    fn a_path_that_does_not_fit_refuses_only_when_there_is_something_to_publish() {
+        use ApiSockFit::*;
+        let cases = [
+            (10, true, Use),
+            (10, false, Use),
+            (SUN_PATH_MAX, true, Use),
+            (SUN_PATH_MAX, false, Use),
+            // Too long WITH ports: there is no way to publish through a socket
+            // that cannot be bound, and starting anyway is the silent lie.
+            (SUN_PATH_MAX + 1, true, Refuse),
+            // Too long with NOTHING to publish: only the ownership token is
+            // lost, and the caller warns.
+            (SUN_PATH_MAX + 1, false, Degrade),
+        ];
+        for (len, has_ports, want) in cases {
+            assert_eq!(
+                api_sock_fit(len, has_ports),
+                want,
+                "len={len} has_ports={has_ports}"
+            );
+        }
+    }
+
+    /// The defect this closes, through the real function and not only the rule:
+    /// a `TMPDIR` long enough to overflow `sun_path` made `container run -d -p`
+    /// answer rc=0 with the port in the record and nothing listening on the
+    /// host, because the publishing loop sits inside `if let Some(sock)`.
+    /// Measured 2026-11-23 with a 134-byte path.
+    #[test]
+    fn a_long_tmpdir_refuses_a_publish_instead_of_losing_it_in_silence() {
+        let mut env = crate::testenv::lock();
+        env.set("TMPDIR", "/tmp/".to_string() + &"x".repeat(120));
+        let target = 4242;
+        assert!(
+            slirp_container_sock(target).as_os_str().len() > SUN_PATH_MAX,
+            "the fixture has to actually overflow sun_path, or this proves nothing"
+        );
+        let err = slirp_api_sock(target, &["8080:80".to_string()])
+            .expect_err("a publish with no socket to publish through has to refuse");
+        let shown = err.to_string();
+        assert!(
+            shown.contains("cannot publish") && shown.contains("TMPDIR"),
+            "the refusal has to name what cannot be done and where to fix it: {shown}"
+        );
+        // With nothing to publish, the same path degrades instead of refusing:
+        // what is lost is the claim, not a port the caller asked for.
+        assert_eq!(
+            slirp_api_sock(target, &[]).expect("nothing to publish, nothing to refuse"),
+            None
+        );
+    }
+
     /// leaked forever whenever the supervisor died before the netns did.
     #[test]
     fn a_slirp_without_published_ports_is_still_ours() {
@@ -4449,7 +4564,9 @@ mod tests_slirp_ownership {
         // test. Passing `Some(...)` here would assert «a slirp with a socket is
         // ours», which was always true: the test would pass with the fix
         // reverted and prove nothing.
-        let sock = slirp_api_sock(target, &[]).expect("a port-less slirp still gets one");
+        let sock = slirp_api_sock(target, &[])
+            .expect("a short TMPDIR fits")
+            .expect("a port-less slirp still gets one");
         let mut argv = vec!["slirp4netns".to_string()];
         argv.extend(slirp_attach_args(Some(&sock), 9));
         argv.push(target.to_string());
