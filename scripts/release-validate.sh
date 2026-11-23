@@ -69,7 +69,14 @@ run_suite() {
 
 run_suite cargo-test cargo test --workspace --locked --no-fail-fast
 run_suite e2e        bash scripts/e2e.sh "$BIN"
-run_suite chaos      bash scripts/chaos.sh --max-load "$MAX_LOAD"
+# `--bin "$BIN"`: the RELEASE binary this script just built, like the `e2e`
+# line above. Without it `chaos.sh` falls back to its developer default,
+# `./target/debug/delonix`, which nothing here builds — so the manifest
+# recorded «chaos @ <commit>» about a binary from any earlier commit, while
+# the whole point of the gate is binding each suite to the build being
+# tagged. Measured 2026-11-23: the debug binary was 14 hours older than the
+# release one and lacked the fix the run was meant to exercise.
+run_suite chaos      bash scripts/chaos.sh --bin "$BIN" --max-load "$MAX_LOAD"
 # critest needs root: use the privileged-container harness when not uid 0.
 if [[ "$(id -u)" == 0 ]]; then
   run_suite critest bash scripts/critest.sh

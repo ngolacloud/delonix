@@ -338,7 +338,25 @@ pub fn run(action: NetnsCmd) -> Result<()> {
         }
         NetnsCmd::Down => {
             infra::teardown()?;
+            // And the slirps whose target died with it. Saying «torn down»
+            // while processes of ours keep running is the dishonest report this
+            // repo removes everywhere else: measured 2026-11-23, a chaos run
+            // left 19 of them and this command answered «torn down» with all 19
+            // alive (#1035). The reaper only claims a slirp that `is_ours()`
+            // AND whose target is dead, so it can take nothing that still
+            // serves anyone — the same predicate `system prune` already uses,
+            // which is what reaped those 19 once they carried a token.
+            let reaped = delonix_sdn::reap_orphan_slirp();
             println!("ingress DOWN — infra netns torn down.");
+            if reaped > 0 {
+                println!(
+                    "{}",
+                    super::po::tf(
+                        "  and {n} orphan slirp(s) reaped",
+                        &[("n", &reaped.to_string())],
+                    )
+                );
+            }
             Ok(())
         }
         NetnsCmd::Gc { force } => cmd_gc(force),

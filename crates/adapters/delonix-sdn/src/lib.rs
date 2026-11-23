@@ -2071,14 +2071,69 @@ pub fn slirp_container_sock(pid: i32) -> std::path::PathBuf {
     std::env::temp_dir().join(format!("delonix-slirp-{pid}.sock"))
 }
 
+/// A unix socket's name is at most 107 bytes (`sun_path`), and
+/// [`slirp_container_sock`] is built on `TMPDIR`, which a caller controls.
+const SUN_PATH_MAX: usize = 107;
+
+/// The argv of a per-container slirp, minus the trailing `<target> tap0`. PURE,
+/// so the ONE thing that decides ownership can be asserted without spawning.
+fn slirp_attach_args(api_sock: Option<&std::path::Path>, ready_fd: i32) -> Vec<String> {
+    let mut args = vec![
+        "--configure".to_string(),
+        "--mtu=65520".to_string(),
+        "--disable-host-loopback".to_string(),
+        format!("--ready-fd={ready_fd}"),
+    ];
+    if let Some(sock) = api_sock {
+        args.push(format!("--api-socket={}", sock.display()));
+    }
+    args
+}
+
+/// Whether a per-container slirp gets an api-socket, and which. PURE: the whole
+/// decision lives here so reverting it fails a test instead of only a chaos run.
+///
+/// `publish` is taken and DELIBERATELY not consulted. It used to be the
+/// condition — no ports, no socket — and that is the defect: the api-socket is
+/// not only how ports are published, it is the only ownership token the process
+/// carries (see [`Slirp::is_ours`]). Without it a slirp of ours whose supervisor
+/// died and whose netns outlived it could never be claimed by
+/// `reap_orphan_slirp`, and that refusal is right — `slirp4netns` is not our
+/// binary and rootless Podman spawns it with the same argv. So it leaked, one
+/// process per container, forever. Measured 2026-11-23: the chaos harness left
+/// 19 on a clean host and the engine's own `net netns down` answered «torn
+/// down» with all 19 alive (#1035).
+fn slirp_api_sock(pid: i32, publish: &[String]) -> Option<std::path::PathBuf> {
+    let _ = publish;
+    let sock = slirp_container_sock(pid);
+    if sock.as_os_str().len() > SUN_PATH_MAX {
+        // Degrade to no token instead of refusing to start the container: a
+        // pathological TMPDIR is not a reason to break a `run` that worked
+        // yesterday. It can leak, and it says so.
+        // `tracing`, not `eprintln!`: a library does not write to the terminal
+        // — the interface does. The `library_prints` ratchet caught this one.
+        tracing::warn!(
+            bytes = sock.as_os_str().len(),
+            max = SUN_PATH_MAX,
+            "slirp api-socket path is too long — this container's slirp will carry \
+             no ownership token and can leak if its supervisor dies (see TMPDIR)"
+        );
+        return None;
+    }
+    Some(sock)
+}
+
 pub fn slirp_attach(pid: i32, publish: &[String]) -> Result<()> {
-    // If there are ports to publish, we open the slirp api-socket to ask it for the
-    // *host-forwards* (port publishing WITHOUT root, like rootless Podman).
-    let api_sock = if publish.is_empty() {
-        None
-    } else {
-        Some(slirp_container_sock(pid))
-    };
+    // ALWAYS, even with no port to publish. The api-socket is what the slirp
+    // publishes host-forwards through (rootless Podman's model), and it is ALSO
+    // the only ownership token the process carries — see `Slirp::is_ours`.
+    // Without it, a slirp of ours whose supervisor died and whose netns outlived
+    // it could never be claimed by `reap_orphan_slirp`, and the refusal is right
+    // (`slirp4netns` is not our binary; Podman spawns it with the same argv). So
+    // it leaked, one process per container, forever: measured 2026-11-23, the
+    // chaos harness left 19 of them on a clean host and the engine's own
+    // `net netns down` answered «torn down» with all 19 still alive (#1035).
+    let api_sock = slirp_api_sock(pid, publish);
     let mut fds = [0i32; 2];
     // SAFETY: pipe() fills 2 fds.
     if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
@@ -2088,16 +2143,10 @@ pub fn slirp_attach(pid: i32, publish: &[String]) -> Result<()> {
         });
     }
     let (rd, wr) = (fds[0], fds[1]);
-    let mut args = vec![
-        "--configure".to_string(),
-        "--mtu=65520".to_string(),
-        "--disable-host-loopback".to_string(),
-        format!("--ready-fd={wr}"),
-    ];
     if let Some(sock) = &api_sock {
         let _ = std::fs::remove_file(sock);
-        args.push(format!("--api-socket={}", sock.display()));
     }
+    let mut args = slirp_attach_args(api_sock.as_deref(), wr);
     // Defence-in-depth (podman rootless default), the SAME hardening as the holder
     // slirp in `infra::start_slirp` (R5): own mount namespace with caps dropped
     // (`--enable-sandbox`) and a seccomp filter (`--enable-seccomp`), gated on the
@@ -2449,10 +2498,14 @@ impl Slirp {
     /// (`--configure`, `--mtu`, the trailing `<pid> tap0`) is what ANY caller of
     /// slirp4netns writes, Podman included.
     ///
-    /// A slirp of ours started WITHOUT ports has no api-socket and so answers
-    /// `false` here. That is the honest answer — nothing on it identifies it — and
-    /// it costs nothing where it matters: the caller that has to free a held host
-    /// port is `reap_slirp_for`, which knows its target by pid and never asks this.
+    /// Every per-container slirp of ours carries one SINCE #1035, ports or not:
+    /// the old «no ports, no socket, so not ours» was the honest answer to a
+    /// question nobody could answer, and it meant a slirp whose supervisor died
+    /// and whose netns outlived it could never be claimed — one leaked process
+    /// per container, measured at 19 after a single chaos run on a clean host.
+    /// A slirp started by an OLDER binary still carries none and still answers
+    /// `false`; that is the same honest answer, and `reap_slirp_for` (which
+    /// knows its target by pid) remains the way to free a held host port.
     fn is_ours(&self) -> bool {
         let Some(sock) = &self.api_sock else {
             return false;
@@ -4382,6 +4435,31 @@ mod tests_slirp_ownership {
             "tap0".into(),
         ];
         assert!(parse(&argv).unwrap().is_ours());
+    }
+
+    /// #1035: a container with NO published ports still gets an api-socket, so
+    /// the reaper can claim its slirp. Without it the process is indistinguishable
+    /// from another engine's and is deliberately left alone — which is why it
+    /// leaked forever whenever the supervisor died before the netns did.
+    #[test]
+    fn a_slirp_without_published_ports_is_still_ours() {
+        let _env = crate::testenv::lock();
+        let target = 4242;
+        // The DECISION, with an EMPTY publish — not a socket handed in by the
+        // test. Passing `Some(...)` here would assert «a slirp with a socket is
+        // ours», which was always true: the test would pass with the fix
+        // reverted and prove nothing.
+        let sock = slirp_api_sock(target, &[]).expect("a port-less slirp still gets one");
+        let mut argv = vec!["slirp4netns".to_string()];
+        argv.extend(slirp_attach_args(Some(&sock), 9));
+        argv.push(target.to_string());
+        argv.push("tap0".into());
+        let s = parse(&argv).expect("it is a slirp4netns");
+        assert_eq!(s.target, target);
+        assert!(
+            s.is_ours(),
+            "a port-less slirp has to be claimable, or it leaks: {argv:?}"
+        );
     }
 
     /// The finding. Same binary, same argv shape, socket somewhere else.

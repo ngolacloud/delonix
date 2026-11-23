@@ -199,6 +199,9 @@ msgstr "erro"
 
 # ---- wrappers `#[error(...)]` de delonix-runtime-core::Error (ver po::t_dyn) -
 
+msgid "  and {n} orphan slirp(s) reaped"
+msgstr "  e {n} slirp(s) órfão(s) ceifado(s)"
+
 msgid "no such "
 msgstr "não existe "
 
