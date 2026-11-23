@@ -52,6 +52,7 @@ stdlib only, like `sbom.py`/`release_verify.py`/`verify_release_assets.py`.
 """
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -204,12 +205,32 @@ def ci_is_green(repo: str, commit: str) -> tuple[bool, str]:
             runs.extend(json.loads(chunk).get("check_runs", []))
         except json.JSONDecodeError:
             pass
+    # A check-run belonging to the run that is ASKING is not evidence about the
+    # commit — it is this job, in progress, looking at itself. GitHub attaches a
+    # `workflow_dispatch` run's check-runs to the head SHA of the ref it was
+    # dispatched from, so when that ref sits exactly on the tag's commit the
+    # guard sees its own run with `conclusion: null` and reads it as red.
+    #
+    # Measured 2026-11-23 publishing v0.2.0: `head_sha` of the dispatch was the
+    # tag's commit and the gate answered «3 check(s) not green: arch fitness,
+    # guard (the tag is real)» — naming itself. Every release before it passed
+    # only because `main` had moved on after the tag was cut (v0.1.1: head_sha
+    # 6c2b8045, tag commit 5d320001), so the defect was hidden by accident, and
+    # it bites precisely when the release is done properly — aligning the
+    # published line with the validated commit and tagging THAT.
+    own = os.environ.get("GITHUB_RUN_ID", "").strip()
+    skipped_own = 0
+    if own:
+        keep = [r for r in runs if f"/runs/{own}/" not in (r.get("details_url") or "")]
+        skipped_own = len(runs) - len(keep)
+        runs = keep
+    mine = f" ({skipped_own} from this run ignored)" if skipped_own else ""
     if not runs:
-        return False, "no check-runs found for the commit (did CI run on the tag?)"
+        return False, f"no check-runs found for the commit (did CI run on the tag?){mine}"
     bad = [r["name"] for r in runs if r.get("conclusion") not in ("success", "neutral", "skipped")]
     if bad:
-        return False, f"{len(bad)} check(s) not green: {', '.join(sorted(set(bad))[:6])}"
-    return True, f"{len(runs)} check-run(s) all green"
+        return False, f"{len(bad)} check(s) not green: {', '.join(sorted(set(bad))[:6])}{mine}"
+    return True, f"{len(runs)} check-run(s) all green{mine}"
 
 
 def cmd_check(args) -> int:

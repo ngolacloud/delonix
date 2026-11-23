@@ -9,6 +9,7 @@ needs neither `gh` nor the network.
 
 Run: python3 scripts/test_release_gate.py
 """
+import json
 import sys
 import tempfile
 import unittest
@@ -174,6 +175,48 @@ class CiGreenTests(unittest.TestCase):
             green, detail = rg.ci_is_green("o/r", SHA_A)
             self.assertFalse(green)
             self.assertIn("gh", detail)
+
+    @staticmethod
+    def _runs(*items):
+        """A fake `gh api .../check-runs` reply: one JSON line, like --paginate."""
+        return json.dumps({"check_runs": [
+            {"name": n, "conclusion": c,
+             "details_url": f"https://github.com/o/r/actions/runs/{run}/job/9"}
+            for n, c, run in items
+        ]})
+
+    def _ask(self, payload, env):
+        proc = mock.Mock(returncode=0, stdout=payload, stderr="")
+        with mock.patch.object(rg.shutil, "which", return_value="/usr/bin/gh"), \
+             mock.patch.object(rg.subprocess, "run", return_value=proc), \
+             mock.patch.dict(rg.os.environ, env, clear=False):
+            return rg.ci_is_green("o/r", SHA_A)
+
+    def test_the_asking_runs_own_check_is_not_evidence_about_the_commit(self):
+        # CI green on the commit, plus THIS run's own guard still in progress.
+        payload = self._runs(("CI", "success", "111"), ("guard", None, "222"))
+        # Without knowing which run is asking, the guard reads itself as red —
+        # the state measured publishing v0.2.0.
+        green, detail = self._ask(payload, {"GITHUB_RUN_ID": ""})
+        self.assertFalse(green, detail)
+        self.assertIn("guard", detail)
+        # Knowing it, the same reply is green, and it SAYS what it ignored.
+        green, detail = self._ask(payload, {"GITHUB_RUN_ID": "222"})
+        self.assertTrue(green, detail)
+        self.assertIn("1 from this run ignored", detail)
+
+    def test_ignoring_our_own_run_never_turns_a_real_red_green(self):
+        payload = self._runs(("CI", "failure", "111"), ("guard", None, "222"))
+        green, detail = self._ask(payload, {"GITHUB_RUN_ID": "222"})
+        self.assertFalse(green, detail)
+        self.assertIn("CI", detail)
+
+    def test_a_commit_with_only_our_own_run_is_not_green(self):
+        # Nothing but the asking run: no evidence at all, so it must NOT pass.
+        payload = self._runs(("guard", None, "222"))
+        green, detail = self._ask(payload, {"GITHUB_RUN_ID": "222"})
+        self.assertFalse(green, detail)
+        self.assertIn("no check-runs found", detail)
 
 
 if __name__ == "__main__":
