@@ -159,8 +159,24 @@ fn teardown(c: &Container, slirp_pid: Option<i32>, leases: Leases) {
                 crate::reap_orphan_slirp();
             }
         },
-        // With no published ports there's no slirp with an api-socket holding anything.
-        PortHome::Nowhere => {}
+        // There is no PORT to release here — that is the whole difference from
+        // `OwnSlirp` — but since #1035 there IS a slirp of its own, and it does
+        // carry an api-socket: that is what made it claimable in the first
+        // place. This arm used to do nothing, on the strength of «with no
+        // published ports there's no slirp with an api-socket holding
+        // anything», and the premise stopped being true the day the socket
+        // became unconditional. Measured 2026-11-23: a `container rm -f` of a
+        // port-less container left its slirp alive 15 s later, and it only went
+        // on the next `net netns down` or `system prune` — so it accumulated,
+        // which is the leak #1035 exists to close, one arm short.
+        PortHome::Nowhere => match slirp_pid {
+            Some(pid) => {
+                crate::reap_slirp_for(pid);
+            }
+            None => {
+                crate::reap_orphan_slirp();
+            }
+        },
     }
 }
 
@@ -173,7 +189,15 @@ fn teardown(c: &Container, slirp_pid: Option<i32>, leases: Leases) {
 /// found it gone. After them the record says `pid: None` and the slirp can
 /// only be found by its dead target.
 pub fn reap_own_slirp(c: &Container, pid: i32) {
-    if port_home(c.network.is_some(), c.pod.is_some(), !c.ports.is_empty()) == PortHome::OwnSlirp {
+    // `Nowhere` as well as `OwnSlirp`: both are «no custom network, no pod», and
+    // that is what decides whether the container has a slirp OF ITS OWN. The
+    // ports decide only whether there is something published to release. A
+    // `--net none` container has no slirp at all, and reaping by its pid finds
+    // nothing — a no-op, not a wrong signal.
+    if matches!(
+        port_home(c.network.is_some(), c.pod.is_some(), !c.ports.is_empty()),
+        PortHome::OwnSlirp | PortHome::Nowhere
+    ) {
         crate::reap_slirp_for(pid);
     }
 }
