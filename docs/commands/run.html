@@ -429,7 +429,7 @@ General:
           Working directory the container&#x27;s process starts in (default: the image&#x27;s own configured workdir, or `/`). Persists in the record — an `exec -w` overrides it for that one call only
 
       --rm
-          Remove the container when the process exits (with `-d`, a detached watcher handles removal when the container dies)
+          Remove the container when the process exits (with `-d`, its supervisor does). Refused with a `--restart` policy other than `no`, as in Docker
 
       --pull &lt;PULL&gt;
           When to pull the image (Docker/Podman `--pull`): `missing` (default — pull only if absent), `always` (pull before starting), `never` (fail if absent, never fetch)

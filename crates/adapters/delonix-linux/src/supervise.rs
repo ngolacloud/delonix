@@ -11,6 +11,9 @@ use delonix_compute::Container;
 use delonix_state::Store;
 use std::path::Path;
 
+/// Removes a container as `rm -f` does, given the pid its last incarnation had.
+pub type RemoveHook<'a> = dyn Fn(&Container, Option<i32>) + 'a;
+
 /// What the supervisor needs from its caller.
 pub struct Supervision<'a> {
     /// Where the event log lives (`die`, and `start` for each policy restart).
@@ -29,6 +32,12 @@ pub struct Supervision<'a> {
     /// record drops it with the exit — so what was attached to the process from
     /// outside (its slirp) is released from here.
     pub on_exit: &'a dyn Fn(&Container, i32),
+    /// `--rm`: removes the container the way `rm -f` does (record, published
+    /// ports, root filesystem, directory), given the pid its last incarnation
+    /// had. `None` without `--rm`. Called once, when the supervisor is about to
+    /// exit after an incarnation ended and none follows — see
+    /// [`remove_after_last_exit`].
+    pub remove: Option<&'a RemoveHook<'a>>,
 }
 
 /// The operation a failed detached start is reported as.
@@ -61,6 +70,46 @@ pub(crate) fn resume_restart(current: Option<&Container>) -> bool {
     match current {
         None => false,
         Some(cur) => !cur.stopped_by_user && !cur.is_live(),
+    }
+}
+
+/// Whether a `--rm` supervisor removes the container as it leaves, given the
+/// container's record as it is NOW.
+///
+/// A record that is gone was already removed (`rm -f`), and a live one belongs
+/// to an incarnation a `container start` brought up with its own supervisor —
+/// removing it would kill a container somebody just started. Every other record
+/// names a process that has exited for the last time.
+pub(crate) fn remove_after_last_exit(current: Option<&Container>) -> bool {
+    current.is_some_and(|cur| !cur.is_live())
+}
+
+/// The end of a supervisor whose container has exited and will not be
+/// restarted: honours `--rm`, then exits. `waited` is the pid of the
+/// incarnation that just ended — the record no longer carries it.
+///
+/// Without this, a supervised `run -d --rm` was never removed: the CLI returns
+/// as soon as the supervisor takes over, before the `--rm` branch that arms
+/// the removal for an unsupervised start, and the supervisor only exited
+/// (measured on develop at 6b8d18f3: `Exited (3)` still listed after the exit).
+fn leave(store: &Store, c: &Container, sup: &Supervision<'_>, waited: Option<i32>) -> ! {
+    honour_rm(store, &c.id, sup, waited);
+    std::process::exit(0)
+}
+
+/// The `--rm` half of [`leave`], which cannot be tested since it exits: calls
+/// [`Supervision::remove`] on the record as it is now, when there is one to
+/// remove. Returns whether it did.
+fn honour_rm(store: &Store, id: &str, sup: &Supervision<'_>, waited: Option<i32>) -> bool {
+    let Some(remove) = sup.remove else {
+        return false;
+    };
+    match store.load(id).ok() {
+        Some(cur) if remove_after_last_exit(Some(&cur)) => {
+            remove(&cur, waited);
+            true
+        }
+        _ => false,
     }
 }
 
@@ -241,12 +290,12 @@ pub fn run_supervised(
                 Some(&format!("exit={}", status.exit_code())),
             );
             if !delonix_compute::launch::should_restart(policy, &status, restarts) {
-                std::process::exit(0);
+                leave(store, c, sup, waited);
             }
             // Desired state trumps the policy: if the record disappeared (`rm -f`)
             // or the user asked for `stop`, don't resurrect — that's docker's semantics.
             if !resume_restart(store.load(&c.id).ok().as_ref()) {
-                std::process::exit(0);
+                leave(store, c, sup, waited);
             }
             restarts += 1;
             // The previous incarnation's port was released by `on_exit` above
@@ -267,7 +316,7 @@ pub fn run_supervised(
             reap_finished_children();
             let current = store.load(&c.id).ok();
             if !resume_restart(current.as_ref()) {
-                std::process::exit(0);
+                leave(store, c, sup, waited);
             }
             // Restart from the record as it is NOW, not from the copy this
             // supervisor has carried since the first start: `create_with` writes
@@ -570,6 +619,83 @@ mod tests {
             !resume_restart(Some(&started)),
             "a live incarnation is not doubled"
         );
+    }
+
+    #[test]
+    fn rm_removes_only_a_record_whose_process_is_gone() {
+        let base = Container::new(
+            "id1".into(),
+            "c".into(),
+            "alpine".into(),
+            vec!["true".into()],
+            "64M".into(),
+        );
+        assert!(
+            remove_after_last_exit(Some(&base)),
+            "an exited container goes"
+        );
+        assert!(!remove_after_last_exit(None), "nothing left to remove");
+        let mut stopped = base.clone();
+        stopped.stopped_by_user = true;
+        assert!(
+            remove_after_last_exit(Some(&stopped)),
+            "a stop ends a --rm container too, as in docker"
+        );
+        let mut started = base.clone();
+        started.pid = Some(std::process::id() as i32);
+        started.pid_starttime = delonix_node::proc_starttime(std::process::id() as i32);
+        assert!(
+            !remove_after_last_exit(Some(&started)),
+            "an incarnation somebody started again is not killed"
+        );
+    }
+
+    /// The supervisor's last step calls the removal with the record as it is
+    /// now and the pid the record no longer carries — and only under `--rm`.
+    #[test]
+    fn the_last_exit_removes_the_container_under_rm_only() {
+        let root = tempfile::tempdir().unwrap();
+        let store = Store::open(root.path().join("containers")).unwrap();
+        let c = Container::new(
+            "id1".into(),
+            "job".into(),
+            "alpine".into(),
+            vec!["true".into()],
+            "64M".into(),
+        );
+        store.save(&c).unwrap();
+        let removed = std::cell::RefCell::new(Vec::new());
+        let remove = |cur: &Container, pid: Option<i32>| {
+            removed.borrow_mut().push((cur.id.clone(), pid));
+        };
+        let noop_c = |_: &Container| {};
+        let noop_id = |_: &str| {};
+        let noop_exit = |_: &Container, _: i32| {};
+        let without_rm = Supervision {
+            state_root: root.path(),
+            on_first_start: &noop_c,
+            silent_death: "",
+            discard: &noop_id,
+            on_exit: &noop_exit,
+            remove: None,
+        };
+        let with_rm = Supervision {
+            remove: Some(&remove),
+            ..without_rm
+        };
+
+        assert!(!honour_rm(&store, "id1", &without_rm, Some(42)));
+        assert!(removed.borrow().is_empty(), "no --rm, no removal");
+
+        assert!(honour_rm(&store, "id1", &with_rm, Some(42)));
+        assert_eq!(*removed.borrow(), [("id1".to_string(), Some(42))]);
+
+        store.remove("id1").unwrap();
+        assert!(
+            !honour_rm(&store, "id1", &with_rm, Some(42)),
+            "a record `rm -f` already took is left alone"
+        );
+        assert_eq!(removed.borrow().len(), 1);
     }
 
     #[test]
