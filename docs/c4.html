@@ -828,6 +828,284 @@ common root.</p>
     plane (flow d, below).</li>
 </ul>
 <hr />
+<h2>Diagrams — Docker vs Delonix, and Kubernetes with Delonix</h2>
+<p>Two drawings that answer, at a glance, why the engine is <strong>daemonless</strong> and
+<strong>rootless-first</strong>, in the style of the classic "Docker vs Kubernetes" comparison:
+solid title bar per panel, dashed boxes for logical boundaries, dashed arrows (panel
+colour = control flow, green = data or client traffic), the kernel as a grey band at the
+bottom. The labels inside the drawings are in Portuguese (pt-AO), like the operator docs.</p>
+<ul>
+<li>Source of the drawings: <a href="diagrams/gen_diagrams.py"><code>docs/diagrams/gen_diagrams.py</code></a>
+  — one call per box, group and arrow, with explicit coordinates. Edit it and run
+  <code>python3 docs/diagrams/gen_diagrams.py</code>; commit the regenerated <code>.svg</code>.</li>
+<li>Each drawing has a text twin in Mermaid, next to it.</li>
+<li>Every box and every arrow is in the confirmation table below; what could not be
+  confirmed in the code is not drawn. Line numbers are as of commit <code>6ae1321d</code>.</li>
+</ul>
+<h3>A — Docker vs Delonix</h3>
+<p><img alt="Docker vs Delonix: the Docker CLI reaches the container through dockerd, containerd and runc; the delonix CLI clones the container itself" src="diagrams/delonix-vs-docker.svg" /></p>
+<p>Text twin: <a href="diagrams/delonix-vs-docker.mermaid"><code>docs/diagrams/delonix-vs-docker.mermaid</code></a>.</p>
+<p>How to read it:</p>
+<ul>
+<li><strong>Hops between the CLI and the container.</strong> Docker: five (<code>dockerd</code>, <code>containerd</code>,
+  <code>containerd-shim</code>, <code>runc</code>), two of them resident daemons; the Docker CLI is drawn
+  outside the host because it is a client of the <code>dockerd</code> socket. Delonix, in the
+  foreground: one — the CLI itself does <code>clone</code> + namespaces + <code>pivot_root</code> + cgroups v2
+  through <code>delonix-linux</code>. Detached (<code>-d</code>): two, drawn as a path of their own — the CLI
+  forks a <strong>supervisor (a copy of itself)</strong> and the supervisor does the same clone,
+  staying as the container's parent to collect its real exit status. The supervisor is
+  the counterpart of Docker's <code>containerd-shim</code>: one per container, gone with it, not a
+  shared daemon. Either way the Delonix CLI runs on the host, inside the <code>Host</code> box.</li>
+<li><strong>Everything else is optional and on demand</strong> (faded cards). The per-container
+  helpers (log shim, per-container <code>slirp4netns</code>, the <code>--rm</code> watcher) are forked when a
+  container needs them; the rootless network plane (<code>netns pin</code>, <code>netns control</code>, ONE
+  shared <code>slirp4netns</code>) is brought up by <code>ensure_up</code> and ref-counted; a microVM is
+  another kind of workload, one process (or libvirt domain) per VM, started through a
+  <code>VmBackend</code>. State is a directory of JSON files, not a daemon socket.</li>
+</ul>
+<h3>B — Kubernetes with Delonix</h3>
+<p><img alt="Kubernetes with Delonix: the kubelet talks gRPC CRI to delonix-cri on each node, with no containerd; delonix cluster provisions the nodes over ssh and kubeadm" src="diagrams/delonix-kubernetes.svg" /></p>
+<p>Text twin: <a href="diagrams/delonix-kubernetes.mermaid"><code>docs/diagrams/delonix-kubernetes.mermaid</code></a>.</p>
+<p>How to read it:</p>
+<ul>
+<li>Grey is Kubernetes (Deployment, Control Plane, kubelet, Ingress, Service): context,
+  not code of this repository. Purple and green are Delonix.</li>
+<li>On each node the kubelet speaks <code>runtime.v1</code> to <code>delonix-cri</code> on
+  <code>unix:///run/delonix-cri.sock</code> — there is <strong>no containerd</strong>. The CRI server is
+  multi-threaded, so every start goes to a fresh, single-threaded <code>delonix __apirun</code>
+  process, which does the clone. Before answering the kubelet, the CRI reconciles the
+  record against the kernel (<code>load_reconciled</code> → <code>reconcile_status</code>).</li>
+<li><code>delonix cluster</code> bootstraps the nodes over ssh + kubeadm (<code>init</code>/<code>join</code>), with
+  <code>criSocket</code> pointing at <code>delonix-cri</code>.</li>
+<li>The drawing has exactly one arrow-on-arrow crossing (drawn as a hop; arrows do cross
+  group borders, which is allowed): three sources — API Server, <code>delonix cluster</code>, the
+  client — each reach both nodes, and with two nodes stacked one crossing cannot be
+  avoided without crossing a card. That client arrow (Service → Pod B) is the longest
+  line, so it is drawn thinner and lighter.</li>
+</ul>
+<h3>C — Crate layers</h3>
+<p>Text only: <a href="diagrams/delonix-crate-layers.mermaid"><code>docs/diagrams/delonix-crate-layers.mermaid</code></a>.
+It counts the real normal dependencies between the layers (dev-dependencies excluded).
+The direction is <code>bins</code> → <code>assembly</code>/<code>interfaces</code> → <code>adapters</code> → <code>contexts</code> →
+<code>foundation</code>, with <code>providers</code> beside the adapters: the contexts (which own the ports)
+sit <strong>below</strong> the adapters (which implement them). There is no cycle between crates; at
+layer level <code>adapters</code> and <code>providers</code> point at each other through different crates
+(<code>delonix-vm</code> → the Cloud Hypervisor and libvirt providers it registers;
+<code>delonix-provider-libvirt</code> → <code>delonix-host</code>). The interfaces no longer reach the
+engine adapters directly: only <code>delonix-host</code>, <code>delonix-telemetry</code> and
+<code>delonix-pool-helper</code>. To recount:</p>
+<pre><code class="language-bash">cargo metadata --no-deps --format-version 1 --offline | python3 -c '
+import json, os, sys, collections
+m = json.load(sys.stdin); root = m[&quot;workspace_root&quot;]; pk = {p[&quot;name&quot;]: p for p in m[&quot;packages&quot;]}
+def layer(p):
+    r = os.path.relpath(os.path.dirname(p[&quot;manifest_path&quot;]), root).split(&quot;/&quot;)
+    return r[1] if r[0] == &quot;crates&quot; else r[0]
+c = collections.Counter((layer(p), layer(pk[d[&quot;name&quot;]])) for p in pk.values()
+                        for d in p[&quot;dependencies&quot;] if d[&quot;name&quot;] in pk and d.get(&quot;kind&quot;) is None)
+for (a, b), n in sorted(c.items()): print(f&quot;{a} -&gt; {b}: {n}&quot;)'
+</code></pre>
+<h3>Confirmation table — element → where it was confirmed</h3>
+<p>Names below are the English equivalents of the labels in the drawings.</p>
+<table>
+<thead>
+<tr>
+<th>Diagram</th>
+<th>Element</th>
+<th>Confirmed in</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A</td>
+<td>Docker panel: CLI (client of the socket), host, dockerd, containerd, containerd-shim, runc, container, kernel band, and their arrows</td>
+<td>External — the reference image plus Docker's public architecture (the shim added so the comparison does not flatter Delonix); not code of this repository</td>
+</tr>
+<tr>
+<td>A</td>
+<td>Banner "no daemon: no mandatory resident process"</td>
+<td>Level 2 above and ADR-1; the only long-running units shipped are opt-in: <a href="https://github.com/ngolacloud/delonix/blob/main/dist/"><code>dist/</code></a> (<code>delonix-cri.service</code>, socket-activated <code>delonix-node-api</code> and <code>delonix-storage-helper</code>)</td>
+</tr>
+<tr>
+<td>A</td>
+<td>Host box around the Delonix side (the CLI runs on the host)</td>
+<td>the CLI clones locally: <code>clone</code> at <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/lib.rs#L9759"><code>delonix-linux/src/lib.rs:9759</code></a>, called in-process from <code>cmd_run</code></td>
+</tr>
+<tr>
+<td>A</td>
+<td>delonix CLI, ephemeral (<code>container run</code>)</td>
+<td><a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/main.rs#L2228"><code>bins/delonix/src/main.rs:2228</code></a>; <code>cmd_run</code> in <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L3622"><code>bins/delonix/src/cmd/container.rs:3622</code></a></td>
+</tr>
+<tr>
+<td>A</td>
+<td>Arrow CLI → container (foreground)</td>
+<td><code>launch::start</code> at <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L4374"><code>container.rs:4374</code></a> → <a href="https://github.com/ngolacloud/delonix/blob/main/crates/contexts/delonix-compute/src/domain/launch.rs#L193"><code>delonix-compute/src/domain/launch.rs:193</code></a> → <code>HostWorkload::create</code> in <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/workload.rs#L52"><code>delonix-linux/src/workload.rs:52</code></a></td>
+</tr>
+<tr>
+<td>A</td>
+<td>Arrows CLI → supervisor ("fork") → container ("clone"), for <code>-d</code></td>
+<td><code>should_supervise</code> (detach) <a href="https://github.com/ngolacloud/delonix/blob/main/crates/contexts/delonix-compute/src/domain/launch.rs#L165"><code>launch.rs:165</code></a>; <code>fork</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/supervise.rs#L103"><code>supervise.rs:103</code></a>; <code>create_with</code> inside the fork <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/supervise.rs#L132"><code>supervise.rs:132</code></a></td>
+</tr>
+<tr>
+<td>A</td>
+<td>Arrow CLI → per-container group</td>
+<td>log shim forked by the in-process spawn <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/lib.rs#L8966"><code>delonix-linux/src/lib.rs:8966</code></a>; slirp hook <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L3563"><code>container.rs:3563</code></a>; watcher <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L4802"><code>container.rs:4802</code></a></td>
+</tr>
+<tr>
+<td>A</td>
+<td>Arrow CLI → microVM</td>
+<td><code>delonix_vm::create</code> from the CLI <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/vm.rs#L3468"><code>bins/delonix/src/cmd/vm.rs:3468</code></a></td>
+</tr>
+<tr>
+<td>A</td>
+<td>clone + namespaces</td>
+<td><code>clone_flags</code> (NEWNS/UTS/PID/IPC/NET/USER) in <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/lib.rs#L9558"><code>delonix-linux/src/lib.rs:9558</code></a>; <code>clone</code> at <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/lib.rs#L9759"><code>lib.rs:9759</code></a></td>
+</tr>
+<tr>
+<td>A</td>
+<td>pivot_root</td>
+<td><a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/lib.rs#L2908"><code>delonix-linux/src/lib.rs:2908</code></a> (runs inside the clone)</td>
+</tr>
+<tr>
+<td>A</td>
+<td>cgroups v2</td>
+<td><code>setup_cgroup</code> in <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/lib.rs#L7877"><code>delonix-linux/src/lib.rs:7877</code></a> (unified files: <code>memory.max</code>, <code>cgroup.subtree_control</code>)</td>
+</tr>
+<tr>
+<td>A</td>
+<td>State group, <code>$DELONIX_ROOT</code> (JSON), read and written by the CLI</td>
+<td><code>Store</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-state/src/store.rs#L298"><code>delonix-state/src/store.rs:298</code></a>, <code>JsonStore&lt;T&gt;</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-state/src/store.rs#L681"><code>:681</code></a>, <code>default_root</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-state/src/store.rs#L314"><code>:314</code></a>, <code>flock</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-state/src/store.rs#L23"><code>:23</code></a>; <code>images/</code> in <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-oci/src/image.rs#L152"><code>delonix-oci/src/image.rs:152</code></a>; <code>cri/</code> in <a href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L663"><code>lifecycle.rs:663</code></a></td>
+</tr>
+<tr>
+<td>A</td>
+<td>Supervisor (<code>-d</code>, one per detached container)</td>
+<td><code>run_supervised</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/supervise.rs#L81"><code>delonix-linux/src/supervise.rs:81</code></a>; module doc <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/supervise.rs#L1"><code>supervise.rs:1</code></a></td>
+</tr>
+<tr>
+<td>A</td>
+<td>Log shim</td>
+<td><code>log_shim</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/lib.rs#L1445"><code>delonix-linux/src/lib.rs:1445</code></a>, started at <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/lib.rs#L8966"><code>:8966</code></a></td>
+</tr>
+<tr>
+<td>A</td>
+<td><code>--rm</code> watcher (only with <code>--no-supervisor</code>)</td>
+<td><code>spawn_rm_watcher</code> <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L4802"><code>container.rs:4802</code></a>, reached only on the unsupervised detached path <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L4388"><code>container.rs:4388</code></a></td>
+</tr>
+<tr>
+<td>A</td>
+<td>Per-container <code>slirp4netns</code></td>
+<td><code>slirp_attach</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/lib.rs#L2180"><code>delonix-sdn/src/lib.rs:2180</code></a>, hooked at <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L3563"><code>container.rs:3563</code></a></td>
+</tr>
+<tr>
+<td>A</td>
+<td>Rootless network group: <code>netns pin</code>, <code>netns control</code>, single <code>slirp4netns</code></td>
+<td><code>PidKind</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L451"><code>delonix-sdn/src/infra.rs:451</code></a>; re-exec <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/main.rs#L2259"><code>main.rs:2259</code></a>, <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/main.rs#L2269"><code>:2269</code></a>; <code>start_slirp</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L2588"><code>infra.rs:2588</code></a>; pin creates its own namespaces: <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/pin_userns.rs"><code>pin_userns.rs</code></a></td>
+</tr>
+<tr>
+<td>A</td>
+<td>Arrow CLI → rootless network ("on demand", ref-counted)</td>
+<td><code>ensure_up</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L1929"><code>infra.rs:1929</code></a>; <code>acquire</code>/<code>release</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L1779"><code>:1779</code></a>, <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L1790"><code>:1790</code></a></td>
+</tr>
+<tr>
+<td>A</td>
+<td>Bridge <code>delonix0</code>, nft, DHCP, DNS</td>
+<td><a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L28"><code>infra.rs:28</code></a>, <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L1336"><code>:1336</code></a>, <code>start_dhcp</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L3634"><code>:3634</code></a>, <code>dns_server_main</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L9817"><code>:9817</code></a></td>
+</tr>
+<tr>
+<td>A</td>
+<td>microVM through <code>VmBackend</code> (Cloud Hypervisor or libvirt)</td>
+<td>trait <a href="https://github.com/ngolacloud/delonix/blob/main/crates/contexts/delonix-compute/src/domain/vm_backend.rs#L558"><code>delonix-compute/src/domain/vm_backend.rs:558</code></a>; <a href="https://github.com/ngolacloud/delonix/blob/main/crates/providers/delonix-provider-cloud-hypervisor/src/lib.rs#L861"><code>delonix-provider-cloud-hypervisor/src/lib.rs:861</code></a>; <a href="https://github.com/ngolacloud/delonix/blob/main/crates/providers/delonix-provider-libvirt/src/lib.rs#L3260"><code>delonix-provider-libvirt/src/lib.rs:3260</code></a>; registered by <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-vm/src/lib.rs#L220"><code>delonix-vm/src/lib.rs:220</code></a></td>
+</tr>
+<tr>
+<td>A</td>
+<td>Kernel band: namespaces, cgroups v2, nftables, seccomp</td>
+<td>rows above; <code>apply_seccomp</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/lib.rs#L429"><code>delonix-linux/src/lib.rs:429</code></a></td>
+</tr>
+<tr>
+<td>B</td>
+<td>Deployment, Control Plane (API Server, etcd, Controller Manager, Scheduler), kubelet, Client, Ingress, Service</td>
+<td>Kubernetes — context, drawn grey; not code of this repository</td>
+</tr>
+<tr>
+<td>B</td>
+<td>Kubernetes arrows: <code>kubectl apply</code>, API Server ↔ etcd / Controller Manager / Scheduler, API Server → kubelet, Client → Ingress → Service → pods</td>
+<td>Kubernetes — context; the pods they reach are the ones <code>delonix-cri</code> starts (rows below)</td>
+</tr>
+<tr>
+<td>B</td>
+<td>Banner "no containerd: the kubelet talks to delonix-cri directly"</td>
+<td>the kubelet endpoint is <code>delonix-cri</code>'s socket (row below) and ADR-6</td>
+</tr>
+<tr>
+<td>B</td>
+<td>kubelet → <code>delonix-cri</code>, gRPC <code>runtime.v1</code></td>
+<td><a href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/lib.rs#L3"><code>delonix-cri/src/lib.rs:3</code></a>, <a href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/lib.rs#L20"><code>:20</code></a>; <code>serve_blocking</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/lib.rs#L603"><code>:603</code></a></td>
+</tr>
+<tr>
+<td>B</td>
+<td><code>unix:///run/delonix-cri.sock</code>, no containerd</td>
+<td><a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix-cri-bin/src/main.rs#L363"><code>bins/delonix-cri-bin/src/main.rs:363</code></a>; <a href="https://github.com/ngolacloud/delonix/blob/main/dist/delonix-cri.service"><code>dist/delonix-cri.service</code></a>; <code>criSocket</code> <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/kubeadm_config.rs#L213"><code>kubeadm_config.rs:213</code></a></td>
+</tr>
+<tr>
+<td>B</td>
+<td><code>delonix-cri</code> → <code>delonix __apirun</code> → pods</td>
+<td><code>delonix_bin</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L807"><code>lifecycle.rs:807</code></a> (→ <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-host/src/dispatch.rs#L33"><code>delonix-host/src/dispatch.rs:33</code></a>); <code>__apirun</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L2362"><code>lifecycle.rs:2362</code></a>; caught in <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/main.rs#L2421"><code>main.rs:2421</code></a></td>
+</tr>
+<tr>
+<td>B</td>
+<td><code>$DELONIX_ROOT/cri</code>, <code>load_reconciled</code> / <code>reconcile_status</code></td>
+<td><a href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L963"><code>lifecycle.rs:963</code></a> → <code>RuntimeOps::reconcile_status</code> in <code>delonix-cri-bin</code> → <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/lib.rs#L13353"><code>delonix-linux/src/lib.rs:13353</code></a></td>
+</tr>
+<tr>
+<td>B</td>
+<td><code>delonix cluster</code> → nodes, ssh + kubeadm <code>init</code>/<code>join</code></td>
+<td><code>apply_one</code> <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/cluster.rs#L2443"><code>cluster.rs:2443</code></a>; <code>kubeadm_init</code> <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/cluster.rs#L4683"><code>:4683</code></a>; <code>kubeadm_join</code> <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/cluster.rs#L4840"><code>:4840</code></a>; <code>ssh</code> <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/remote.rs#L123"><code>remote.rs:123</code></a></td>
+</tr>
+<tr>
+<td>C</td>
+<td>Every layer edge and its count</td>
+<td><code>cargo metadata --no-deps</code> (snippet above)</td>
+</tr>
+</tbody>
+</table>
+<p>Not drawn on purpose (they exist, but are opt-in and would hide the message): the warm
+plane of pre-loaded runners (<code>delonix-warm</code>, ADR-0095, used by the CRI on the rootless
+isolated path); the local servers <code>delonix-mgmt</code>, <code>delonix-mcp</code>, <code>delonix-node-api</code>
+and the socket-activated units in <code>dist/</code>; the Proxmox remote <code>VmBackend</code>; the Docker
+API compatibility path (<code>cmd/dockerapi.rs</code>).</p>
+<h3>Divergences found while drawing (the code wins)</h3>
+<p>Confirmed against the code at <code>6ae1321d</code>; the sections above them were not rewritten
+in this change.</p>
+<ol>
+<li><strong>Level 3 graph.</strong> 24 of its edges no longer exist in the <code>Cargo.toml</code> files and 50
+   real ones are missing. Notably: <code>delonix-bin</code> no longer depends on <code>delonix-cri</code>
+   (<code>delonix serve cri</code> execs the <code>delonix-cri</code> binary — <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/serve.rs#L152"><code>serve.rs:152</code></a>);
+   <code>delonix-cri</code> no longer depends on <code>delonix-linux</code>/<code>-oci</code>/<code>-sdn</code>/<code>-state</code> (its ports
+   are filled by <code>delonix-cri-bin</code>, R3h); <code>delonix-engine</code> does not depend on
+   <code>delonix-mcp</code> nor <code>delonix-mgmt</code>; <code>delonix-mgmt</code> depends only on <code>delonix-host</code>,
+   <code>delonix-telemetry</code>, the contexts and the foundation. The note "<code>delonix-bin</code>
+   DEPENDS on <code>delonix-cri</code>" is stale.</li>
+<li><strong>Level 2 and ADR-3: the holder was split.</strong> Since v0.42.0 the rootless ingress is
+   <code>netns pin</code> (creates and holds the user + network namespaces, <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/pin_userns.rs"><code>pin_userns.rs</code></a>),
+   <code>netns control</code> (the control socket: bridge, nft, DHCP, DNS) and the single
+   <code>slirp4netns</code> (<a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L451"><code>infra.rs:451</code></a>). It is
+   no longer started through <code>unshare(1)</code>.</li>
+<li><strong>Level 2, limitations 4 and 6, ADR-1: there is a detached supervisor.</strong> <code>run -d</code>
+   starts under a supervisor forked from the CLI, which is the container's parent: it
+   collects the real exit status and applies <code>--restart</code>
+   (<a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/supervise.rs#L1"><code>supervise.rs:1</code></a>,
+   <a href="https://github.com/ngolacloud/delonix/blob/main/crates/contexts/delonix-compute/src/domain/launch.rs#L193"><code>launch.rs:193</code></a>). The
+   <code>--rm</code> watcher remains only for <code>--no-supervisor</code>. Limitation 4 ("<code>restart_policy</code>
+   is not consumed") and limitation 6 ("the real exit code is lost in detach") read as
+   stale for this path.</li>
+<li><strong>Limitation 7 and flow (c).</strong> The CRI now calls the grouped forms
+   (<code>container rm</code>, <code>container stop</code>, <code>net netns attach</code>) and starts containers with
+   <code>__apirun &lt;spec.json&gt;</code> (<a href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L2362"><code>lifecycle.rs:2362</code></a>);
+   the root path no longer runs <code>pod create</code> — it uses CNI
+   (<a href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L1226"><code>lifecycle.rs:1226</code></a>).
+   The doc comment of <code>delonix()</code> at <a href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L812"><code>lifecycle.rs:812</code></a>
+   still says "top-level <code>run</code>/<code>stop</code>/<code>rm</code> forms".</li>
+</ol>
+<hr />
 <h2>System design — main flows</h2>
 <h3>(a) rootless <code>container run</code> — default <code>--net private</code></h3>
 <p>By default (rootless, <code>--net private</code>) the container gets a netns of its own served

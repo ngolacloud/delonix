@@ -1,4 +1,4 @@
-<!-- translated-from: project-structure.md sha256:cd0fd7b749374f6c4a530ad21c60f4fdd42aaf92ec3583c2b99676e6480b6abb -->
+<!-- translated-from: project-structure.md sha256:69a5a6a2db851944c3e6a661cfd1b37e8338aad14a3370a8ca923cae1912f7d2 -->
 # 项目结构
 
 **阅读之前：**[克隆、构建与测试](build-and-test.md) —— 你已经有一份能构建的 checkout，也知道
@@ -153,6 +153,7 @@ crate 列表、每个 crate 所在的层，以及谁依赖谁，这些都是生�
 | `docs/dev/` | 本贡献者手册：英文 Markdown 源文件，带 `pt-AO/` 和 `fr-FR/` 翻译，翻译带有 `translated-from` 哈希。`dev-docs:begin`/`dev-docs:end` 标记之间的区域由 `scripts/dev_docs.py` **生成**；其余部分是手写的。 | 手册维护者；生成的区域跟随代码变化，在发布时刷新。 | [发布文档](publishing-docs.md) |
 | `docs/providers/` | `capability-matrix.md`，声明式的 provider 能力矩阵（ADR-0050），由 `delonix provider matrix` **生成**；`delonix-runtime-bin` 里有一个测试，在它与实际输出不一致时会失败。 | 一个声明变化之后运行 `delonix provider matrix > docs/providers/capability-matrix.md`。 | `docs/adr/0050-libvirt-linux-providers-capability-catalog.md` |
 | `docs/discovery/` | 编号、带日期的调查与计划（清单、附带原始结果文件的 spike）。历史记录——不要重写；写一份新的。 | 在结构性变化之前进行调查的人。 | `docs/adr/` |
+| `docs/diagrams/` | 架构图（“Docker vs Delonix”、“Kubernetes 与 Delonix”、crate 分层）：每个 `.svg` 都有一个 `.mermaid` 文本副本，由 `gen_diagrams.py`（仅标准库）**生成**，每个方框和箭头都在 `ARCHITECTURE.md` 的 "Diagrams" 一节中得到确认。不要手工编辑 SVG。 | 编辑 `gen_diagrams.py`，运行 `python3 docs/diagrams/gen_diagrams.py`，并在方框或箭头变化时更新确认表。 | `ARCHITECTURE.md` |
 | `docs/launch/` | 发布叙事（`why-delonix.md`）：产品定位与一句话卖点，每一个数字都是在一台真实宿主机上测量出来的，每一个上限都被点名。是引言和落地页文案的来源。 | 为一次 launch 或发布修订定位的人。 | [发布文档](publishing-docs.md) |
 | `docs/handbook/` | 本手册作为一个网站（`en/`、`pt-AO/`、`fr-FR/`、`zh-CN/`、`index.html`），由 `scripts/dev_docs_site.py` 从 `docs/dev/` **生成**。绝不要编辑 HTML。 | `docs/dev/` 变化之后、以及发布时，用 `python3 scripts/dev_docs_site.py` 重新生成。 | [发布文档](publishing-docs.md) |
 | `docs/labs/` | 可执行的初次接触实验室：每个实验室一个目录（`lab-N/`），其中有 `prepare`/`run`/`verify`/`cleanup` 几步 shell 脚本，共享一个 `_lib/common.sh`，每一步都断言一个**功能性**结果（HTTP 200、真实的 cgroup `memory.max`），否则就大声失败。`docs/labs.html` 页面由 `docs/gen.py` **生成**，把这些内嵌为双语的实验室片段。 | 任何新增或修订一个实验室的人；改各步脚本以及 `docs/gen.py` 里的编辑说明文字，然后重新生成。 | [发布文档](publishing-docs.md) |

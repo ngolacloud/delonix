@@ -418,6 +418,172 @@ Notes for reading the graph (all verified):
 
 ---
 
+## Diagrams — Docker vs Delonix, and Kubernetes with Delonix
+
+Two drawings that answer, at a glance, why the engine is **daemonless** and
+**rootless-first**, in the style of the classic "Docker vs Kubernetes" comparison:
+solid title bar per panel, dashed boxes for logical boundaries, dashed arrows (panel
+colour = control flow, green = data or client traffic), the kernel as a grey band at the
+bottom. The labels inside the drawings are in Portuguese (pt-AO), like the operator docs.
+
+- Source of the drawings: [`docs/diagrams/gen_diagrams.py`](docs/diagrams/gen_diagrams.py)
+  — one call per box, group and arrow, with explicit coordinates. Edit it and run
+  `python3 docs/diagrams/gen_diagrams.py`; commit the regenerated `.svg`.
+- Each drawing has a text twin in Mermaid, next to it.
+- Every box and every arrow is in the confirmation table below; what could not be
+  confirmed in the code is not drawn. Line numbers are as of commit `6ae1321d`.
+
+### A — Docker vs Delonix
+
+![Docker vs Delonix: the Docker CLI reaches the container through dockerd, containerd and runc; the delonix CLI clones the container itself](docs/diagrams/delonix-vs-docker.svg)
+
+Text twin: [`docs/diagrams/delonix-vs-docker.mermaid`](docs/diagrams/delonix-vs-docker.mermaid).
+
+How to read it:
+
+- **Hops between the CLI and the container.** Docker: five (`dockerd`, `containerd`,
+  `containerd-shim`, `runc`), two of them resident daemons; the Docker CLI is drawn
+  outside the host because it is a client of the `dockerd` socket. Delonix, in the
+  foreground: one — the CLI itself does `clone` + namespaces + `pivot_root` + cgroups v2
+  through `delonix-linux`. Detached (`-d`): two, drawn as a path of their own — the CLI
+  forks a **supervisor (a copy of itself)** and the supervisor does the same clone,
+  staying as the container's parent to collect its real exit status. The supervisor is
+  the counterpart of Docker's `containerd-shim`: one per container, gone with it, not a
+  shared daemon. Either way the Delonix CLI runs on the host, inside the `Host` box.
+- **Everything else is optional and on demand** (faded cards). The per-container
+  helpers (log shim, per-container `slirp4netns`, the `--rm` watcher) are forked when a
+  container needs them; the rootless network plane (`netns pin`, `netns control`, ONE
+  shared `slirp4netns`) is brought up by `ensure_up` and ref-counted; a microVM is
+  another kind of workload, one process (or libvirt domain) per VM, started through a
+  `VmBackend`. State is a directory of JSON files, not a daemon socket.
+
+### B — Kubernetes with Delonix
+
+![Kubernetes with Delonix: the kubelet talks gRPC CRI to delonix-cri on each node, with no containerd; delonix cluster provisions the nodes over ssh and kubeadm](docs/diagrams/delonix-kubernetes.svg)
+
+Text twin: [`docs/diagrams/delonix-kubernetes.mermaid`](docs/diagrams/delonix-kubernetes.mermaid).
+
+How to read it:
+
+- Grey is Kubernetes (Deployment, Control Plane, kubelet, Ingress, Service): context,
+  not code of this repository. Purple and green are Delonix.
+- On each node the kubelet speaks `runtime.v1` to `delonix-cri` on
+  `unix:///run/delonix-cri.sock` — there is **no containerd**. The CRI server is
+  multi-threaded, so every start goes to a fresh, single-threaded `delonix __apirun`
+  process, which does the clone. Before answering the kubelet, the CRI reconciles the
+  record against the kernel (`load_reconciled` → `reconcile_status`).
+- `delonix cluster` bootstraps the nodes over ssh + kubeadm (`init`/`join`), with
+  `criSocket` pointing at `delonix-cri`.
+- The drawing has exactly one arrow-on-arrow crossing (drawn as a hop; arrows do cross
+  group borders, which is allowed): three sources — API Server, `delonix cluster`, the
+  client — each reach both nodes, and with two nodes stacked one crossing cannot be
+  avoided without crossing a card. That client arrow (Service → Pod B) is the longest
+  line, so it is drawn thinner and lighter.
+
+### C — Crate layers
+
+Text only: [`docs/diagrams/delonix-crate-layers.mermaid`](docs/diagrams/delonix-crate-layers.mermaid).
+It counts the real normal dependencies between the layers (dev-dependencies excluded).
+The direction is `bins` → `assembly`/`interfaces` → `adapters` → `contexts` →
+`foundation`, with `providers` beside the adapters: the contexts (which own the ports)
+sit **below** the adapters (which implement them). There is no cycle between crates; at
+layer level `adapters` and `providers` point at each other through different crates
+(`delonix-vm` → the Cloud Hypervisor and libvirt providers it registers;
+`delonix-provider-libvirt` → `delonix-host`). The interfaces no longer reach the
+engine adapters directly: only `delonix-host`, `delonix-telemetry` and
+`delonix-pool-helper`. To recount:
+
+```bash
+cargo metadata --no-deps --format-version 1 --offline | python3 -c '
+import json, os, sys, collections
+m = json.load(sys.stdin); root = m["workspace_root"]; pk = {p["name"]: p for p in m["packages"]}
+def layer(p):
+    r = os.path.relpath(os.path.dirname(p["manifest_path"]), root).split("/")
+    return r[1] if r[0] == "crates" else r[0]
+c = collections.Counter((layer(p), layer(pk[d["name"]])) for p in pk.values()
+                        for d in p["dependencies"] if d["name"] in pk and d.get("kind") is None)
+for (a, b), n in sorted(c.items()): print(f"{a} -> {b}: {n}")'
+```
+
+### Confirmation table — element → where it was confirmed
+
+Names below are the English equivalents of the labels in the drawings.
+
+| Diagram | Element | Confirmed in |
+|---|---|---|
+| A | Docker panel: CLI (client of the socket), host, dockerd, containerd, containerd-shim, runc, container, kernel band, and their arrows | External — the reference image plus Docker's public architecture (the shim added so the comparison does not flatter Delonix); not code of this repository |
+| A | Banner "no daemon: no mandatory resident process" | Level 2 above and ADR-1; the only long-running units shipped are opt-in: [`dist/`](dist/) (`delonix-cri.service`, socket-activated `delonix-node-api` and `delonix-storage-helper`) |
+| A | Host box around the Delonix side (the CLI runs on the host) | the CLI clones locally: `clone` at [`delonix-linux/src/lib.rs:9759`](crates/adapters/delonix-linux/src/lib.rs#L9759), called in-process from `cmd_run` |
+| A | delonix CLI, ephemeral (`container run`) | [`bins/delonix/src/main.rs:2228`](bins/delonix/src/main.rs#L2228); `cmd_run` in [`bins/delonix/src/cmd/container.rs:3622`](bins/delonix/src/cmd/container.rs#L3622) |
+| A | Arrow CLI → container (foreground) | `launch::start` at [`container.rs:4374`](bins/delonix/src/cmd/container.rs#L4374) → [`delonix-compute/src/domain/launch.rs:193`](crates/contexts/delonix-compute/src/domain/launch.rs#L193) → `HostWorkload::create` in [`delonix-linux/src/workload.rs:52`](crates/adapters/delonix-linux/src/workload.rs#L52) |
+| A | Arrows CLI → supervisor ("fork") → container ("clone"), for `-d` | `should_supervise` (detach) [`launch.rs:165`](crates/contexts/delonix-compute/src/domain/launch.rs#L165); `fork` [`supervise.rs:103`](crates/adapters/delonix-linux/src/supervise.rs#L103); `create_with` inside the fork [`supervise.rs:132`](crates/adapters/delonix-linux/src/supervise.rs#L132) |
+| A | Arrow CLI → per-container group | log shim forked by the in-process spawn [`delonix-linux/src/lib.rs:8966`](crates/adapters/delonix-linux/src/lib.rs#L8966); slirp hook [`container.rs:3563`](bins/delonix/src/cmd/container.rs#L3563); watcher [`container.rs:4802`](bins/delonix/src/cmd/container.rs#L4802) |
+| A | Arrow CLI → microVM | `delonix_vm::create` from the CLI [`bins/delonix/src/cmd/vm.rs:3468`](bins/delonix/src/cmd/vm.rs#L3468) |
+| A | clone + namespaces | `clone_flags` (NEWNS/UTS/PID/IPC/NET/USER) in [`delonix-linux/src/lib.rs:9558`](crates/adapters/delonix-linux/src/lib.rs#L9558); `clone` at [`lib.rs:9759`](crates/adapters/delonix-linux/src/lib.rs#L9759) |
+| A | pivot_root | [`delonix-linux/src/lib.rs:2908`](crates/adapters/delonix-linux/src/lib.rs#L2908) (runs inside the clone) |
+| A | cgroups v2 | `setup_cgroup` in [`delonix-linux/src/lib.rs:7877`](crates/adapters/delonix-linux/src/lib.rs#L7877) (unified files: `memory.max`, `cgroup.subtree_control`) |
+| A | State group, `$DELONIX_ROOT` (JSON), read and written by the CLI | `Store` [`delonix-state/src/store.rs:298`](crates/adapters/delonix-state/src/store.rs#L298), `JsonStore<T>` [`:681`](crates/adapters/delonix-state/src/store.rs#L681), `default_root` [`:314`](crates/adapters/delonix-state/src/store.rs#L314), `flock` [`:23`](crates/adapters/delonix-state/src/store.rs#L23); `images/` in [`delonix-oci/src/image.rs:152`](crates/adapters/delonix-oci/src/image.rs#L152); `cri/` in [`lifecycle.rs:663`](crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L663) |
+| A | Supervisor (`-d`, one per detached container) | `run_supervised` [`delonix-linux/src/supervise.rs:81`](crates/adapters/delonix-linux/src/supervise.rs#L81); module doc [`supervise.rs:1`](crates/adapters/delonix-linux/src/supervise.rs#L1) |
+| A | Log shim | `log_shim` [`delonix-linux/src/lib.rs:1445`](crates/adapters/delonix-linux/src/lib.rs#L1445), started at [`:8966`](crates/adapters/delonix-linux/src/lib.rs#L8966) |
+| A | `--rm` watcher (only with `--no-supervisor`) | `spawn_rm_watcher` [`container.rs:4802`](bins/delonix/src/cmd/container.rs#L4802), reached only on the unsupervised detached path [`container.rs:4388`](bins/delonix/src/cmd/container.rs#L4388) |
+| A | Per-container `slirp4netns` | `slirp_attach` [`delonix-sdn/src/lib.rs:2180`](crates/adapters/delonix-sdn/src/lib.rs#L2180), hooked at [`container.rs:3563`](bins/delonix/src/cmd/container.rs#L3563) |
+| A | Rootless network group: `netns pin`, `netns control`, single `slirp4netns` | `PidKind` [`delonix-sdn/src/infra.rs:451`](crates/adapters/delonix-sdn/src/infra.rs#L451); re-exec [`main.rs:2259`](bins/delonix/src/main.rs#L2259), [`:2269`](bins/delonix/src/main.rs#L2269); `start_slirp` [`infra.rs:2588`](crates/adapters/delonix-sdn/src/infra.rs#L2588); pin creates its own namespaces: [`pin_userns.rs`](crates/adapters/delonix-sdn/src/pin_userns.rs) |
+| A | Arrow CLI → rootless network ("on demand", ref-counted) | `ensure_up` [`infra.rs:1929`](crates/adapters/delonix-sdn/src/infra.rs#L1929); `acquire`/`release` [`:1779`](crates/adapters/delonix-sdn/src/infra.rs#L1779), [`:1790`](crates/adapters/delonix-sdn/src/infra.rs#L1790) |
+| A | Bridge `delonix0`, nft, DHCP, DNS | [`infra.rs:28`](crates/adapters/delonix-sdn/src/infra.rs#L28), [`:1336`](crates/adapters/delonix-sdn/src/infra.rs#L1336), `start_dhcp` [`:3634`](crates/adapters/delonix-sdn/src/infra.rs#L3634), `dns_server_main` [`:9817`](crates/adapters/delonix-sdn/src/infra.rs#L9817) |
+| A | microVM through `VmBackend` (Cloud Hypervisor or libvirt) | trait [`delonix-compute/src/domain/vm_backend.rs:558`](crates/contexts/delonix-compute/src/domain/vm_backend.rs#L558); [`delonix-provider-cloud-hypervisor/src/lib.rs:861`](crates/providers/delonix-provider-cloud-hypervisor/src/lib.rs#L861); [`delonix-provider-libvirt/src/lib.rs:3260`](crates/providers/delonix-provider-libvirt/src/lib.rs#L3260); registered by [`delonix-vm/src/lib.rs:220`](crates/adapters/delonix-vm/src/lib.rs#L220) |
+| A | Kernel band: namespaces, cgroups v2, nftables, seccomp | rows above; `apply_seccomp` [`delonix-linux/src/lib.rs:429`](crates/adapters/delonix-linux/src/lib.rs#L429) |
+| B | Deployment, Control Plane (API Server, etcd, Controller Manager, Scheduler), kubelet, Client, Ingress, Service | Kubernetes — context, drawn grey; not code of this repository |
+| B | Kubernetes arrows: `kubectl apply`, API Server ↔ etcd / Controller Manager / Scheduler, API Server → kubelet, Client → Ingress → Service → pods | Kubernetes — context; the pods they reach are the ones `delonix-cri` starts (rows below) |
+| B | Banner "no containerd: the kubelet talks to delonix-cri directly" | the kubelet endpoint is `delonix-cri`'s socket (row below) and ADR-6 |
+| B | kubelet → `delonix-cri`, gRPC `runtime.v1` | [`delonix-cri/src/lib.rs:3`](crates/interfaces/delonix-cri/src/lib.rs#L3), [`:20`](crates/interfaces/delonix-cri/src/lib.rs#L20); `serve_blocking` [`:603`](crates/interfaces/delonix-cri/src/lib.rs#L603) |
+| B | `unix:///run/delonix-cri.sock`, no containerd | [`bins/delonix-cri-bin/src/main.rs:363`](bins/delonix-cri-bin/src/main.rs#L363); [`dist/delonix-cri.service`](dist/delonix-cri.service); `criSocket` [`kubeadm_config.rs:213`](bins/delonix/src/cmd/kubeadm_config.rs#L213) |
+| B | `delonix-cri` → `delonix __apirun` → pods | `delonix_bin` [`lifecycle.rs:807`](crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L807) (→ [`delonix-host/src/dispatch.rs:33`](crates/adapters/delonix-host/src/dispatch.rs#L33)); `__apirun` [`lifecycle.rs:2362`](crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L2362); caught in [`main.rs:2421`](bins/delonix/src/main.rs#L2421) |
+| B | `$DELONIX_ROOT/cri`, `load_reconciled` / `reconcile_status` | [`lifecycle.rs:963`](crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L963) → `RuntimeOps::reconcile_status` in `delonix-cri-bin` → [`delonix-linux/src/lib.rs:13353`](crates/adapters/delonix-linux/src/lib.rs#L13353) |
+| B | `delonix cluster` → nodes, ssh + kubeadm `init`/`join` | `apply_one` [`cluster.rs:2443`](bins/delonix/src/cmd/cluster.rs#L2443); `kubeadm_init` [`:4683`](bins/delonix/src/cmd/cluster.rs#L4683); `kubeadm_join` [`:4840`](bins/delonix/src/cmd/cluster.rs#L4840); `ssh` [`remote.rs:123`](bins/delonix/src/cmd/remote.rs#L123) |
+| C | Every layer edge and its count | `cargo metadata --no-deps` (snippet above) |
+
+Not drawn on purpose (they exist, but are opt-in and would hide the message): the warm
+plane of pre-loaded runners (`delonix-warm`, ADR-0095, used by the CRI on the rootless
+isolated path); the local servers `delonix-mgmt`, `delonix-mcp`, `delonix-node-api`
+and the socket-activated units in `dist/`; the Proxmox remote `VmBackend`; the Docker
+API compatibility path (`cmd/dockerapi.rs`).
+
+### Divergences found while drawing (the code wins)
+
+Confirmed against the code at `6ae1321d`; the sections above them were not rewritten
+in this change.
+
+1. **Level 3 graph.** 24 of its edges no longer exist in the `Cargo.toml` files and 50
+   real ones are missing. Notably: `delonix-bin` no longer depends on `delonix-cri`
+   (`delonix serve cri` execs the `delonix-cri` binary — [`serve.rs:152`](bins/delonix/src/cmd/serve.rs#L152));
+   `delonix-cri` no longer depends on `delonix-linux`/`-oci`/`-sdn`/`-state` (its ports
+   are filled by `delonix-cri-bin`, R3h); `delonix-engine` does not depend on
+   `delonix-mcp` nor `delonix-mgmt`; `delonix-mgmt` depends only on `delonix-host`,
+   `delonix-telemetry`, the contexts and the foundation. The note "`delonix-bin`
+   DEPENDS on `delonix-cri`" is stale.
+2. **Level 2 and ADR-3: the holder was split.** Since v0.42.0 the rootless ingress is
+   `netns pin` (creates and holds the user + network namespaces, [`pin_userns.rs`](crates/adapters/delonix-sdn/src/pin_userns.rs)),
+   `netns control` (the control socket: bridge, nft, DHCP, DNS) and the single
+   `slirp4netns` ([`infra.rs:451`](crates/adapters/delonix-sdn/src/infra.rs#L451)). It is
+   no longer started through `unshare(1)`.
+3. **Level 2, limitations 4 and 6, ADR-1: there is a detached supervisor.** `run -d`
+   starts under a supervisor forked from the CLI, which is the container's parent: it
+   collects the real exit status and applies `--restart`
+   ([`supervise.rs:1`](crates/adapters/delonix-linux/src/supervise.rs#L1),
+   [`launch.rs:193`](crates/contexts/delonix-compute/src/domain/launch.rs#L193)). The
+   `--rm` watcher remains only for `--no-supervisor`. Limitation 4 ("`restart_policy`
+   is not consumed") and limitation 6 ("the real exit code is lost in detach") read as
+   stale for this path.
+4. **Limitation 7 and flow (c).** The CRI now calls the grouped forms
+   (`container rm`, `container stop`, `net netns attach`) and starts containers with
+   `__apirun <spec.json>` ([`lifecycle.rs:2362`](crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L2362));
+   the root path no longer runs `pod create` — it uses CNI
+   ([`lifecycle.rs:1226`](crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L1226)).
+   The doc comment of `delonix()` at [`lifecycle.rs:812`](crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L812)
+   still says "top-level `run`/`stop`/`rm` forms".
+
+---
+
 ## System design — main flows
 
 ### (a) rootless `container run` — default `--net private`
