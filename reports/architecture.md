@@ -11,10 +11,10 @@
 | context | 6 | 29,874 | 7.6% |
 | adapter | 11 | 91,696 | 23.3% |
 | provider | 10 | 55,077 | 14.0% |
-| interface | 4 | 40,467 | 10.3% |
+| interface | 4 | 40,470 | 10.3% |
 | assembly | 1 | 1,132 | 0.3% |
 | bin | 6 | 168,068 | 42.6% |
-| **total** | **41** | **394,305** | 100% |
+| **total** | **41** | **394,308** | 100% |
 
 ## Lines per crate
 
@@ -73,7 +73,7 @@
 | Crate | Lines |
 | --- | ---: |
 | delonix-node-api ⚠️ >20k | 24,277 |
-| delonix-cri | 11,277 |
+| delonix-cri | 11,280 |
 | delonix-mgmt | 2,951 |
 | delonix-mcp | 1,962 |
 

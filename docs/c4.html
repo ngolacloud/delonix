@@ -397,9 +397,13 @@ canonical and kept in sync with the code — every structural claim carries a re
 to the crate/file where it was confirmed. Where limits exist, they appear in the
 diagrams, not hidden away in footnotes.</p>
 <p>Naming convention: <code>delonix</code> is the CLI binary (crate <code>delonix-bin</code>);
-<code>delonix-cri</code> is the CRI server binary (crate <code>delonix-cri</code>); "holder" is the process
-that holds the infrastructure network namespace of the rootless ingress
-(<code>crates/adapters/delonix-sdn/src/infra.rs</code>).</p>
+<code>delonix-cri</code> is the CRI server binary (crate <code>delonix-cri-bin</code>, which mounts the
+engine and serves the <code>delonix-cri</code> library). The rootless ingress runs as two
+processes: the <strong>pin</strong> (<code>delonix netns pin</code>), which creates and holds the user, network
+and mount namespaces of the infrastructure, and the <strong>control plane</strong> (<code>delonix netns
+control</code>), which runs inside them (<code>crates/adapters/delonix-sdn/src/infra.rs</code>). Before
+v0.42.0 one process, the "holder", did both; code comments and this document still say
+"holder" for the pair where the split does not matter.</p>
 <hr />
 <h2>C4 — Level 1: Context</h2>
 <p>The Delonix Engine is used by a <strong>human operator</strong> (via the CLI), by a <strong>kubelet</strong>
@@ -425,9 +429,10 @@ local hypervisors.</p>
 <ul>
 <li>CLI: <code>bins/delonix/src/main.rs</code> (groups <code>Container</code>/<code>Image</code>/<code>Build</code>/
   <code>Vm</code>/<code>Volumes</code>/<code>Network</code>/<code>Stack</code>/<code>Cluster</code>, one module per group under <code>src/cmd/</code>).</li>
-<li>CRI: <code>crates/interfaces/delonix-cri/src/bin/delonix-cri.rs</code> → <code>serve_blocking</code> on a unix
-  socket (<code>DELONIX_CRI_ADDR</code>, default <code>unix:///run/delonix-cri.sock</code>), the endpoint of
-  the kubelet's <code>--container-runtime-endpoint</code>.</li>
+<li>CRI: <code>bins/delonix-cri-bin/src/main.rs</code> → <code>delonix_cri::serve_blocking</code>
+  (<code>crates/interfaces/delonix-cri/src/lib.rs</code>) on a unix socket (<code>--addr</code> /
+  <code>DELONIX_CRI_ADDR</code>, default <code>unix:///run/delonix-cri.sock</code>), the endpoint of the
+  kubelet's <code>--container-runtime-endpoint</code>. <code>delonix serve cri</code> execs this binary.</li>
 <li>OCI registries: <code>crates/adapters/delonix-oci/src/registry.rs</code> (<code>pull_from_registry_with_creds</code>,
   <code>push_to_registry</code>, <code>push_oci_artifact</code>/<code>pull_oci_artifact</code> — this pair with
   verification of the blob digest against the manifest).</li>
@@ -441,8 +446,9 @@ local hypervisors.</p>
 <hr />
 <h2>C4 — Level 2: Containers (executable units)</h2>
 <p><strong>There is no daemon.</strong> No mandatory resident process exists: the CLI is ephemeral,
-and the long-running processes that do exist are <em>opt-in</em> infrastructure (rootless
-networking, log shim, <code>--rm</code> watcher, VMs) — each starts when it is needed and dies
+and the long-running processes that do exist belong to one resource each (the
+supervisor of a detached container, its log shim, its slirp, a VM) or are <em>opt-in</em>
+infrastructure (the rootless network plane) — each starts when it is needed and dies
 with the resource it serves. Shared state is a directory of JSON files, not a daemon
 socket.</p>
 <pre class="mermaid">graph TB
@@ -452,15 +458,17 @@ socket.</p>
         STATE[&quot;Estado em JSON — DELONIX_ROOT&lt;br&gt;containers, vms, volumes, images CAS,&lt;br&gt;networks, ingress, cri, clusters&quot;]
 
         subgraph INFRA[&quot;Infra rootless do ingress — só quando ha rede custom&quot;]
-            HOLDER[&quot;holder netns&lt;br&gt;unshare --user --map-auto --map-root-user --net --mount&lt;br&gt;re-exec delonix netns holder&lt;br&gt;bridge delonix0 + nft + DHCP + DNS dentro do netns&quot;]
+            PIN[&quot;netns pin&lt;br&gt;delonix netns pin, arrancado directamente&lt;br&gt;cria e segura userns + netns + mountns&lt;br&gt;nada mais: nunca reinicia&quot;]
+            CONTROL[&quot;netns control&lt;br&gt;nsenter -t pin -- delonix netns control&lt;br&gt;control socket, bridge delonix0, nft, DHCP, DNS&lt;br&gt;reiniciavel sem mexer nos fios&quot;]
             SLIRP1[&quot;slirp4netns unico&lt;br&gt;tap0 host para infra, api-socket p/ hostfwd&quot;]
         end
 
         subgraph PERCONT[&quot;Por container — quando aplicavel&quot;]
+            SUP[&quot;supervisor&lt;br&gt;fork da CLI em run -d&lt;br&gt;pai do container: waitpid, codigo real, --restart&quot;]
             CONT[&quot;processo do container&lt;br&gt;PID 1 proprio apos clone + exec&quot;]
             SLIRPN[&quot;slirp4netns por container&lt;br&gt;default (--net private) e com -p&quot;]
-            SHIM[&quot;log shim&lt;br&gt;fork; escreve o log com rotacao&lt;br&gt;formato cru ou CRI&quot;]
-            WATCH[&quot;watcher --rm&lt;br&gt;fork; espera o fim e limpa&quot;]
+            SHIM[&quot;log shim&lt;br&gt;fork no spawn; escreve o log com rotacao&lt;br&gt;formato cru ou CRI&quot;]
+            WATCH[&quot;watcher --rm&lt;br&gt;so sem supervisor; espera o fim e limpa&quot;]
         end
 
         VM[&quot;microVM&lt;br&gt;cloud-hypervisor ou qemu via libvirt&quot;]
@@ -471,9 +479,12 @@ socket.</p>
     CLI -- &quot;lê e escreve&quot; --&gt; STATE
     CRIBIN -- &quot;lê e escreve&quot; --&gt; STATE
     KUBELET2 -- &quot;gRPC runtime.v1&quot; --&gt; CRIBIN
-    CLI -- &quot;arranca e configura&quot; --&gt; CONT
-    CLI -- &quot;arranca sob procura&quot; --&gt; HOLDER
-    HOLDER --- SLIRP1
+    CLI -- &quot;primeiro plano: clone + waitpid&quot; --&gt; CONT
+    CLI -- &quot;run -d: fork&quot; --&gt; SUP
+    SUP -- &quot;clone + waitpid&quot; --&gt; CONT
+    CLI -- &quot;ensure_up sob procura&quot; --&gt; PIN
+    PIN --- CONTROL
+    PIN --- SLIRP1
     CLI -- &quot;hook on_started&quot; --&gt; SLIRPN
     CLI -- &quot;fork&quot; --&gt; SHIM
     CLI -- &quot;fork&quot; --&gt; WATCH
@@ -492,22 +503,32 @@ socket.</p>
 <tr>
 <td><code>delonix</code> (CLI)</td>
 <td><code>bins/delonix/src/main.rs</code></td>
-<td>one command; in foreground it <code>waitpid</code>s the container and exits</td>
+<td>one command; in foreground it <code>waitpid</code>s the container and exits; with <code>-d</code> it returns once the supervisor reports the first start</td>
 </tr>
 <tr>
 <td><code>delonix-cri</code></td>
-<td><code>crates/interfaces/delonix-cri/src/bin/delonix-cri.rs</code></td>
+<td><code>bins/delonix-cri-bin/src/main.rs</code> (crate <code>delonix-cri-bin</code>); <code>delonix serve cri</code> execs it</td>
 <td>service (e.g. the systemd unit <code>dist/delonix-cri.service</code> inside the golden VM image)</td>
 </tr>
 <tr>
-<td>holder netns</td>
-<td><code>infra::start_holder</code> (<code>crates/adapters/delonix-sdn/src/infra.rs</code>): <code>unshare --user --map-auto --map-root-user --net --mount -- &lt;self&gt; netns holder</code>; the re-exec is caught in <code>main.rs</code> before the clap parser</td>
-<td>lifetime of the ingress infrastructure, managed by a file-based ref-count (<code>infra::acquire</code>/<code>release</code>)</td>
+<td>supervisor (<code>run -d</code>)</td>
+<td><code>run_supervised</code> (<code>crates/adapters/delonix-linux/src/supervise.rs</code>): a <code>fork</code> of the CLI that does the <code>clone</code> itself, so it is the container's parent; chosen by <code>should_supervise</code> (<code>crates/contexts/delonix-compute/src/domain/launch.rs</code>) for every detached start whose caller can fork</td>
+<td>lifetime of the container, restarts included: it reaps each exit, records the real status, applies <code>--restart</code> with capped backoff, and exits when the policy says stop</td>
+</tr>
+<tr>
+<td><code>netns pin</code></td>
+<td><code>infra::start_pin</code> (<code>crates/adapters/delonix-sdn/src/infra.rs</code>) spawns <code>&lt;self&gt; netns pin</code> directly; the pin calls <code>unshare(USER\|NET\|NS)</code> itself and the caller, still outside, writes the id maps (<code>crates/adapters/delonix-sdn/src/pin_userns.rs</code>); caught in <code>main.rs</code> before telemetry and clap (<code>infra::pin_main</code>)</td>
+<td>lifetime of the ingress infrastructure, managed by a file-based ref-count (<code>infra::acquire</code>/<code>release</code>); it holds the namespaces and does nothing else</td>
+</tr>
+<tr>
+<td><code>netns control</code></td>
+<td><code>infra::start_control</code>: <code>nsenter -t &lt;pin&gt; -U -m -n --preserve-credentials -- &lt;self&gt; netns control</code> (<code>infra::control_main</code>): sets up <code>delonix0</code> + <code>nft</code>, opens the control socket (<code>0600</code> + <code>SO_PEERCRED</code>) and runs DHCP/DNS/RA as threads</td>
+<td>restartable: <code>ensure_up</code> starts a new one inside the surviving pin if it died, and no wire moves</td>
 </tr>
 <tr>
 <td>single slirp4netns</td>
-<td><code>infra::start_slirp</code> — connects <code>tap0</code> to the holder's netns, with an api-socket for <code>add_hostfwd</code></td>
-<td>follows the holder</td>
+<td><code>infra::start_slirp</code> — connects <code>tap0</code> to the pin's netns, with an api-socket for <code>add_hostfwd</code></td>
+<td>follows the pin; restarted by <code>ensure_up</code> only if it is gone</td>
 </tr>
 <tr>
 <td>per-container slirp4netns</td>
@@ -521,7 +542,7 @@ socket.</p>
 </tr>
 <tr>
 <td><code>--rm</code> watcher</td>
-<td><code>spawn_rm_watcher</code> (<code>bins/delonix/src/cmd/container.rs</code>) — only on <code>run -d --rm</code></td>
+<td><code>spawn_rm_watcher</code> (<code>bins/delonix/src/cmd/container.rs</code>) — only on a detached start that is NOT supervised (<code>RunOpts.no_supervisor</code>, which no CLI flag sets)</td>
 <td>until the container exits; performs the same cleanup as <code>rm -f</code></td>
 </tr>
 <tr>
@@ -537,22 +558,34 @@ socket.</p>
 (<code>crates/adapters/delonix-state/src/store.rs</code>) persist <code>Container</code>/<code>Vm</code> as one JSON
 file per record; the CRI keeps its own records under <code>&lt;root&gt;/cri/</code>
 (<code>crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs</code>).</p>
-<p>A direct consequence of being daemonless: since there is no resident monitor, the
-<code>Running</code> state of a JSON record can diverge from the kernel. The truth is reconciled
+<p>A direct consequence of being daemonless: no process watches every container (a
+supervisor watches only its own, and only for a detached start), so the <code>Running</code>
+state of a JSON record can diverge from the kernel. The truth is reconciled
 at read time — <code>reconcile_status</code> (<code>crates/adapters/delonix-linux/src/lib.rs</code>) uses
 <code>safe_to_signal</code> (PID + <code>starttime</code> from <code>/proc</code>, to close the PID-reuse window) and
 reclassifies <code>Running</code>→<code>Crashed</code>/<code>Paused</code>. The CRI calls it in <code>load_reconciled</code>
 before replying to the kubelet.</p>
 <hr />
 <h2>C4 — Level 3: Components (the 41 crates)</h2>
-<p>Arrows = <strong>real</strong> dependencies, confirmed in the <code>Cargo.toml</code> files of <code>crates/*/</code> and
-in the <code>use delonix_*</code> of the <code>src/</code>. There are no cycles; <code>delonix-model</code> is the
-common root.</p>
+<p>Arrows = <strong>real</strong> dependencies: every normal (non-dev, non-build) dependency of one
+workspace crate on another, as <code>cargo metadata</code> reports them for the <code>Cargo.toml</code> files of
+<code>crates/*/*/</code> and <code>bins/*/</code> — 173 edges, grouped below by source crate. Regenerate the
+list instead of editing it by hand:</p>
+<pre><code class="language-bash">cargo metadata --no-deps --format-version 1 --offline | python3 -c '
+import json, sys
+pk = {p[&quot;name&quot;]: p for p in json.load(sys.stdin)[&quot;packages&quot;]}
+for n in sorted(pk):
+    for d in sorted(d[&quot;name&quot;] for d in pk[n][&quot;dependencies&quot;] if d[&quot;name&quot;] in pk and d.get(&quot;kind&quot;) is None):
+        print(n, &quot;-&gt;&quot;, d)'
+</code></pre>
+<p>There are no cycles. <code>delonix-model</code> is the common root: 32 crates depend on it, and
+the only crates with no internal dependency at all are it, <code>delonix-net-rules</code>,
+<code>delonix-telemetry</code>, <code>delonix-warm</code> and <code>delonix-spiffe</code>.</p>
 <pre class="mermaid">graph TB
     BIN[&quot;delonix-bin&lt;br&gt;CLI delonix — um modulo por grupo em src/cmd&lt;br&gt;manifesto e apply, cluster kubeadm, imagens VM douradas&quot;]
     CRI[&quot;delonix-cri&lt;br&gt;servidor CRI runtime.v1 — ImageService e RuntimeService&lt;br&gt;modulos: runtime_svc, lifecycle, streaming, spdy&quot;]
     RT[&quot;delonix-linux&lt;br&gt;motor de containers: clone e namespaces, setup_rootfs,&lt;br&gt;cgroups v2, seccomp, caps, exec, log shim, reconcile_status&quot;]
-    NET[&quot;delonix-sdn&lt;br&gt;SDN rootless: modulo infra — holder netns, slirp unico,&lt;br&gt;publish e DNAT, DNS e DHCP; cni, wg WireGuard, discover&quot;]
+    NET[&quot;delonix-sdn&lt;br&gt;SDN rootless: modulo infra — netns pin e control, slirp unico,&lt;br&gt;publish e DNAT, DNS e DHCP; cni, wg WireGuard, discover&quot;]
     IMG[&quot;delonix-oci&lt;br&gt;imagens OCI: registry pull e push, cas, overlay,&lt;br&gt;build Dockerfile, buildpack CNB, sign, internal_registry&quot;]
     VM2[&quot;delonix-vm&lt;br&gt;raiz de composicao das VMs ate a P5:&lt;br&gt;semeia o registo e monta o VmEngine&quot;]
     VOL[&quot;delonix-volume&lt;br&gt;volumes nomeados e bind mounts, sintaxe -v Docker,&lt;br&gt;driver local ou nfs&quot;]
@@ -591,185 +624,300 @@ common root.</p>
     WARM[&quot;delonix-warm&lt;br&gt;o pool do plano morno (ADR-0095): runners pre-carregados (delonix __poolrunner)&lt;br&gt;que eliminam o pre_spawn do arranque a frio nos caminhos com processo vivo —&lt;br&gt;serve-one-then-exit, so orquestra processos e sockets&quot;]
     CRIBIN[&quot;delonix-cri-bin&lt;br&gt;o executavel delonix-cri, que `delonix serve cri` executa&lt;br&gt;(monta o Engine e serve o CRI runtime.v1)&quot;]
 
+    %% delonix-bin (29)
+    BIN --&gt; COMPUTE
+    BIN --&gt; ENGINE
+    BIN --&gt; HOST
     BIN --&gt; RT
-    BIN --&gt; IMG
-    BIN --&gt; VM2
-    BIN --&gt; VOL
-    BIN --&gt; NET
-    BIN --&gt; CRI
     BIN --&gt; MGMT
-    BIN --&gt; SCAN
-    BIN --&gt; SEC
-    BIN --&gt; PVE
-    BIN --&gt; NAS
+    BIN --&gt; MODEL
+    BIN --&gt; RULES
+    BIN --&gt; NETCTX
+    BIN --&gt; NODECTX
+    BIN --&gt; IMG
+    BIN --&gt; POOLHELPER
+    BIN --&gt; BTRFS
+    BIN --&gt; CEPH
+    BIN --&gt; LVM
     BIN --&gt; OPN
     BIN --&gt; PDNS
-    MCPBIN --&gt; MCP
-    MGMTBIN --&gt; MGMT
-    NODEAPIBIN --&gt; NODEAPI
-    BIN --&gt; BTRFS
+    BIN --&gt; PVE
+    BIN --&gt; NAS
     BIN --&gt; ZFS
-    BIN --&gt; LVM
-    BIN --&gt; CEPH
-    CEPH --&gt; STORCTX
-    BTRFS --&gt; STORCTX
-    ZFS --&gt; STORCTX
-    LVM --&gt; STORCTX
-    STORHELPER --&gt; STORCTX
-    STORHELPER --&gt; VOL
-    STORHELPER --&gt; BTRFS
-    STORHELPER --&gt; ZFS
-    STORHELPER --&gt; LVM
-    NODEAPIBIN --&gt; NODECTX
-    NODEAPIBIN --&gt; TEL
-    NODEAPI --&gt; VM2
-    NODEAPI --&gt; PVE
-    NODEAPI --&gt; RT
-    NODEAPI --&gt; NET
-    NODEAPI --&gt; VOL
-    NODEAPI --&gt; COMPUTE
-    NODEAPI --&gt; NODECTX
-    NODEAPI --&gt; MODEL
-    BIN --&gt; MODEL
+    BIN --&gt; SCAN
+    BIN --&gt; NET
+    BIN --&gt; SEC
     BIN --&gt; STACK
-    BIN --&gt; COMPUTE
-    BIN --&gt; TEL
-
-    MGMT --&gt; RT
-    MGMT --&gt; IMG
-    MGMT --&gt; VM2
-    MGMT --&gt; VOL
-    MGMT --&gt; NET
-    MGMT --&gt; SCAN
-    MGMT --&gt; TEL
-
-    SCAN --&gt; IMG
-
-    CRI --&gt; RT
-    CRI --&gt; IMG
-    CRI --&gt; NET
-    CRI --&gt; TEL
-
-    VM2 --&gt; COMPUTE
-
-    NET --&gt; RULES
-    PVE --&gt; NETCTX
-    VM2 --&gt; LVIRT
-    VM2 --&gt; CHV
-    CHV --&gt; COMPUTE
-    CHV --&gt; MODEL
-    CHV --&gt; NODECTX
-    LVIRT --&gt; COMPUTE
-    LVIRT --&gt; MODEL
-    LVIRT --&gt; NODECTX
-    OPN --&gt; NETCTX
-    NET --&gt; NETCTX
-    NETCTX --&gt; MODEL
-    NETCTX --&gt; COMPUTE
-    NETCTX --&gt; RULES
-    BIN --&gt; NETCTX
-    STATECRATE --&gt; MODEL
-    COMPUTE --&gt; NODECTX
-    COMPUTE --&gt; MODEL
-    CRI --&gt; NODECTX
-    CRI --&gt; COMPUTE
-    CRI --&gt; MODEL
-    RT --&gt; NODECTX
-    RT --&gt; COMPUTE
-    RT --&gt; MODEL
-    MCP --&gt; NODECTX
-    MCP --&gt; COMPUTE
-    MCP --&gt; MODEL
-    MCPBIN --&gt; NODECTX
-    MGMT --&gt; NODECTX
-    MGMT --&gt; COMPUTE
-    MGMT --&gt; MODEL
-    MGMTBIN --&gt; NODECTX
-    NODECTX --&gt; MODEL
-    IMG --&gt; NODECTX
-    IMG --&gt; COMPUTE
-    IMG --&gt; MODEL
-    PVE --&gt; COMPUTE
-    PVE --&gt; MODEL
-    BIN --&gt; NODECTX
-    SCAN --&gt; MODEL
-    NET --&gt; NODECTX
-    NET --&gt; COMPUTE
-    NET --&gt; MODEL
-    SEC --&gt; NODECTX
-    SEC --&gt; MODEL
-    STACK --&gt; MODEL
-    STATECRATE --&gt; NODECTX
-    STATECRATE --&gt; COMPUTE
-    NAS --&gt; MODEL
-    OPN --&gt; MODEL
-    PDNS --&gt; MODEL
-    VM2 --&gt; NODECTX
-    VM2 --&gt; MODEL
-    VOL --&gt; STORCTX
-    STORCTX --&gt; MODEL
-    VOL --&gt; NODECTX
-    VOL --&gt; COMPUTE
-    VOL --&gt; MODEL
-    RT --&gt; STATECRATE
-    NET --&gt; STATECRATE
-    IMG --&gt; STATECRATE
-    VOL --&gt; STATECRATE
-    VM2 --&gt; STATECRATE
     BIN --&gt; STATECRATE
-    CRI --&gt; STATECRATE
-    MGMT --&gt; STATECRATE
-    MCP --&gt; STATECRATE
-    MCP --&gt; VM2
-    MCP --&gt; VOL
-    MCP --&gt; NET
-    MCP --&gt; MGMT
+    BIN --&gt; STORCTX
+    BIN --&gt; TEL
+    BIN --&gt; VM2
+    BIN --&gt; VOL
+    BIN --&gt; WARM
 
-    ENGINE --&gt; COMPUTE
-    ENGINE --&gt; VM2
-    ENGINE --&gt; STATECRATE
-    ENGINE --&gt; VOL
-    ENGINE --&gt; NET
-    ENGINE --&gt; RT
-    ENGINE --&gt; IMG
-    ENGINE --&gt; SCAN
-    ENGINE --&gt; MCP
-    ENGINE --&gt; MGMT
-    ENGINE --&gt; TEL
-    ENGINE --&gt; MODEL
-    HOST --&gt; MODEL
-    POOLHELPER --&gt; STORCTX
-    POOLHELPER --&gt; MODEL
+    %% delonix-cri-bin (9)
+    CRIBIN --&gt; COMPUTE
     CRIBIN --&gt; CRI
     CRIBIN --&gt; ENGINE
     CRIBIN --&gt; HOST
+    CRIBIN --&gt; RT
+    CRIBIN --&gt; MODEL
+    CRIBIN --&gt; NET
     CRIBIN --&gt; TEL
+    CRIBIN --&gt; WARM
+
+    %% delonix-mgmt-bin (7)
+    MGMTBIN --&gt; COMPUTE
+    MGMTBIN --&gt; ENGINE
+    MGMTBIN --&gt; HOST
+    MGMTBIN --&gt; MGMT
+    MGMTBIN --&gt; MODEL
+    MGMTBIN --&gt; NODECTX
+    MGMTBIN --&gt; TEL
+
+    %% delonix-mcp-bin (7)
+    MCPBIN --&gt; COMPUTE
+    MCPBIN --&gt; ENGINE
+    MCPBIN --&gt; HOST
+    MCPBIN --&gt; MCP
+    MCPBIN --&gt; MODEL
+    MCPBIN --&gt; NODECTX
+    MCPBIN --&gt; TEL
+
+    %% delonix-node-api-bin (15)
+    NODEAPIBIN --&gt; COMPUTE
+    NODEAPIBIN --&gt; ENGINE
+    NODEAPIBIN --&gt; HOST
+    NODEAPIBIN --&gt; RT
+    NODEAPIBIN --&gt; MODEL
+    NODEAPIBIN --&gt; NODECTX
+    NODEAPIBIN --&gt; NODEAPI
+    NODEAPIBIN --&gt; IMG
+    NODEAPIBIN --&gt; CEPH
+    NODEAPIBIN --&gt; OPN
+    NODEAPIBIN --&gt; PVE
+    NODEAPIBIN --&gt; NET
+    NODEAPIBIN --&gt; STATECRATE
+    NODEAPIBIN --&gt; TEL
+    NODEAPIBIN --&gt; VOL
+
+    %% delonix-storage-helper (8)
+    STORHELPER --&gt; MODEL
+    STORHELPER --&gt; POOLHELPER
+    STORHELPER --&gt; BTRFS
+    STORHELPER --&gt; CEPH
+    STORHELPER --&gt; LVM
+    STORHELPER --&gt; ZFS
+    STORHELPER --&gt; STORCTX
+    STORHELPER --&gt; VOL
+
+    %% delonix-cri (6)
+    CRI --&gt; COMPUTE
+    CRI --&gt; HOST
+    CRI --&gt; MODEL
+    CRI --&gt; NODECTX
+    CRI --&gt; SEC
+    CRI --&gt; TEL
+
+    %% delonix-mgmt (5)
+    MGMT --&gt; COMPUTE
+    MGMT --&gt; HOST
+    MGMT --&gt; MODEL
+    MGMT --&gt; NODECTX
+    MGMT --&gt; TEL
+
+    %% delonix-mcp (5)
+    MCP --&gt; COMPUTE
+    MCP --&gt; HOST
+    MCP --&gt; MGMT
+    MCP --&gt; MODEL
+    MCP --&gt; NODECTX
+
+    %% delonix-node-api (7)
+    NODEAPI --&gt; COMPUTE
+    NODEAPI --&gt; HOST
+    NODEAPI --&gt; MODEL
+    NODEAPI --&gt; NODECTX
+    NODEAPI --&gt; POOLHELPER
+    NODEAPI --&gt; SEC
+    NODEAPI --&gt; STORCTX
+
+    %% delonix-engine (10)
+    ENGINE --&gt; COMPUTE
+    ENGINE --&gt; RT
+    ENGINE --&gt; MODEL
+    ENGINE --&gt; IMG
+    ENGINE --&gt; SCAN
+    ENGINE --&gt; NET
+    ENGINE --&gt; STATECRATE
+    ENGINE --&gt; TEL
+    ENGINE --&gt; VM2
+    ENGINE --&gt; VOL
+
+    %% delonix-compute (3)
+    COMPUTE --&gt; MODEL
+    COMPUTE --&gt; RULES
+    COMPUTE --&gt; NODECTX
+
+    %% delonix-host (1)
+    HOST --&gt; MODEL
+
+    %% delonix-linux (4)
+    RT --&gt; COMPUTE
+    RT --&gt; MODEL
+    RT --&gt; NODECTX
+    RT --&gt; STATECRATE
+
+    %% delonix-networking (2)
+    NETCTX --&gt; MODEL
+    NETCTX --&gt; RULES
+
+    %% delonix-node (1)
+    NODECTX --&gt; MODEL
+
+    %% delonix-oci (5)
+    IMG --&gt; COMPUTE
+    IMG --&gt; HOST
+    IMG --&gt; MODEL
+    IMG --&gt; NODECTX
+    IMG --&gt; STATECRATE
+
+    %% delonix-pool-helper (2)
+    POOLHELPER --&gt; MODEL
+    POOLHELPER --&gt; STORCTX
+
+    %% delonix-provider-btrfs (1)
+    BTRFS --&gt; STORCTX
+
+    %% delonix-provider-ceph (1)
+    CEPH --&gt; STORCTX
+
+    %% delonix-provider-cloud-hypervisor (3)
+    CHV --&gt; COMPUTE
+    CHV --&gt; MODEL
+    CHV --&gt; NODECTX
+
+    %% delonix-provider-libvirt (4)
+    LVIRT --&gt; COMPUTE
+    LVIRT --&gt; HOST
+    LVIRT --&gt; MODEL
+    LVIRT --&gt; NODECTX
+
+    %% delonix-provider-lvm (1)
+    LVM --&gt; STORCTX
+
+    %% delonix-provider-opnsense (3)
+    OPN --&gt; COMPUTE
+    OPN --&gt; MODEL
+    OPN --&gt; NETCTX
+
+    %% delonix-provider-powerdns (1)
+    PDNS --&gt; MODEL
+
+    %% delonix-provider-proxmox (3)
+    PVE --&gt; COMPUTE
+    PVE --&gt; MODEL
+    PVE --&gt; NETCTX
+
+    %% delonix-provider-truenas (1)
+    NAS --&gt; MODEL
+
+    %% delonix-provider-zfs (1)
+    ZFS --&gt; STORCTX
+
+    %% delonix-scanner (2)
+    SCAN --&gt; MODEL
+    SCAN --&gt; IMG
+
+    %% delonix-sdn (7)
+    NET --&gt; COMPUTE
+    NET --&gt; HOST
+    NET --&gt; MODEL
+    NET --&gt; RULES
+    NET --&gt; NETCTX
+    NET --&gt; NODECTX
+    NET --&gt; STATECRATE
+
+    %% delonix-security (2)
+    SEC --&gt; MODEL
+    SEC --&gt; NODECTX
+
+    %% delonix-stack (1)
+    STACK --&gt; MODEL
+
+    %% delonix-state (4)
+    STATECRATE --&gt; COMPUTE
+    STATECRATE --&gt; HOST
+    STATECRATE --&gt; MODEL
+    STATECRATE --&gt; NODECTX
+
+    %% delonix-storage (1)
+    STORCTX --&gt; MODEL
+
+    %% delonix-vm (6)
+    VM2 --&gt; COMPUTE
+    VM2 --&gt; MODEL
+    VM2 --&gt; NODECTX
+    VM2 --&gt; CHV
+    VM2 --&gt; LVIRT
+    VM2 --&gt; STATECRATE
+
+    %% delonix-volume (5)
+    VOL --&gt; COMPUTE
+    VOL --&gt; MODEL
+    VOL --&gt; NODECTX
+    VOL --&gt; STATECRATE
+    VOL --&gt; STORCTX
 </pre>
-<p>Notes for reading the graph (all verified):</p>
+<p>Notes for reading the graph (all verified against the <code>Cargo.toml</code> files and <code>cargo metadata</code>):</p>
 <ul>
-<li><strong><code>delonix-bin</code> DEPENDS on <code>delonix-cri</code></strong> — an earlier version of this document
-  claimed the opposite («they are two independent binaries»), and that stopped being
-  true when <code>delonix serve cri</code> began serving the CRI from the CLI itself. Confirmed in
-  <code>bins/delonix/Cargo.toml:21</code>. The <code>delonix-cri</code> still has its own <code>[[bin]]</code>, and it
-  is the reason <code>hyper</code>/<code>tonic</code>/<code>tokio-rustls</code> are already in the <code>-bin</code>'s tree at no
-  new supply-chain cost (see the L7 proxy section in <code>AGENTS.md</code>). The CRI, in turn,
-  does <strong>not</strong> depend on <code>delonix-vm</code> nor on <code>delonix-volume</code> (only
-  <code>runtime</code>/<code>image</code>/<code>net</code>/<code>core</code> — <code>crates/interfaces/delonix-cri/Cargo.toml</code>).</li>
-<li><strong><code>delonix-mgmt</code> is the crate with the most internal dependencies</strong> (seven:
-  <code>runtime</code>, <code>image</code>, <code>vm</code>, <code>volume</code>, <code>net</code>, <code>scan</code>, <code>core</code>) and that is what its role
-  demands — it answers for the whole engine to a local control-plane. Nothing depends
-  on it except the <code>-bin</code>, and it is local by design: unix socket, <code>SO_PEERCRED</code>, only
-  its own uid (ADR-0010).</li>
-<li><strong><code>delonix-linux</code> depends only on <code>core</code></strong> — the container engine knows nothing
-  about networking: the integration happens through inversion of control, with the
-  <code>on_started</code> hook of the <code>RunSpec</code> (the CLI passes closures that call <code>delonix-sdn</code>).</li>
-<li><strong><code>delonix-vm</code> no longer depends on <code>delonix-sdn</code></strong> (P3i): the Cloud Hypervisor
+<li><strong>The servers are executables of their own, and the CLI execs them.</strong> <code>delonix serve
+  cri</code>, <code>serve api</code> and <code>serve node-api</code> resolve and <code>exec</code> the <code>delonix-cri</code>,
+  <code>delonix-mgmt</code> and <code>delonix-node-api</code> binaries (<code>exec_server</code>,
+  <code>bins/delonix/src/cmd/serve.rs</code>), and <code>delonix mcp</code> does the same for <code>delonix-mcp</code>.
+  So <strong><code>delonix-bin</code> does NOT depend on <code>delonix-cri</code></strong> (an earlier version of this
+  document said it did, when <code>serve cri</code> still served the CRI in-process). Each server
+  is an interface crate plus a <code>-bin</code> crate: the <code>-bin</code> is the one layer allowed to name
+  the assembly (<code>delonix-engine</code>) and the adapters, and it hands the interface its ports
+  already filled (ADR-0040 D2.4/A5). That is why every <code>*-bin</code> crate, and <code>delonix-bin</code>
+  itself, has an arrow to <code>delonix-engine</code>, and no interface crate does.</li>
+<li><strong><code>delonix-cri</code> names no adapter that does the work.</strong> Its internal dependencies are
+  <code>delonix-host</code>, <code>delonix-telemetry</code>, <code>delonix-security</code>, the contexts
+  (<code>delonix-compute</code>, <code>delonix-node</code>) and <code>delonix-model</code>
+  (<code>crates/interfaces/delonix-cri/Cargo.toml</code>). Images, containers, the runtime, the
+  network and the warm plane reach it as the ports <code>ImageOps</code>, <code>ContainerOps</code>,
+  <code>RuntimeOps</code>, <code>NetworkOps</code> and <code>WarmOps</code> (<code>crates/interfaces/delonix-cri/src/lib.rs</code>),
+  which <code>delonix-cri-bin</code> fills from <code>delonix-engine</code>, <code>delonix-linux</code>, <code>delonix-sdn</code>
+  and <code>delonix-warm</code> (R3h; <code>bins/delonix-cri-bin/Cargo.toml</code>). The operations that
+  <code>clone</code> are still delegated to the <code>delonix</code> binary (flow c).</li>
+<li><strong><code>delonix-mgmt</code> is small on purpose.</strong> It depends only on <code>delonix-host</code>,
+  <code>delonix-telemetry</code>, <code>delonix-compute</code>, <code>delonix-node</code> and <code>delonix-model</code>; every
+  engine use case it serves arrives through its <code>EngineOps</code> port
+  (<code>crates/interfaces/delonix-mgmt/src/lib.rs</code>), implemented by <code>delonix-mgmt-bin</code> and,
+  for <code>delonix dashboard</code>, by <code>delonix-bin</code> (<code>bins/delonix/src/cmd/engine_vms.rs</code>). The
+  adapters that appear under <code>[dev-dependencies]</code> in its <code>Cargo.toml</code> back the tests
+  only. It is local by design: unix socket, <code>SO_PEERCRED</code>, only its own uid (ADR-0010).
+  It is depended on by <code>delonix-bin</code>, <code>delonix-mgmt-bin</code> and <code>delonix-mcp</code>.</li>
+<li><strong><code>delonix-engine</code> is the composition root of the engine, not of the servers.</strong> It
+  depends on the contexts, the foundation, <code>delonix-telemetry</code> and the engine adapters
+  (<code>delonix-linux</code>, <code>delonix-oci</code>, <code>delonix-scanner</code>, <code>delonix-sdn</code>, <code>delonix-state</code>,
+  <code>delonix-vm</code>, <code>delonix-volume</code>) — <strong>not</strong> on <code>delonix-mcp</code> nor <code>delonix-mgmt</code>. The
+  arrow runs the other way: the server binaries mount an <code>Engine</code> and hand it to their
+  interface.</li>
+<li><strong><code>delonix-linux</code> knows nothing about networking.</strong> Its internal dependencies are
+  <code>delonix-compute</code>, <code>delonix-node</code>, <code>delonix-state</code> and <code>delonix-model</code> — no
+  <code>delonix-sdn</code>. The integration happens through inversion of control: the
+  <code>on_started</code> hook of the <code>RunSpec</code> (the CLI passes closures that call <code>delonix-sdn</code> —
+  <code>with_host_workload</code>, <code>bins/delonix/src/cmd/container.rs</code>).</li>
+<li><strong><code>delonix-vm</code> does not depend on <code>delonix-sdn</code></strong> (P3i): the Cloud Hypervisor
   backend attaches the VM's <code>tap</code> to the ingress bridge through the <code>VmNetwork</code> port of
   <code>delonix-compute</code>, which <code>delonix-sdn</code> implements (<code>vm_network::HostVmNetwork</code>) and
-  the binary registers.</li>
+  the binary registers. It does depend on the two local VM providers, which it
+  registers until the application layer exists (a phase-tagged exception in
+  <code>scripts/arch_fitness.py</code>).</li>
 <li><strong><code>delonix-telemetry</code></strong> (P3j) holds the structured logging, the OTLP spans and the
-  shared Prometheus registry, which came out of <code>delonix-runtime-core</code>: the foundation
-  no longer carries an exporter that every crate compiled just because it needed a
+  shared Prometheus registry. It has no internal dependency, and the foundation does
+  not carry an exporter that every crate would compile just because it needed a
   <code>Container</code>.</li>
 <li><strong><code>delonix-net-rules</code> has NOT A SINGLE dependency</strong> — neither internal nor external,
   and that is what makes it crossable: it is what <code>delonix-sdn</code> and the <code>delonix-paas</code>
@@ -780,41 +928,45 @@ common root.</p>
   <code>delonix-sdn</code> re-exports everything, so no consumer changed.</li>
 <li><strong><code>delonix-provider-proxmox</code>, <code>delonix-provider-truenas</code> and <code>delonix-provider-opnsense</code> are outside the engine
   crates on purpose, and for the same reason written in all three <code>Cargo.toml</code> files</strong>:
-  they bring an HTTP client (<code>reqwest</code>), and an engine crate does not grow one.
-  <code>delonix-vm</code> has four dependencies, <code>delonix-volume</code> three and <code>delonix-sdn</code> five —
-  putting the client to talk to ONE remote target in there would swap that for a tree
-  that the whole engine then has to drag along. That is why the Proxmox backend
-  (ADR-0008) implements <code>VmBackend</code> and the OPNsense <code>GatewayProvider</code> (ADR-0051)
-  implements the port of the <code>delonix-networking</code> context (ADR-0059 F2a; until then it
-  lived in <code>delonix-sdn</code>), both from the outside, and they <strong>register themselves</strong>
-  (<code>register_backend</code>/<code>register_gateway_provider</code>), with the target known only to the
-  <code>-bin</code>, not to the engine.</li>
+  they bring an HTTP client (<code>reqwest</code>), and an engine crate does not grow one. None of
+  <code>delonix-vm</code>, <code>delonix-volume</code> or <code>delonix-sdn</code> carries an HTTP client — putting the
+  client to talk to ONE remote target in there would make the whole engine drag that
+  tree along. That is why the Proxmox backend (ADR-0008) implements <code>VmBackend</code> and the
+  OPNsense <code>GatewayProvider</code> (ADR-0051) implements the port of the <code>delonix-networking</code>
+  context (ADR-0059 F2a; until then it lived in <code>delonix-sdn</code>), both from the outside,
+  and they <strong>register themselves</strong> (<code>register_backend</code>/<code>register_gateway_provider</code>),
+  with the target known only to the binaries, not to the engine.</li>
 <li><strong><code>delonix-provider-powerdns</code> is outside for the same reason</strong> (ADR-0064 D6): it
   talks to ONE PowerDNS server, with the credential that the operator gives to the
   ENGINE in <code>providers.yaml</code>, to remove the gateway records that the Proxmox node writes
   and never removes. It depends only on <code>delonix-model</code>; what knows WHICH records they
   are is the <code>delonix-networking</code> context (<code>gateway_records</code>) and the provider
   (<code>DnsProvider::reverse_zone</code>), and what wires them is the <code>-bin</code>.</li>
-<li><strong>Nothing depends on <code>delonix-provider-proxmox</code>, <code>delonix-provider-truenas</code> nor <code>delonix-provider-opnsense</code> except
-  the <code>-bin</code> and, in the case of <code>delonix-provider-proxmox</code>, <code>delonix-node-api</code></strong> (which
-  lists it among the node's providers, as <code>delonix provider ls</code> does) — they are leaves
+<li><strong>Only binaries depend on the remote providers.</strong> <code>delonix-provider-truenas</code> and
+  <code>delonix-provider-powerdns</code> are used by <code>delonix-bin</code> alone; <code>delonix-provider-proxmox</code>
+  and <code>delonix-provider-opnsense</code> by <code>delonix-bin</code> and <code>delonix-node-api-bin</code> (which
+  lists them among the node's providers, as <code>delonix provider ls</code> does). They are leaves
   of the graph, and that is what allows a misconfigured remote target to warn and carry
   on instead of stopping a <code>container ls</code>.</li>
-<li><strong><code>delonix-mcp</code> sits outside the eight dependency-clean engine crates, for the SAME
-  reason as <code>delonix-mgmt</code></strong> (ADR-0025): it brings the official MCP SDK (<code>rmcp</code>) and its
-  own <code>tokio</code> runtime, and no engine crate depends on it. It depends on <code>delonix-mgmt</code>
-  to reuse the existing <code>dashstats::collect</code> (<code>runtime.info</code>/<code>metrics.query</code> do not
-  derive the same numbers a second time) — it is the only new crate that depends on
-  another crate "outside the engine" instead of only on the eight. <strong>Stdio-only at this
-  stage</strong>: a child process per AI client session, never a daemon nor a loopback socket
-  — the remote/multi-tenant variant of the original design was rejected by ADR-0010 and
+<li><strong><code>delonix-mcp</code> sits outside the engine crates, for the SAME reason as
+  <code>delonix-mgmt</code></strong> (ADR-0025): it brings the official MCP SDK (<code>rmcp</code>) and its own
+  <code>tokio</code> runtime, and no engine crate depends on it. It depends on <code>delonix-mgmt</code> to
+  reuse its <code>VmView</code> port rather than redeclare it
+  (<code>crates/interfaces/delonix-mcp/src/lib.rs</code>); everything else it reads arrives through
+  its own <code>EngineReads</code> port, filled by <code>delonix-mcp-bin</code>. <strong>Stdio-only at this stage</strong>:
+  a child process per AI client session, never a daemon nor a loopback socket — the
+  remote/multi-tenant variant of the original design was rejected by ADR-0010 and
   belongs to <code>delonix-paas</code>, not here.</li>
+<li><strong><code>delonix-warm</code> has no internal dependency</strong>: it only orchestrates processes and
+  sockets (the pre-loaded <code>delonix __poolrunner</code> runners, ADR-0095). <code>delonix-bin</code> and
+  <code>delonix-cri-bin</code> wire it; the CRI sees it only as its <code>WarmOps</code> port.</li>
 <li>Internal modules that matter to the design:</li>
-<li><code>delonix-sdn::infra</code> — the whole rootless plane (holder, single slirp,
-    publish/DNAT, DNS/DHCP/RA, per-container firewall, egress policy,
-    <code>attach_container</code>);</li>
-<li><code>delonix-sdn::wg</code> — WireGuard between nodes (encrypts the overlay; the holder
-    creates the interface in the infra netns);</li>
+<li><code>delonix-sdn::infra</code> — the whole rootless plane (<code>netns pin</code>, <code>netns control</code>,
+    single slirp, publish/DNAT, DNS/DHCP/RA, per-container firewall, egress policy,
+    <code>attach_container</code>); <code>delonix-sdn::pin_userns</code> — how the pin creates its own
+    namespaces;</li>
+<li><code>delonix-sdn::wg</code> — WireGuard between nodes (encrypts the overlay; the control
+    plane creates the interface in the infra netns);</li>
 <li><code>delonix-sdn::cni</code> — compatibility with real CNI plugins (opt-in
     <code>DELONIX_CNI=1</code>, <code>cni::enabled_conf</code>);</li>
 <li><code>delonix-oci::overlay</code> — <code>mount_rootfs</code> (overlayfs) and <code>export_rootfs</code>
@@ -840,7 +992,9 @@ bottom. The labels inside the drawings are in Portuguese (pt-AO), like the opera
   <code>python3 docs/diagrams/gen_diagrams.py</code>; commit the regenerated <code>.svg</code>.</li>
 <li>Each drawing has a text twin in Mermaid, next to it.</li>
 <li>Every box and every arrow is in the confirmation table below; what could not be
-  confirmed in the code is not drawn. Line numbers are as of commit <code>6ae1321d</code>.</li>
+  confirmed in the code is not drawn. Line numbers were drawn at commit <code>6ae1321d</code> and
+  re-anchored when the divergences below were closed (<code>docs/architecture-sync</code>); re-check
+  them when the code they point at moves.</li>
 </ul>
 <h3>A — Docker vs Delonix</h3>
 <p><img alt="Docker vs Delonix: the Docker CLI reaches the container through dockerd, containerd and runc; the delonix CLI clones the container itself" src="diagrams/delonix-vs-docker.svg" /></p>
@@ -987,28 +1141,28 @@ for (a, b), n in sorted(c.items()): print(f&quot;{a} -&gt; {b}: {n}&quot;)'
 </tr>
 <tr>
 <td>A</td>
-<td><code>--rm</code> watcher (only with <code>--no-supervisor</code>)</td>
+<td><code>--rm</code> watcher (only without a supervisor: <code>RunOpts.no_supervisor</code>, no CLI flag)</td>
 <td><code>spawn_rm_watcher</code> <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L4802"><code>container.rs:4802</code></a>, reached only on the unsupervised detached path <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L4388"><code>container.rs:4388</code></a></td>
 </tr>
 <tr>
 <td>A</td>
 <td>Per-container <code>slirp4netns</code></td>
-<td><code>slirp_attach</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/lib.rs#L2180"><code>delonix-sdn/src/lib.rs:2180</code></a>, hooked at <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L3563"><code>container.rs:3563</code></a></td>
+<td><code>slirp_attach</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/lib.rs#L2235"><code>delonix-sdn/src/lib.rs:2235</code></a>, hooked at <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L3563"><code>container.rs:3563</code></a></td>
 </tr>
 <tr>
 <td>A</td>
 <td>Rootless network group: <code>netns pin</code>, <code>netns control</code>, single <code>slirp4netns</code></td>
-<td><code>PidKind</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L451"><code>delonix-sdn/src/infra.rs:451</code></a>; re-exec <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/main.rs#L2259"><code>main.rs:2259</code></a>, <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/main.rs#L2269"><code>:2269</code></a>; <code>start_slirp</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L2588"><code>infra.rs:2588</code></a>; pin creates its own namespaces: <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/pin_userns.rs"><code>pin_userns.rs</code></a></td>
+<td><code>PidKind</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L455"><code>delonix-sdn/src/infra.rs:455</code></a>; re-exec <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/main.rs#L2259"><code>main.rs:2259</code></a>, <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/main.rs#L2269"><code>:2269</code></a>; <code>start_slirp</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L2592"><code>infra.rs:2592</code></a>; pin creates its own namespaces: <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/pin_userns.rs"><code>pin_userns.rs</code></a></td>
 </tr>
 <tr>
 <td>A</td>
 <td>Arrow CLI → rootless network ("on demand", ref-counted)</td>
-<td><code>ensure_up</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L1929"><code>infra.rs:1929</code></a>; <code>acquire</code>/<code>release</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L1779"><code>:1779</code></a>, <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L1790"><code>:1790</code></a></td>
+<td><code>ensure_up</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L1933"><code>infra.rs:1933</code></a>; <code>acquire</code>/<code>release</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L1783"><code>:1783</code></a>, <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L1794"><code>:1794</code></a></td>
 </tr>
 <tr>
 <td>A</td>
 <td>Bridge <code>delonix0</code>, nft, DHCP, DNS</td>
-<td><a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L28"><code>infra.rs:28</code></a>, <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L1336"><code>:1336</code></a>, <code>start_dhcp</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L3634"><code>:3634</code></a>, <code>dns_server_main</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L9817"><code>:9817</code></a></td>
+<td><a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L28"><code>infra.rs:28</code></a>, <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L1340"><code>:1340</code></a>, <code>start_dhcp</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L3638"><code>:3638</code></a>, <code>dns_server_main</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L9829"><code>:9829</code></a></td>
 </tr>
 <tr>
 <td>A</td>
@@ -1048,12 +1202,12 @@ for (a, b), n in sorted(c.items()): print(f&quot;{a} -&gt; {b}: {n}&quot;)'
 <tr>
 <td>B</td>
 <td><code>delonix-cri</code> → <code>delonix __apirun</code> → pods</td>
-<td><code>delonix_bin</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L807"><code>lifecycle.rs:807</code></a> (→ <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-host/src/dispatch.rs#L33"><code>delonix-host/src/dispatch.rs:33</code></a>); <code>__apirun</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L2362"><code>lifecycle.rs:2362</code></a>; caught in <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/main.rs#L2421"><code>main.rs:2421</code></a></td>
+<td><code>delonix_bin</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L807"><code>lifecycle.rs:807</code></a> (→ <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-host/src/dispatch.rs#L33"><code>delonix-host/src/dispatch.rs:33</code></a>); <code>__apirun</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L2365"><code>lifecycle.rs:2365</code></a>; caught in <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/main.rs#L2421"><code>main.rs:2421</code></a></td>
 </tr>
 <tr>
 <td>B</td>
 <td><code>$DELONIX_ROOT/cri</code>, <code>load_reconciled</code> / <code>reconcile_status</code></td>
-<td><a href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L963"><code>lifecycle.rs:963</code></a> → <code>RuntimeOps::reconcile_status</code> in <code>delonix-cri-bin</code> → <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/lib.rs#L13353"><code>delonix-linux/src/lib.rs:13353</code></a></td>
+<td><a href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L966"><code>lifecycle.rs:966</code></a> → <code>RuntimeOps::reconcile_status</code> in <code>delonix-cri-bin</code> → <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/lib.rs#L13353"><code>delonix-linux/src/lib.rs:13353</code></a></td>
 </tr>
 <tr>
 <td>B</td>
@@ -1073,38 +1227,14 @@ isolated path); the local servers <code>delonix-mgmt</code>, <code>delonix-mcp</
 and the socket-activated units in <code>dist/</code>; the Proxmox remote <code>VmBackend</code>; the Docker
 API compatibility path (<code>cmd/dockerapi.rs</code>).</p>
 <h3>Divergences found while drawing (the code wins)</h3>
-<p>Confirmed against the code at <code>6ae1321d</code>; the sections above them were not rewritten
-in this change.</p>
-<ol>
-<li><strong>Level 3 graph.</strong> 24 of its edges no longer exist in the <code>Cargo.toml</code> files and 50
-   real ones are missing. Notably: <code>delonix-bin</code> no longer depends on <code>delonix-cri</code>
-   (<code>delonix serve cri</code> execs the <code>delonix-cri</code> binary — <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/serve.rs#L152"><code>serve.rs:152</code></a>);
-   <code>delonix-cri</code> no longer depends on <code>delonix-linux</code>/<code>-oci</code>/<code>-sdn</code>/<code>-state</code> (its ports
-   are filled by <code>delonix-cri-bin</code>, R3h); <code>delonix-engine</code> does not depend on
-   <code>delonix-mcp</code> nor <code>delonix-mgmt</code>; <code>delonix-mgmt</code> depends only on <code>delonix-host</code>,
-   <code>delonix-telemetry</code>, the contexts and the foundation. The note "<code>delonix-bin</code>
-   DEPENDS on <code>delonix-cri</code>" is stale.</li>
-<li><strong>Level 2 and ADR-3: the holder was split.</strong> Since v0.42.0 the rootless ingress is
-   <code>netns pin</code> (creates and holds the user + network namespaces, <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/pin_userns.rs"><code>pin_userns.rs</code></a>),
-   <code>netns control</code> (the control socket: bridge, nft, DHCP, DNS) and the single
-   <code>slirp4netns</code> (<a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-sdn/src/infra.rs#L451"><code>infra.rs:451</code></a>). It is
-   no longer started through <code>unshare(1)</code>.</li>
-<li><strong>Level 2, limitations 4 and 6, ADR-1: there is a detached supervisor.</strong> <code>run -d</code>
-   starts under a supervisor forked from the CLI, which is the container's parent: it
-   collects the real exit status and applies <code>--restart</code>
-   (<a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/supervise.rs#L1"><code>supervise.rs:1</code></a>,
-   <a href="https://github.com/ngolacloud/delonix/blob/main/crates/contexts/delonix-compute/src/domain/launch.rs#L193"><code>launch.rs:193</code></a>). The
-   <code>--rm</code> watcher remains only for <code>--no-supervisor</code>. Limitation 4 ("<code>restart_policy</code>
-   is not consumed") and limitation 6 ("the real exit code is lost in detach") read as
-   stale for this path.</li>
-<li><strong>Limitation 7 and flow (c).</strong> The CRI now calls the grouped forms
-   (<code>container rm</code>, <code>container stop</code>, <code>net netns attach</code>) and starts containers with
-   <code>__apirun &lt;spec.json&gt;</code> (<a href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L2362"><code>lifecycle.rs:2362</code></a>);
-   the root path no longer runs <code>pod create</code> — it uses CNI
-   (<a href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L1226"><code>lifecycle.rs:1226</code></a>).
-   The doc comment of <code>delonix()</code> at <a href="https://github.com/ngolacloud/delonix/blob/main/crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L812"><code>lifecycle.rs:812</code></a>
-   still says "top-level <code>run</code>/<code>stop</code>/<code>rm</code> forms".</li>
-</ol>
+<p>Drawing these diagrams against the code at <code>6ae1321d</code> found four places where the rest
+of this document had fallen behind: the Level 3 graph (24 stale edges, 50 missing), the
+rootless ingress (the holder split into <code>netns pin</code> + <code>netns control</code> in v0.42.0), the
+detached supervisor (limitations 4 and 6, ADR-1) and the CRI's delegation (limitation 7,
+flow c). All four are now fixed in place in the sections above. Checking them also
+showed that limitation 1 (rootless <code>--net &lt;network&gt;</code>) had been closed by the re-exec
+path, and turned up one real gap, now limitation 9: <code>run -d --rm</code> does not remove the
+container on the supervised path.</p>
 <hr />
 <h2>System design — main flows</h2>
 <h3>(a) rootless <code>container run</code> — default <code>--net private</code></h3>
@@ -1117,7 +1247,7 @@ behaviour of <code>docker run</code> / <code>podman run</code> (<code>cmd_run</c
 <code>crates/adapters/delonix-linux/src/lib.rs</code>; <code>slirp_attach</code> in <code>crates/adapters/delonix-sdn/src/lib.rs</code>).</p>
 <pre class="mermaid">sequenceDiagram
     participant U as operador
-    participant CLI as delonix run
+    participant CLI as delonix run, ou o supervisor com -d
     participant K as kernel
     participant INIT as container_init filho
     participant S as slirp4netns dedicado
@@ -1125,6 +1255,7 @@ behaviour of <code>docker run</code> / <code>podman run</code> (<code>cmd_run</c
     U-&gt;&gt;CLI: delonix container run -p 8080:80 imagem
     CLI-&gt;&gt;CLI: parse_publish valida os -p antes de criar seja o que for
     CLI-&gt;&gt;CLI: resolve_or_pull + prepare_rootfs overlay ou export achatado
+    Note over CLI: com -d a CLI faz fork do supervisor aqui, e e ele que segue —&lt;br&gt;fica pai do container — a CLI espera so pelo 1.o arranque
     CLI-&gt;&gt;K: clone com NEWNS NEWUTS NEWPID NEWIPC NEWNET NEWUSER
     K--&gt;&gt;CLI: pid do filho
     Note over CLI,INIT: filho bloqueia num pipe a espera do GO do userns
@@ -1140,40 +1271,47 @@ behaviour of <code>docker run</code> / <code>podman run</code> (<code>cmd_run</c
     alt foreground
         CLI-&gt;&gt;K: waitpid — Status final com exit code
     else detach
-        CLI--&gt;&gt;U: imprime o id e termina — sem monitor residente
+        CLI--&gt;&gt;U: a CLI imprime o id e termina
+        CLI-&gt;&gt;K: o supervisor faz waitpid — codigo real, --restart, liberta o slirp
     end
 </pre>
 <p>Structural points: the userns-GO → console/log order is critical and documented in
 <code>spawn</code> (deadlock otherwise); the log shim in detach mode does <code>setsid</code> and drops stdio
 so that <code>run -d</code> does not hang whoever captures its stdout; the slirp dies with the
-container's netns and there is an orphan reaper (<code>reap_orphan_slirp</code>) because, without a
-daemon, a container crash has no one to clean up on the spot.</p>
+container's netns. On the detached path the supervisor releases it on every exit
+(<code>Supervision::on_exit</code>, <code>crates/adapters/delonix-linux/src/supervise.rs</code>); the orphan
+reaper (<code>reap_orphan_slirp</code>) remains for the cases nobody is left to see the exit — a
+killed supervisor, or a killed foreground CLI — because there is no daemon to do it.</p>
 <h3>(b) <code>run --net &lt;network&gt; -p</code> — publishing through the shared ingress</h3>
-<p>With a custom network there is no per-container slirp: the container joins a netns
-created by the holder and the port is published with <strong>one <code>add_hostfwd</code> on the single
-slirp + one DNAT in the nft table inside the infra netns</strong> (<code>infra::attach_container</code>,
-<code>infra::publish_port</code>, <code>do_publish</code> — <code>crates/adapters/delonix-sdn/src/infra.rs</code>).</p>
+<p>With a custom network there is no per-container slirp: the control plane creates a
+named netns for the container inside the infra namespaces, the CLI re-executes itself
+into it, and the port is published with <strong>one <code>add_hostfwd</code> on the single slirp + one
+DNAT in the nft table inside the infra netns</strong> (<code>infra::attach_container</code>,
+<code>infra::publish_port</code>, <code>do_publish</code> — <code>crates/adapters/delonix-sdn/src/infra.rs</code>;
+<code>attach_custom_network</code>/<code>wire_network</code> — <code>crates/contexts/delonix-compute/src/app/network.rs</code>;
+<code>reexec_into_netns</code> — <code>bins/delonix/src/cmd/container.rs</code>).</p>
 <pre class="mermaid">sequenceDiagram
     participant CLI as delonix run --net web -p 8080:80
-    participant H as holder netns
+    participant H as netns control, dentro do pin
     participant SL as slirp4netns unico
+    participant P2 as delonix netns run, 2.a passagem
     participant C as container
 
-    CLI-&gt;&gt;H: ensure_up — arranca holder e slirp se nao existirem, refcount
+    CLI-&gt;&gt;H: ensure_up — arranca pin, control e slirp se nao existirem, refcount
     CLI-&gt;&gt;H: attach_container pelo control socket SO_PEERCRED
     H-&gt;&gt;H: ip netns add + veth para a bridge da rede + IP deterministico + anti-spoofing
     H--&gt;&gt;CLI: nome da netns e IP do container
-    CLI-&gt;&gt;SL: publish_port — add_hostfwd 8080 para tap0 8080 via api-socket
-    CLI-&gt;&gt;H: publish 8080 para IP 80 — DNAT nft na chain pre do netns de infra
-    Note over CLI,H: regras criadas ANTES do arranque — o IP ja e conhecido
-    CLI-&gt;&gt;C: clone com join_netns = /run/netns/nome — setns em vez de NEWNET
-    Note over C: LIMITACAO rootless: o setns a netns do holder falha p/ um run normal — ver Limitacoes
+    CLI-&gt;&gt;P2: reexec_into_netns — nsenter -t pin -U -m -n -- ip netns exec nome delonix netns run spec
+    P2-&gt;&gt;SL: publish_port — add_hostfwd 8080 para tap0 8080 via api-socket
+    P2-&gt;&gt;H: publish 8080 para IP 80 — DNAT nft na chain pre do netns de infra
+    Note over P2,H: regras criadas ANTES do arranque — o IP ja e conhecido
+    P2-&gt;&gt;C: clone sem NEWNET nem NEWUSER — herda a netns e o userns do pin
     Note over H,SL: publish e unpublish sao estado do dataplane, nao do processo:&lt;br&gt;reconfiguracao a quente sem parar o container
     CLI-&gt;&gt;SL: stop ou rm — unpublish_port remove hostfwd
-    CLI-&gt;&gt;H: unpublish — remove o DNAT; detach_container desfaz o veth
+    CLI-&gt;&gt;H: unpublish — remove o DNAT — detach_container desfaz o veth
 </pre>
 <p>What makes the <em>hot reconfig</em> possible: the publishing lives in the slirp (hostfwd) and
-in the holder's nft — neither of the two belongs to the container's process.
+in the infra netns's nft — neither of the two belongs to the container's process.
 <code>unpublish_ports</code> runs on <code>stop</code>/<code>rm</code> (<code>cmd/container.rs</code>), and <code>reap_orphan_hostfwds</code>
 reconciles the slirp against the live containers when something died without cleaning
 up. The same dataplane supports per-container firewall (<code>fw_chain_body</code>, dispatched in
@@ -1189,32 +1327,42 @@ rule.</p>
 <p>The CRI (<code>crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs</code>) keeps the CRI
 state in its own JSON and <strong>delegates to the <code>delonix</code> binary</strong> the operations that use
 <code>clone</code> — the server is multi-threaded (tokio) and <code>clone</code> is only safe
-single-threaded (decision documented in the header of <code>lifecycle.rs</code>).</p>
+single-threaded (decision documented in the header of <code>lifecycle.rs</code>). It calls the
+same grouped forms an operator types (<code>container stop</code>, <code>container rm</code>, <code>net netns
+attach</code>/<code>detach</code>) and starts containers with the hidden re-exec <code>__apirun
+&lt;spec.json&gt;</code>, whose file carries the whole <code>RunOpts</code> (<code>start_run_opts</code>: detached,
+<code>--restart no</code>, CRI-format log). CNI goes through the <code>NetworkOps</code> port that
+<code>delonix-cri-bin</code> fills from <code>delonix-sdn</code>, not through the binary.</p>
 <pre class="mermaid">sequenceDiagram
     participant KL as kubelet
     participant CRI as delonix-cri
+    participant NET as porta NetworkOps, delonix-sdn
     participant D as binario delonix
-    participant H as holder netns
 
     KL-&gt;&gt;CRI: RunPodSandbox
     alt host network — namespace_options NODE
         CRI-&gt;&gt;CRI: sem netns proprio — regista host_network true
     else rootless com CNI opt-in DELONIX_CNI=1
-        CRI-&gt;&gt;H: cni_attach_container — plugins CNI correm no holder, IP do IPAM
+        CRI-&gt;&gt;NET: cni_attach cri-id — plugins CNI correm no control plane, IP do IPAM
     else rootless SDN nativo
-        CRI-&gt;&gt;D: netns attach cri-id — netns partilhada do ingress
+        CRI-&gt;&gt;D: net netns attach cri-id — netns partilhada do ingress
     else root
-        CRI-&gt;&gt;D: pod create pod-cri-id --network — infra container estilo pause
+        CRI-&gt;&gt;NET: cni_attach cri-id — a cadeia CNI do no, no host — netns, IP e sysctls net.*
     end
     CRI--&gt;&gt;KL: pod_sandbox_id
     KL-&gt;&gt;CRI: CreateContainer + StartContainer
-    CRI-&gt;&gt;D: run detached com --pod — RunSpec.join_netns p/ a netns do sandbox
-    Note over D: log em formato CRI — RunSpec.log_cri: rfc3339nano stdout F linha
+    alt rootless com runner morno disponivel
+        CRI-&gt;&gt;CRI: WarmOps try_start_warm — runner pre-carregado, delonix-warm
+    else caminho frio
+        CRI-&gt;&gt;D: __apirun spec.json — --pod cri-id — root CNI: nsenter --net=netns do pod
+    end
+    Note over D: run detached sob supervisor — codigo de saida real&lt;br&gt;log em formato CRI — RunSpec.log_cri: rfc3339nano stdout F linha
     KL-&gt;&gt;CRI: ContainerStatus
     CRI-&gt;&gt;CRI: load_reconciled — reconcile_status contra o kernel antes de responder
-    Note over CRI: crash detectado vira Crashed 137 — o kubelet com OnFailure reage
+    Note over CRI: o kubelet com OnFailure reage ao estado reconciliado
     KL-&gt;&gt;CRI: StopPodSandbox e RemovePodSandbox
-    CRI-&gt;&gt;D: stop e rm -f de cada container, depois desfaz o netns ou o infra container
+    CRI-&gt;&gt;D: container stop -t 0 e container rm -f de cada container
+    CRI-&gt;&gt;NET: cni_detach — ou net netns detach cri-id no SDN nativo
 </pre>
 <p>The CRI-format logs are written by the same log shim as flow (a) —
 <code>RunSpec.log_cri</code> (<code>crates/adapters/delonix-linux/src/lib.rs</code>) — so that <code>kubectl logs</code>/
@@ -1234,7 +1382,7 @@ zero duplication of the kubeadm/SSH/validation logic).</p>
     participant R as hosts remotos via ssh
 
     U-&gt;&gt;CL: cluster kubeadm --name demo --control-plane 1 --workers 2
-    CL-&gt;&gt;VS: resolve_vm_image — a explicita, ou a UNICA existente; erro claro com 0 ou N
+    CL-&gt;&gt;VS: resolve_vm_image — a explicita, ou a UNICA existente — erro claro com 0 ou N
     Note over VS: imagem dourada = Ubuntu cloud image validada por SHA256SUMS +&lt;br&gt;virt-customize com k8s_customization_steps: kubeadm kubelet kubectl,&lt;br&gt;swap off, modulos e sysctls, delonix-cri + unit systemd — cmd/vmimage.rs
     CL-&gt;&gt;CL: gera ou carrega chave SSH ed25519 em root/clusters/nome
     loop cada VM cp1..N w1..M
@@ -1262,67 +1410,102 @@ SSH (<code>cluster apply</code>) — a host prepared by either path ends up iden
 <p>Each one confirmed in the code as of this document's date; several are already
 annotated in the diagrams above.</p>
 <ol>
-<li><strong>Custom <code>--net &lt;network&gt;</code> in rootless fails the <code>setns</code> for a normal <code>run</code>.</strong> The
-   named netns is created by the holder, inside the holder's mapped userns
-   (<code>infra::start_holder</code>); the container process, without privilege in that userns,
-   cannot open it. The right mechanism already exists in the engine — re-exec via
-   <code>nsenter … ip netns exec</code> + <code>RunSpec.inherit_userns</code>
-   (<code>crates/adapters/delonix-linux/src/lib.rs</code>) — but today it is only used by the
-   holder itself; there is no path in <code>delonix-linux</code>/<code>delonix-bin</code> that does it for a
-   normal <code>container run</code>. Closing this is engine work, not CLI work.</li>
+<li><strong>A rootless <code>--net &lt;network&gt;</code> start costs a second pass.</strong> The named netns lives
+   inside the pin's mapped user namespace, where the CLI has no privilege to <code>setns</code>.
+   So the CLI attaches the container through the control socket and then re-executes
+   itself into that netns — <code>nsenter -t &lt;pin&gt; -U -m -n --preserve-credentials -- ip
+   netns exec &lt;netns&gt; delonix netns run &lt;spec&gt;</code> (<code>infra::join_argv</code>;
+   <code>reexec_into_netns</code>, <code>bins/delonix/src/cmd/container.rs</code>) — and that second pass
+   clones without <code>NEWNET</code>/<code>NEWUSER</code> (<code>Launch::inherit_userns</code>,
+   <code>crates/contexts/delonix-compute/src/domain/launch.rs</code>). It works (an earlier version
+   of this document listed it as broken), but it is one more process and one more
+   <code>nsenter</code> per start, and the pin must be up for it (<code>ingress infra is down — no
+   holder to enter</code> otherwise). Pod members and <code>--net container:&lt;name&gt;</code> take the same
+   path.</li>
 <li><strong><code>delonix build</code> is single-stage.</strong> A Dockerfile/Delonixfile with <code>FROM … AS x</code>
    followed by another <code>FROM</code> is rejected with a clear error (<code>cmd/build.rs</code>);
    multi-stage requires designing the rootfs hand-off between stages.</li>
 <li><strong><code>macvlan</code>/<code>ipvlan</code>/<code>overlay</code> have no container attach.</strong> <code>network create</code>
    registers them in the declarative <code>NetworkStore</code> (<code>crates/adapters/delonix-sdn/src/lib.rs</code>),
-   but the holder's physical plane (<code>infra::network_create_with</code>) is only orchestrated
+   but the ingress's physical plane (<code>infra::network_create_with</code>) is only orchestrated
    for the <code>bridge</code> driver — the only one containers attach to today.</li>
-<li><strong><code>Container.restart_policy</code> is not consumed.</strong> The field exists in
-   <code>delonix_compute::Container</code>, but nothing in the engine or the CLI reads it for
-   containers (grep confirmed); without a daemon, there is no one to restart. For
-   <strong>VMs</strong> the policy is materialized only by the libvirt backend (<code>on_crash</code>); on
-   Cloud Hypervisor it is left unsupervised and the code warns
-   (<code>restart_policy_unsupervised</code>, <code>crates/adapters/delonix-vm/src/lib.rs</code>).</li>
+<li><strong><code>--restart</code> lives as long as its supervisor.</strong> A detached container's policy is
+   applied by its supervisor (<code>should_restart</code> with a capped 1s→32s backoff,
+   <code>crates/adapters/delonix-linux/src/supervise.rs</code>; the policy is recorded in
+   <code>Container.restart_policy</code> by <code>launch::start</code>), and across a reboot by the systemd
+   units <code>cmd/boot.rs</code> writes from that field. What no process covers: a supervisor
+   that is itself killed takes the policy with it until the next boot, and
+   <code>always</code>/<code>unless-stopped</code> behave the same while the host is up (documented at
+   <code>should_restart</code>, <code>crates/contexts/delonix-compute/src/domain/launch.rs</code>). A
+   foreground run has no supervisor, so no restart. For <strong>VMs</strong> the policy is
+   materialized only by the libvirt backend (<code>on_crash</code>); on Cloud Hypervisor it waits
+   for the next <code>apply</code>/reconcile and the code warns (<code>restart_policy_unsupervised</code>,
+   <code>crates/adapters/delonix-vm/src/lib.rs</code>).</li>
 <li><strong><code>cluster kubeadm</code> provisions only 1 control-plane.</strong> <code>--control-plane &gt; 1</code> is
    rejected — HA requires a stable endpoint (LB/VIP) that the command does not yet
    create. <code>cluster apply</code> already supports HA with an external <code>controlPlaneEndpoint</code>;
    only <code>stacked</code> etcd (the <code>external</code> mode is recognized and rejected); sequential
    execution across hosts (<code>cmd/cluster.rs</code>, header).</li>
-<li><strong>The real exit code is lost in detach.</strong> In foreground the <code>waitpid</code> produces
-   <code>Stopped</code>/<code>Failed(n)</code>/<code>Crashed</code> (<code>Status::from_wait</code>,
-   <code>crates/contexts/delonix-compute/src/record.rs</code>); in detach there is no monitor, and
-   the later reconciliation can only classify a vanished process as <code>Crashed</code> (reported
-   as 137) — the true exit code is no longer observable. A direct trade-off of being
+<li><strong>The real exit code survives only while a parent is there to reap it.</strong> In
+   foreground the CLI's <code>waitpid</code> produces <code>Stopped</code>/<code>Failed(n)</code>/<code>Crashed</code>
+   (<code>Status::from_wait</code>, <code>crates/foundation/delonix-model/src/records.rs</code>); with <code>-d</code> the
+   supervisor does the same (<code>wait_and_record</code>) and emits <code>die</code> with <code>exit=&lt;n&gt;</code>. Only
+   when that parent is gone — a killed supervisor or foreground CLI, or a start with
+   <code>RunOpts.no_supervisor</code> — can the later reconciliation do no better than classify the
+   vanished process as <code>Crashed</code> (reported as 137). A direct trade-off of being
    daemonless (see ADR-1).</li>
-<li><strong>The internal delegation of <code>delonix-cri</code> assumes CLI surfaces that the <code>delonix</code>
-   binary of this repo does not expose.</strong> <code>lifecycle.rs</code>/<code>streaming.rs</code> invoke
-   <code>current_exe</code>/<code>self_bin</code> with top-level forms (<code>run</code>, <code>stop</code>, <code>rm</code>,
-   <code>netns attach</code>, <code>pod create</code>, under <code>DELONIX_INTERNAL=1</code>) inherited from the binary
-   of the original monorepo, where CLI and CRI lived in the same executable; the
-   open-source <code>delonix</code> has only the groups (<code>container run</code>, …) and the hidden re-exec
-   <code>netns holder</code>. Packaging the CRI standalone (the next milestone of the README)
-   means closing this internal contract.</li>
+<li><strong>The CRI→CLI delegation is a process boundary with no typed contract.</strong> The CRI
+   reaches the <code>delonix</code> binary (<code>delonix_host::dispatch::cli_bin</code>) with the same
+   grouped forms an operator types — <code>container rm -f</code>, <code>container stop -t 0</code>, <code>net
+   netns attach</code>/<code>detach</code> (<code>crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs</code>),
+   <code>container exec</code>/<code>container logs -f</code> (<code>streaming.rs</code>, <code>spdy.rs</code>) — plus the hidden
+   re-exec <code>__apirun &lt;spec.json&gt;</code>, which carries the whole <code>RunOpts</code> as a file
+   (<code>lifecycle.rs</code>, caught in <code>bins/delonix/src/main.rs</code>). The old top-level forms
+   (<code>run</code>, <code>stop</code>, <code>rm</code>, <code>pod create</code>) are gone. What remains open: a renamed
+   subcommand or flag breaks the CRI only at run time — the v0.30.0 move of <code>netns</code>
+   under <code>net</code> surfaced as a failed sandbox, not as a build error (the history is in the
+   doc comment of <code>delonix_detached_why</code>) — and the two binaries must be installed side
+   by side (<code>install.sh --with-cri</code>).</li>
 <li><strong><code>--privileged</code> does not start nested-systemd images like <code>kindest/node</code></strong> — an
    early crash in the entrypoint's cgroup detection, root cause still to isolate; there
    is already dedicated cgroup2 delegation logic for Kind nodes (<code>setup_node_cgroup_ns</code>,
    enabled by <code>--privileged</code> + the <code>io.x-k8s.kind.*</code> label), but it is not enough.
    Investigation detail in <code>AGENTS.md</code> (section "Kind-mode cluster without Docker").</li>
+<li><strong><code>run -d --rm</code> does not remove the container on the supervised path.</strong> The <code>--rm</code>
+   cleanup is armed only in the unsupervised branch of <code>cmd_run</code> (<code>spawn_rm_watcher</code>,
+   <code>bins/delonix/src/cmd/container.rs</code>); when <code>launch::start</code> returns
+   <code>Started::Supervised</code> — every detached start from the CLI — <code>cmd_run</code> returns before
+   reaching it, and the supervisor's exit path (<code>run_supervised</code>) does not remove the
+   record. <code>container run -d --rm --net none python:3.11-slim
+   python3 -c 'import sys; sys.exit(3)'</code> leaves the container listed as <code>Exited (3)</code> (measured 2026-11-24 on <code>develop</code> at <code>6b8d18f3</code>).
+   The real exit code is kept (limitation 6), the auto-removal is not.</li>
 </ol>
 <hr />
 <h2>Architecture decisions (mini-ADRs)</h2>
 <h3>ADR-1 — Daemonless: no mandatory resident process</h3>
-<p><strong>Decision.</strong> The runtime has no daemon: the CLI does a direct <code>clone</code> and exits; state
-is shared through JSON files; auxiliary processes (log shim, <code>--rm</code> watcher, slirp,
-holder) are born out of necessity and die with the resource.
+<p><strong>Decision.</strong> The runtime has no daemon: the CLI does a direct <code>clone</code> and, in the
+foreground, <code>waitpid</code>s it and exits. A detached start (<code>run -d</code>) forks a <strong>supervisor</strong>
+— a copy of the CLI, one per container, gone with it — that does the <code>clone</code> itself and
+stays as the container's parent (<code>run_supervised</code>,
+<code>crates/adapters/delonix-linux/src/supervise.rs</code>; <code>should_supervise</code>,
+<code>crates/contexts/delonix-compute/src/domain/launch.rs</code>). It is the counterpart of
+Docker's <code>containerd-shim</code> or podman's <code>conmon</code>, not of <code>dockerd</code>: nothing is shared
+between containers. State is shared through JSON files; the other auxiliary processes
+(log shim, slirp, the rootless network plane) are born out of necessity and die with
+the resource.
 <strong>Why.</strong> Less attack and failure surface (there is no <code>dockerd</code> whose fall takes the
 containers down with it); instant startup; auditability — each process has an obvious
-owner and lifecycle.
-<strong>Trade-offs accepted.</strong> No per-container monitor: real exit codes are lost in detach
-(limitation 6); the container <code>restart_policy</code> has no executor (limitation 4); the truth
-about "is it alive?" is reconstructed at read time (<code>reconcile_status</code> +
-<code>safe_to_signal</code> against PID reuse) instead of being kept by events; and orphan cleanup
-needs explicit reapers (<code>reap_orphan_slirp</code>, <code>reap_orphan_hostfwds</code>). An optional
-<code>delonixd</code> is an evolution that has been discussed, not an existing piece.</p>
+owner and lifecycle. The supervisor exists because only a parent can <code>waitpid</code>: without
+it a detached container's exit code died with the reparenting to <code>init</code>, and
+<code>on-failure</code> had nothing to decide on.
+<strong>Trade-offs accepted.</strong> The supervisor keeps the exit code and the restart policy only
+while it lives: a killed supervisor leaves the container to <code>init</code>, and from then on the
+exit code is lost and the policy waits for the next boot (limitations 4 and 6). No
+process watches every container, so the truth about "is it alive?" is reconstructed at
+read time (<code>reconcile_status</code> + <code>safe_to_signal</code> against PID reuse) instead of being
+kept by events; and orphan cleanup still needs explicit reapers (<code>reap_orphan_slirp</code>,
+<code>reap_orphan_hostfwds</code>) for the exits nobody saw. An optional <code>delonixd</code> is an
+evolution that has been discussed, not an existing piece.</p>
 <h3>ADR-2 — Rootless-first with subuid/newuidmap</h3>
 <p><strong>Decision.</strong> The rootless path is the main design, not a degraded mode:
 <code>CLONE_NEWUSER</code> + <code>write_userns_maps</code>, which uses the full subuid/subgid range via
@@ -1330,25 +1513,38 @@ needs explicit reapers (<code>reap_orphan_slirp</code>, <code>reap_orphan_hostfw
 <code>crates/adapters/delonix-linux/src/lib.rs</code>), with a fallback to a single-uid map.
 <strong>Why.</strong> Running real images (nginx does <code>chown</code> to uid 101; <code>USER</code> ≠ 0 via
 <code>RunSpec.run_uid</code>) requires a range of uids, not just the mapped root. The
-rootless→root boundary was audited offensively (the holder validates <code>SO_PEERCRED</code>;
+rootless→root boundary was audited offensively (the control plane validates <code>SO_PEERCRED</code>;
 <code>join_netns</code> only receives server-side generated paths; no mapping path reaches the
 host's real uid 0).
 <strong>Trade-off.</strong> Two code regimes at sensitive points (e.g. <code>setup_dev</code> before the pivot
 as root vs <code>setup_dev_userns</code> after the setuid) and a dependency on the system's
 helpers.</p>
-<h3>ADR-3 — Shared ingress (holder + single slirp) vs one slirp per container</h3>
+<h3>ADR-3 — Shared ingress (pin + control + single slirp) vs one slirp per container</h3>
 <p><strong>Decision.</strong> Two models coexist: <code>-p</code> without a custom network uses one <code>slirp4netns</code>
-per container (simple, dies with it); custom networks use the <strong>shared ingress</strong> — a
-holder netns with the <code>delonix0</code> bridge, ONE slirp as a host↔infra bridge and DNAT nft
-inside it (<code>crates/adapters/delonix-sdn/src/infra.rs</code>, module doc: "replaces, in time,
-the 1-slirp-per-container model").
+per container (simple, dies with it); custom networks use the <strong>shared ingress</strong> — an
+infra netns with the <code>delonix0</code> bridge, ONE slirp as a host↔infra bridge and DNAT nft
+inside it (<code>crates/adapters/delonix-sdn/src/infra.rs</code>; the module doc says it
+eventually replaces the 1-slirp-per-container model). Since v0.42.0 the ingress runs as
+two processes: the <strong>pin</strong> (<code>delonix netns pin</code>) creates the user, network and mount
+namespaces itself — <code>unshare(2)</code> inside the process, with the caller writing the id
+maps from outside (<code>crates/adapters/delonix-sdn/src/pin_userns.rs</code>) — and then only
+holds them; the <strong>control plane</strong> (<code>delonix netns control</code>, started with <code>nsenter</code> into
+the pin) owns the control socket, the bridge, <code>nft</code>, DHCP and DNS. Neither is started
+through <code>unshare(1)</code> any more: with <code>kernel.apparmor_restrict_unprivileged_userns=1</code>
+the namespace creator has to be the engine's own executable, which is what an AppArmor
+profile is attached to.
 <strong>Why.</strong> The ingress gives networking between containers (common bridge, internal
 DNS/DHCP), per-container firewall/egress/rate-limit and — because publish/unpublish are
 dataplane state — hot port reconfiguration. One slirp per container gives none of these.
-<strong>Trade-offs.</strong> Two long-running infra processes (managed by ref-count, not by a
-daemon); all configuration inside the netns has to be executed by the holder itself
-(there is no <code>nsenter --user --net</code> from the host — a gotcha documented in the module);
-and limitation 1 until the re-exec reaches the normal <code>run</code>.</p>
+The split is what makes the control plane restartable: <code>ensure_up</code> finds the pin alive
+and starts a new control inside it, and not a veth, tap, nft rule or slirp moves
+(<code>ensure_up_locked</code>). Before it, restarting the single holder threw the netns away and
+unplugged every workload on the node.
+<strong>Trade-offs.</strong> Three long-running infra processes (pin, control, slirp — managed by a
+ref-count, not by a daemon); all configuration inside the netns has to be executed by
+the control plane, already root in the userns (there is no <code>nsenter --user --net</code> from
+the host — a gotcha documented in the module); and a rootless start on a custom network
+pays the second pass of limitation 1.</p>
 <h3>ADR-4 — State in JSON files, not in a DB</h3>
 <p><strong>Decision.</strong> Persistence by one-JSON-per-record (<code>Store</code>/<code>JsonStore</code>,
 <code>crates/adapters/delonix-state/src/store.rs</code>) under <code>$DELONIX_ROOT</code>; the CRI and the
@@ -1387,8 +1583,8 @@ containerd/CRI-O without inventing a protocol; scheduling/restart/GC stay on the
 kubelet's side, consistent with being daemonless (the kubelet is the monitor the runtime
 does not have). The golden VM image already packages <code>delonix-cri</code> as a systemd service,
 closing the loop with flow (d).
-<strong>Trade-off.</strong> Limitation 7 (the internal CRI→CLI contract inherited from the
-extraction) is the open price of having separated the two binaries.</p>
+<strong>Trade-off.</strong> Limitation 7 (the CRI→CLI delegation is an untyped process boundary)
+is the open price of keeping <code>clone</code> out of the multi-threaded server.</p>
 <h3>ADR-7 — Public/private boundary with the PaaS</h3>
 <p><strong>Decision.</strong> This repository compiles on its own and knows nothing about tenant,
 licence, billing or console. <code>delonix-model</code> and the contexts are the base that the
