@@ -646,6 +646,12 @@ below, or when a table names a path that no longer exists.</p>
 <td><a class="src" href="https://github.com/ngolacloud/delonix/tree/main/docs/adr" target="_blank" rel="noopener"><code>docs/adr/</code></a></td>
 </tr>
 <tr>
+<td><a class="src" href="https://github.com/ngolacloud/delonix/tree/main/docs/diagrams" target="_blank" rel="noopener"><code>docs/diagrams/</code></a></td>
+<td>Architecture drawings ("Docker vs Delonix", "Kubernetes with Delonix", the crate layers): each <code>.svg</code> with a <code>.mermaid</code> text twin, <strong>generated</strong> by <code>gen_diagrams.py</code> (stdlib), with every box and arrow confirmed in the "Diagrams" section of <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/ARCHITECTURE.md" target="_blank" rel="noopener"><code>ARCHITECTURE.md</code></a>. Never edit the SVG by hand.</td>
+<td>Edit <code>gen_diagrams.py</code>, run <code>python3 docs/<wbr>diagrams/<wbr>gen_diagrams.<wbr>py</code>, and update the confirmation table when a box or arrow changes.</td>
+<td><a class="src" href="https://github.com/ngolacloud/delonix/blob/main/ARCHITECTURE.md" target="_blank" rel="noopener"><code>ARCHITECTURE.md</code></a></td>
+</tr>
+<tr>
 <td><a class="src" href="https://github.com/ngolacloud/delonix/tree/main/docs/launch" target="_blank" rel="noopener"><code>docs/launch/</code></a></td>
 <td>The launch narrative (<code>why-delonix.md</code>): the product positioning and one-sentence pitch, every number measured on a real host and every ceiling named. Source for the introduction and landing copy.</td>
 <td>Whoever revises the positioning for a launch or release.</td>

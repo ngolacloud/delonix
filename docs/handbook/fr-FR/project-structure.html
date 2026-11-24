@@ -625,6 +625,12 @@ par <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/docs/ge
 <td><a class="src" href="https://github.com/ngolacloud/delonix/tree/main/docs/adr" target="_blank" rel="noopener"><code>docs/adr/</code></a></td>
 </tr>
 <tr>
+<td><a class="src" href="https://github.com/ngolacloud/delonix/tree/main/docs/diagrams" target="_blank" rel="noopener"><code>docs/diagrams/</code></a></td>
+<td>Schémas d'architecture (« Docker vs Delonix », « Kubernetes avec Delonix », les couches de crates) : chaque <code>.svg</code> avec un jumeau texte <code>.mermaid</code>, <strong>généré</strong> par <code>gen_diagrams.py</code> (stdlib), chaque boîte et chaque flèche étant confirmée dans la section "Diagrams" de <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/ARCHITECTURE.md" target="_blank" rel="noopener"><code>ARCHITECTURE.md</code></a>. Ne jamais éditer le SVG à la main.</td>
+<td>Éditer <code>gen_diagrams.py</code>, lancer <code>python3 docs/<wbr>diagrams/<wbr>gen_diagrams.<wbr>py</code> et mettre à jour la table de confirmation quand une boîte ou une flèche change.</td>
+<td><a class="src" href="https://github.com/ngolacloud/delonix/blob/main/ARCHITECTURE.md" target="_blank" rel="noopener"><code>ARCHITECTURE.md</code></a></td>
+</tr>
+<tr>
 <td><a class="src" href="https://github.com/ngolacloud/delonix/tree/main/docs/launch" target="_blank" rel="noopener"><code>docs/launch/</code></a></td>
 <td>Le récit de lancement (<code>why-delonix.md</code>) : le positionnement produit et le pitch en une phrase, chaque nombre mesuré sur un hôte réel et chaque plafond nommé. Source de l’introduction et du texte d’accueil.</td>
 <td>Quiconque révise le positionnement pour un lancement ou une release.</td>
