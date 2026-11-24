@@ -3875,6 +3875,83 @@ mod tests {
 
     /// A Node package gets the commitlint config, and the extension has to
     /// match the package's module system — a bare `.js` in a CommonJS package
+    /// A template whose entrypoint runs a launcher SCRIPT, and whose manifest
+    /// turns on an IN-PROCESS bootstrap, has to put the app root on `sys.path`
+    /// BEFORE that bootstrap — and `os.chdir` does not do it.
+    ///
+    /// The defect this pins (#1038, found on the published v0.2.0): the django
+    /// launcher did `os.chdir("/app")` and nothing else, the entrypoint runs it
+    /// as a script (so `sys.path[0]` is `/app/docker`), the image's PYTHONPATH
+    /// carried only the venv, and the manifest sets `MIGRATE_ON_START=true` —
+    /// so Django could not import `config.settings` and the container exited 1
+    /// before binding. `delonix init -t django --up` gave up after 120s.
+    ///
+    /// It checks the ORDER and not just the presence: a path insert after the
+    /// bootstrap is the same defect with the line in the file.
+    ///
+    /// A plain `docker run` of the image never entered that branch (no
+    /// `MIGRATE_ON_START` in the environment), which is exactly why the sweep
+    /// that validated the 11 templates passed over it.
+    #[test]
+    fn a_launcher_script_puts_the_app_root_on_sys_path_before_any_in_process_bootstrap() {
+        let mut checked = 0;
+        for tpl in template_names() {
+            let (_tmp, dir) = scratch();
+            render_template(tpl, &opts(dir.clone(), "my-svc", tpl, None), false)
+                .unwrap_or_else(|e| panic!("{tpl}: {e}"));
+            let launcher = dir.join("docker").join("launch.py");
+            if !launcher.exists() {
+                continue;
+            }
+            let manifest = std::fs::read_to_string(dir.join("delonix-manifest.yaml")).unwrap();
+            // The only in-process bootstrap these templates have today. A new
+            // one adds its marker here, beside this one.
+            if !manifest.contains("MIGRATE_ON_START=true") {
+                continue;
+            }
+            let src = std::fs::read_to_string(&launcher).unwrap();
+            let boot = src.find("execute_from_command_line").unwrap_or_else(|| {
+                panic!("{tpl}: the manifest enables a bootstrap this launcher does not run")
+            });
+            // Either the launcher inserts it, or the image declares it.
+            let inserted = src.find("sys.path.insert").filter(|&at| {
+                at < boot
+                    && src[at..]
+                        .lines()
+                        .next()
+                        .is_some_and(|l| l.contains("\"/app\""))
+            });
+            let declared = ["Delonixfile", "Dockerfile"].iter().any(|f| {
+                std::fs::read_to_string(dir.join(f))
+                    .map(|c| {
+                        c.lines().any(|l| {
+                            l.contains("PYTHONPATH=")
+                                && l.split("PYTHONPATH=").nth(1).is_some_and(|v| {
+                                    v.split_whitespace()
+                                        .next()
+                                        .unwrap_or("")
+                                        .split(':')
+                                        .any(|p| p == "/app")
+                                })
+                        })
+                    })
+                    .unwrap_or(false)
+            });
+            assert!(
+                inserted.is_some() || declared,
+                "{tpl}: the entrypoint runs docker/launch.py as a script, so sys.path[0] is \
+                 its own directory; the manifest then runs an in-process bootstrap that imports \
+                 the app. Insert the app root into sys.path BEFORE it, or put /app on the \
+                 image's PYTHONPATH — os.chdir does neither (#1038)"
+            );
+            checked += 1;
+        }
+        assert!(
+            checked > 0,
+            "no template matched the shape this gate exists for — it is measuring nothing"
+        );
+    }
+
     /// is parsed as CommonJS and the `export default` inside never loads.
     #[test]
     fn the_node_templates_carry_a_commitlint_config() {

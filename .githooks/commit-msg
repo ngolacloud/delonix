@@ -17,6 +17,41 @@ set -euo pipefail
 
 msg_file=${1:?commit-msg hook: no message file}
 
+# ---------------------------------------------------------------------------
+# GitHub's CI-skip directive, which a message cannot even MENTION safely.
+#
+# Unlike the trailer above, there is no parser to ask: GitHub scans the whole
+# commit message for the bracketed token as a SUBSTRING, so naming it in prose
+# IS acting on it. Measured 2026-11-23, by walking into it: a commit whose body
+# explained that another commit had been pushed with that directive gave the
+# branch a head whose PR ran ZERO checks. A commit saying the directive hides
+# breakage, hiding it.
+#
+# It is the inverse of the trailer case, and that is why the two are checked
+# differently — there, a grep would refuse a message that only explains the
+# rule; here, the explanation is the defect.
+#
+# To write about it, drop the brackets: `skip ci`, or "the CI-skip directive".
+SKIP_DIRECTIVES='\[(skip[ -]ci|ci[ -]skip|no[ -]ci|skip[ -]actions|actions[ -]skip)\]'
+
+skips=$(grep -Eio "$SKIP_DIRECTIVES" "$msg_file" | sort -u || true)
+if [ -n "$skips" ]; then
+  cat >&2 <<EOF
+commit-msg: refused — a CI-skip directive in the message
+
+$(printf '%s\n' "$skips" | sed 's/^/    /')
+
+GitHub reads that token anywhere in a commit message and skips every workflow
+for the push AND for a pull request whose head this commit becomes. There is no
+way to mention it without triggering it.
+
+If you are WRITING ABOUT it, drop the brackets (\`skip ci\`, or "the CI-skip
+directive"). If you really mean to skip CI, \`git commit --no-verify\` — and say
+in the message why the change cannot be validated.
+EOF
+  exit 1
+fi
+
 # Vendor domains, never NAMES. `Claude` is a common first name, and refusing a
 # human co-author called Claude would be a false positive in the one place a
 # false positive costs the most — someone's credit. Every one of the 810 found

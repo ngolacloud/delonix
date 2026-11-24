@@ -13,8 +13,8 @@
 | provider | 10 | 55,077 | 14.0% |
 | interface | 4 | 40,470 | 10.3% |
 | assembly | 1 | 1,132 | 0.3% |
-| bin | 6 | 167,639 | 42.6% |
-| **total** | **41** | **393,498** | 100% |
+| bin | 6 | 167,716 | 42.6% |
+| **total** | **41** | **393,575** | 100% |
 
 ## Lines per crate
 
@@ -87,7 +87,7 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-bin ⚠️ >20k | 164,238 |
+| delonix-bin ⚠️ >20k | 164,315 |
 | delonix-node-api-bin | 1,465 |
 | delonix-cri-bin | 838 |
 | delonix-storage-helper | 645 |
@@ -110,7 +110,7 @@ Context destinations (the `cli_context_lines` ratchet) come first.
 | delonix-node | 7,449 | 4 | ✓ |
 | delonix-gateway | 5,351 | 2 | ✓ |
 | delonix-security | 3,216 | 4 | ✓ |
-| delonix-cli | 19,698 | 20 |  |
+| delonix-cli | 19,775 | 20 |  |
 | delonix-docker-api | 3,825 | 1 |  |
 | delonix-engine | 3,423 | 5 |  |
 | delonix-l7proxy | 2,052 | 1 |  |
