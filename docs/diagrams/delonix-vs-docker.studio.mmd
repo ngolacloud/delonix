@@ -1,0 +1,91 @@
+%% dxtutor-arch v1
+graph TB
+  subgraph view__docker["Docker — 2 daemons residentes"]
+    docker_cli["Docker CLI"]
+    subgraph docker_host["Host"]
+      dockerd["dockerd"]
+      containerd["containerd"]
+      shim["containerd-shim<br>um por container"]
+      runc["runc"]
+      docker_ctr["Container"]
+      docker_kernel[/"Linux kernel"\]
+    end
+  end
+  subgraph view__delonix["Delonix — sem daemon"]
+    subgraph dlx_host["Host"]
+      cli["delonix CLI"]
+      supervisor["supervisor<br>fork da CLI (-d)"]
+      ctr["Container"]
+      vm["microVM<br>VmBackend"]
+      dlx_kernel[/"Linux kernel · namespaces · cgroups v2"\]
+      subgraph dlx_state["Estado: $DELONIX_ROOT"]
+        state[("Estado em JSON")]
+      end
+      subgraph dlx_per["Por container (opcional)"]
+        logshim["log shim"]
+        slirp["slirp4netns<br>um por container"]
+        watcher["watcher --rm"]
+      end
+      subgraph dlx_net["Rede rootless (sob procura)"]
+        pin["netns pin"]
+        control["netns control<br>delonix0, nft, DHCP"]
+        slirp1["slirp4netns<br>único, partilhado"]
+      end
+    end
+  end
+  docker_cli -.-> dockerd
+  dockerd -.-> containerd
+  containerd -.-> shim
+  shim -.-> runc
+  runc -.-> docker_ctr
+  cli -.->|"clone"| ctr
+  cli -.-|"-d: fork"| supervisor
+  supervisor -.-|"clone"| ctr
+  cli -->|"lê e escreve"| state
+  cli -.- logshim
+  cli -.- slirp
+  cli -.- watcher
+  cli -.-|"ensure_up"| pin
+  cli -.-|"VmBackend"| vm
+%% dxt:view view__docker {"id":"docker","title":"Docker — 2 daemons residentes","color":"#0f766e"}
+%% dxt:view view__delonix {"id":"delonix","title":"Delonix — sem daemon","color":"#6d28d9","daemonless":true,"strict":true}
+%% dxt:group docker_body {"i":0,"id":"docker-body","kind":"boundary","style":"dashed","body":"view__docker"}
+%% dxt:group docker_host {"i":1,"id":"docker-host","kind":"host","style":"dashed"}
+%% dxt:group dlx_body {"i":2,"id":"dlx-body","kind":"boundary","style":"dashed","source":"AGENTS.md:236 (guardrail «Daemonless — no resident process by default»); dist/: só unidades opt-in (delonix-cri.service, delonix-node-api.socket, delonix-storage-helper.socket)","body":"view__delonix"}
+%% dxt:group dlx_host {"i":3,"id":"dlx-host","kind":"host","style":"dashed","source":"crates/adapters/delonix-linux/src/lib.rs:9759 clone, em processo a partir de cmd_run (bins/delonix/src/cmd/container.rs:3622)"}
+%% dxt:group dlx_state {"i":4,"id":"dlx-state","kind":"module","style":"dashed","source":"crates/adapters/delonix-state/src/store.rs:298, :314"}
+%% dxt:group dlx_per {"i":5,"id":"dlx-per","kind":"boundary","style":"dashed","source":"crates/adapters/delonix-linux/src/lib.rs:8966; bins/delonix/src/cmd/container.rs:3563; bins/delonix/src/cmd/container.rs:4802"}
+%% dxt:group dlx_net {"i":6,"id":"dlx-net","kind":"boundary","style":"dashed","source":"crates/adapters/delonix-sdn/src/infra.rs:1933 ensure_up; :1783 acquire; :1794 release"}
+%% dxt:node docker_cli {"i":0,"id":"docker-cli","kind":"cli","code":"docker run nginx"}
+%% dxt:node dockerd {"i":1,"id":"dockerd","kind":"daemon"}
+%% dxt:node containerd {"i":2,"id":"containerd","kind":"daemon"}
+%% dxt:node shim {"i":3,"id":"shim","kind":"process"}
+%% dxt:node runc {"i":4,"id":"runc","kind":"runtime"}
+%% dxt:node docker_ctr {"i":5,"id":"docker-ctr","kind":"process"}
+%% dxt:node docker_kernel {"i":6,"id":"docker-kernel","kind":"kernel"}
+%% dxt:node cli {"i":7,"id":"cli","kind":"cli","code":"delonix run nginx","source":"bins/delonix/src/main.rs:1917 (run → container run); bins/delonix/src/cmd/container.rs:3622 cmd_run"}
+%% dxt:node supervisor {"i":8,"id":"supervisor","kind":"process","source":"crates/adapters/delonix-linux/src/supervise.rs:81 run_supervised; :103 fork"}
+%% dxt:node ctr {"i":9,"id":"ctr","kind":"process","source":"crates/adapters/delonix-linux/src/lib.rs:9759 clone; crates/adapters/delonix-linux/src/lib.rs:5541 execvp"}
+%% dxt:node state {"i":10,"id":"state","kind":"state","source":"crates/adapters/delonix-state/src/store.rs:298 Store; :314 default_root ($DELONIX_ROOT); :681 JsonStore; :94 flock"}
+%% dxt:node logshim {"i":11,"id":"logshim","kind":"process","source":"crates/adapters/delonix-linux/src/lib.rs:1445 log_shim; :9923 fork"}
+%% dxt:node slirp {"i":12,"id":"slirp","kind":"process","source":"crates/adapters/delonix-sdn/src/lib.rs:2235 slirp_attach"}
+%% dxt:node watcher {"i":13,"id":"watcher","kind":"process","source":"bins/delonix/src/cmd/container.rs:4802 spawn_rm_watcher; :4804 fork"}
+%% dxt:node pin {"i":14,"id":"pin","kind":"process","source":"crates/adapters/delonix-sdn/src/infra.rs:455 PidKind::Pin; bins/delonix/src/main.rs:2259"}
+%% dxt:node control {"i":15,"id":"control","kind":"process","source":"crates/adapters/delonix-sdn/src/infra.rs:455 PidKind::Control; :28 delonix0; :3638 start_dhcp; :9829 dns_server_main; main.rs:2269"}
+%% dxt:node slirp1 {"i":16,"id":"slirp1","kind":"process","source":"crates/adapters/delonix-sdn/src/infra.rs:455 PidKind::Slirp; :2592 start_slirp"}
+%% dxt:node vm {"i":17,"id":"vm","kind":"worker","source":"crates/contexts/delonix-compute/src/domain/vm_backend.rs:558 VmBackend; providers cloud-hypervisor lib.rs:861, libvirt lib.rs:3260"}
+%% dxt:node dlx_kernel {"i":18,"id":"dlx-kernel","kind":"kernel","source":"crates/adapters/delonix-linux/src/lib.rs:9558 clone_flags; :7877 setup_cgroup; :429 apply_seccomp; crates/adapters/delonix-sdn/src/infra.rs:5 nft"}
+%% dxt:edge docker_cli dockerd 0 {"protocol":"unix-socket","style":"control"}
+%% dxt:edge dockerd containerd 0 {"style":"control"}
+%% dxt:edge containerd shim 0 {"style":"control"}
+%% dxt:edge shim runc 0 {"style":"control"}
+%% dxt:edge runc docker_ctr 0 {"style":"control"}
+%% dxt:edge cli ctr 0 {"label":"clone","protocol":"syscall","style":"control","source":"bins/delonix/src/cmd/container.rs:4374 launch::start → crates/contexts/delonix-compute/src/domain/launch.rs:193 → crates/adapters/delonix-linux/src/workload.rs:53 → crates/adapters/delonix-linux/src/lib.rs:9759 clone; pivot_root crates/adapters/delonix-linux/src/lib.rs:3145; setup_cgroup :7877"}
+%% dxt:edge cli supervisor 0 {"label":"-d: fork","protocol":"fork-exec","style":"optional","source":"crates/contexts/delonix-compute/src/domain/launch.rs:165 should_supervise (detach); crates/adapters/delonix-linux/src/supervise.rs:103 fork"}
+%% dxt:edge supervisor ctr 0 {"label":"clone","protocol":"syscall","style":"optional","source":"crates/adapters/delonix-linux/src/supervise.rs:132 create_with"}
+%% dxt:edge cli state 0 {"label":"lê e escreve","protocol":"fs","style":"data","source":"bins/delonix/src/cmd/container.rs:3622 cmd_run(store: &Store)"}
+%% dxt:edge cli logshim 0 {"protocol":"fork-exec","style":"optional","source":"crates/adapters/delonix-linux/src/lib.rs:8966 start_log_shim (spawn em processo)"}
+%% dxt:edge cli slirp 0 {"style":"optional","source":"bins/delonix/src/cmd/container.rs:3563 delonix_sdn::slirp_attach"}
+%% dxt:edge cli watcher 0 {"protocol":"fork-exec","style":"optional","source":"bins/delonix/src/cmd/container.rs:4388 → :4802 spawn_rm_watcher (só sem supervisor)"}
+%% dxt:edge cli pin 0 {"label":"ensure_up","style":"optional","source":"crates/adapters/delonix-sdn/src/infra.rs:1933 ensure_up; :1783 acquire / :1794 release"}
+%% dxt:edge cli vm 0 {"label":"VmBackend","style":"optional","source":"bins/delonix/src/cmd/vm.rs:3468 delonix_vm::create"}
