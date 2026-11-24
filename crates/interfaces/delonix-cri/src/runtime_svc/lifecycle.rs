@@ -809,8 +809,11 @@ fn delonix_bin() -> PathBuf {
 }
 
 /// Runs the `delonix` binary (single-threaded) with the CRI's `DELONIX_ROOT`.
-/// `DELONIX_INTERNAL=1` bypasses the grouped-commands barrier (machine-to-machine
-/// delegation): the CRI uses the top-level `run`/`stop`/`rm` forms.
+/// The CRI calls the same grouped forms an operator types (`container stop`,
+/// `container rm`, `net netns attach`/`detach`); a container start goes through
+/// the hidden `__apirun <spec.json>` re-exec instead (see `delonix_detached_why_in`).
+/// `DELONIX_INTERNAL=1` is still set on the child, but no grouped form needs it:
+/// the CLI no longer reads it as a barrier bypass.
 fn delonix(base: &Path, args: &[&str]) -> Result<std::process::Output, Status> {
     Command::new(delonix_bin())
         .env("DELONIX_ROOT", base)
