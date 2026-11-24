@@ -1,0 +1,42 @@
+%% Mapa de crates em camadas — the REAL normal dependencies between the layers of
+%% `crates/` and `bins/`, counted from `cargo metadata --no-deps` (dev-dependencies
+%% excluded) at 6ae1321d. An edge label is the number of crate→crate edges.
+%% No cycle exists between crates (cargo forbids it); at LAYER level adapters and
+%% providers point at each other through different crates, named on the edges.
+%% Edges inside one layer are left out except interfaces (adapters→adapters 9,
+%% contexts→contexts 2).
+%% Regenerate the counts with the snippet in ARCHITECTURE.md, section "Diagrams".
+flowchart BT
+  foundation["foundation (3)<br/><small>delonix-model · delonix-net-rules · delonix-spiffe</small>"]
+  contexts["contexts (6)<br/><small>compute · networking · node · security · stack · storage</small>"]
+  adapters["adapters (11)<br/><small>linux · sdn · oci · state · vm · volume · host · …</small>"]
+  providers["providers (10)<br/><small>cloud-hypervisor · libvirt · proxmox · zfs · …</small>"]
+  interfaces["interfaces (4)<br/><small>delonix-cri · delonix-mgmt · delonix-mcp · delonix-node-api</small>"]
+  assembly["assembly (1)<br/><small>delonix-engine</small>"]
+  bins["bins (6)<br/><small>delonix · delonix-cri-bin · delonix-mgmt-bin · …</small>"]
+
+  contexts -->|8| foundation
+  adapters -->|15| contexts
+  adapters -->|10| foundation
+  providers -->|12| contexts
+  providers -->|6| foundation
+  adapters -->|"2: delonix-vm → cloud-hypervisor, libvirt"| providers
+  providers -->|"1: libvirt → delonix-host"| adapters
+  interfaces -->|11| contexts
+  interfaces -->|"1: delonix-mcp → delonix-mgmt"| interfaces
+  interfaces -->|4| foundation
+  interfaces -->|"7: delonix-host, delonix-telemetry, delonix-pool-helper"| adapters
+  assembly -->|8| adapters
+  assembly -->|1| contexts
+  assembly -->|1| foundation
+  bins -->|5| assembly
+  bins -->|5| interfaces
+  bins -->|29| adapters
+  bins -->|15| providers
+  bins -->|14| contexts
+  bins -->|7| foundation
+
+  classDef layer fill:#fff,stroke:#6d28d9,color:#0f172a
+  classDef base fill:#e2e8f0,stroke:#94a3b8,color:#334155
+  class contexts,adapters,providers,interfaces,assembly,bins layer
+  class foundation base
