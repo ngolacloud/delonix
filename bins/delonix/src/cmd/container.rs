@@ -1216,8 +1216,8 @@ pub struct RunArgs {
     /// `exec -w` overrides it for that one call only.
     #[arg(short = 'w', long = "workdir")]
     workdir: Option<String>,
-    /// Remove the container when the process exits (with `-d`, a detached
-    /// watcher handles removal when the container dies).
+    /// Remove the container when the process exits (with `-d`, its supervisor
+    /// does). Refused with a `--restart` policy other than `no`, as in Docker.
     #[arg(long)]
     rm: bool,
     /// When to pull the image (Docker/Podman `--pull`): `missing` (default — pull only if absent), `always` (pull before starting), `never` (fail if absent, never fetch).
@@ -3582,6 +3582,10 @@ pub(crate) fn with_host_workload<R>(
     };
     let on_supervised = |c: &Container| println!("{}", c.id);
     let discard = |id: &str| discard_unstarted(images, store, id);
+    // A supervised `--rm`, after the last exit; a failure leaves the record behind.
+    let remove = |c: &Container, pid: Option<i32>| {
+        let _ = destroy_container(images, store, c, pid, true);
+    };
     let state_root = super::util::state_root();
     f(&runtime::workload::HostWorkload {
         store,
@@ -3596,6 +3600,7 @@ pub(crate) fn with_host_workload<R>(
         ),
         on_supervised: &on_supervised,
         discard: &discard,
+        remove: &remove,
     })
 }
 
@@ -4352,6 +4357,7 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
         apparmor: apparmor_profile,
         log_path: c.log_path.clone(),
         replaces_record: false,
+        auto_remove: rm,
     };
     // BEFORE the supervised branch (which returns): otherwise containers with
     // `--restart` would never emit `create`.
@@ -4383,6 +4389,8 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
         }
         delonix_compute::launch::Started::Created(status) => status,
     };
+    // A supervised start returned above, its supervisor honours `--rm`; a detached
+    // start here is unsupervised (`RunOpts::no_supervisor`) and needs a watcher.
     if rm {
         if detach {
             if let RmWatcher::ForkFailed(errno) = spawn_rm_watcher(images, store, &c.id) {
@@ -4408,19 +4416,9 @@ pub(crate) fn cmd_run(images: &ImageStore, store: &Store, mut opts: RunOpts) -> 
             }
         } else {
             // foreground: `create_with` only returns after waitpid — remove right away.
+            // `--rm`'s contract is the full cleanup of `rm -f`: the same function.
             let c = find(store, &id)?;
-            let pid = c.pid;
-            runtime::remove(store, &c, true)?;
-            unpublish_ports(&c, pid);
-            let _ = images.unmount_rootfs(&c.id);
-            // BUG FOUND: `--rm` (foreground) stopped at `unmount_rootfs`, which
-            // deliberately PRESERVES the flat rootless rootfs (it's meant for
-            // `start` to reuse) — only `remove_container_dir` actually deletes
-            // it. `--rm`'s whole contract is full auto-cleanup, same as `rm -f`
-            // (see `cmd_rm`, which already does this); without it every
-            // foreground `--rm` run left its full rootfs behind forever, the
-            // exact same disk-pressure leak `cmd_rm` was already fixed for.
-            purge_container_dir(images, &c.id);
+            destroy_container(images, store, &c, c.pid, true)?;
             // `--rm` still has to speak the container's exit code — a one-shot
             // job (`run --rm ... pg_dump`) is the single most common shape that
             // depends on it.
@@ -4836,14 +4834,7 @@ fn spawn_rm_watcher(images: &ImageStore, store: &Store, id: &str) -> RmWatcher {
                 c.status,
                 delonix_model::records::Status::Running | delonix_model::records::Status::Paused
             ) {
-                let pid = c.pid;
-                let _ = runtime::remove(store, &c, true);
-                unpublish_ports(&c, pid);
-                let _ = images.unmount_rootfs(&c.id);
-                // Same fix as the foreground `--rm` branch above: `unmount_rootfs`
-                // preserves the flat rootless rootfs on purpose, only this
-                // actually deletes it.
-                purge_container_dir(images, &c.id);
+                let _ = destroy_container(images, store, &c, c.pid, true);
                 std::process::exit(0);
             }
         }
@@ -6246,6 +6237,7 @@ fn start_container(images: &ImageStore, store: &Store, id: &str) -> Result<()> {
         // `start` brings back a container whose record exists: an `rm -f` while
         // it starts must not see it recreated (see `publish_incarnation`).
         replaces_record: true,
+        auto_remove: false,
     };
     let policy = c.restart_policy.clone().unwrap_or_default();
     if should_supervise(&policy, true, true) {
@@ -6384,14 +6376,18 @@ pub(crate) fn cmd_stop(store: &Store, id: &str, time: u64) -> Result<()> {
             println!("{}", c.name);
             return Ok(());
         }
-        // A stop that gave up on a process still exiting has ALREADY signalled
-        // it: nothing is coming back through its ports. Release them now — the
-        // record keeps the process (DX-8101), and by the time it exits there
-        // may be no command left to do this.
-        if matches!(e, runtime::Error::StillExiting(_)) {
-            stop_ports(&c, pid);
+        // Gone while the stop waited: a `run -d --rm` supervisor removes the record
+        // as the process exits. It did stop (was «no such container», exit 4).
+        if !(e.is_not_found() && store.load(&c.id).is_err()) {
+            // A stop that gave up on a process still exiting has ALREADY signalled
+            // it: nothing is coming back through its ports. Release them now — the
+            // record keeps the process (DX-8101), and by the time it exits there
+            // may be no command left to do this.
+            if matches!(e, runtime::Error::StillExiting(_)) {
+                stop_ports(&c, pid);
+            }
+            return Err(e.into());
         }
-        return Err(e.into());
     }
     // `stop_ports`, not `unpublish_ports`: a stopped container keeps its
     // addresses; `rm` frees them.
@@ -6753,9 +6749,23 @@ pub(crate) fn resolve_rm_query(store: &Store, token: &str, namespace: Option<&st
 
 pub(crate) fn cmd_rm(images: &ImageStore, store: &Store, id: &str, force: bool) -> Result<()> {
     let c = find(store, id)?;
-    let pid = c.pid;
-    runtime::remove(store, &c, force)?;
-    unpublish_ports(&c, pid);
+    destroy_container(images, store, &c, c.pid, force)?;
+    println!("{}", c.id);
+    Ok(())
+}
+
+/// Everything `rm` does to a container, shared by every `--rm` (foreground,
+/// watcher, supervisor) so no copy loses a step. `slirp_pid` is the pid its
+/// init had: an exited container's record no longer carries it.
+fn destroy_container(
+    images: &ImageStore,
+    store: &Store,
+    c: &Container,
+    slirp_pid: Option<i32>,
+    force: bool,
+) -> Result<()> {
+    runtime::remove(store, c, force)?;
+    unpublish_ports(c, slirp_pid);
     // De-register from the L7 proxy (`--expose`) — removes the route + SIGHUP.
     //
     // UNCONDITIONAL on purpose. This used to be guarded by `c.expose.is_some()`, and the
@@ -6773,13 +6783,13 @@ pub(crate) fn cmd_rm(images: &ImageStore, store: &Store, id: &str, force: bool) 
     // a record field is exactly the shape that failed here; the container's NAME is the key,
     // and we have it.
     super::ingress_proxy::auto_deregister(&c.name);
-    let _ = images.unmount_rootfs(&c.id); // unmounts/cleans up the overlay scratch
-                                          // Definitive DESTROY of the container's directory (including the flat `rootfs/`).
-                                          // `unmount_rootfs` PRESERVES it on purpose (it's the container's state, for
-                                          // `start` to reuse); only `rm` may delete it. Without this the rootfs was left
-                                          // orphaned forever: 49 directories (45 GiB) piled up in a single test session,
-                                          // and the kubelet marked the node with `disk-pressure`. The `purge_container_dir`
-                                          // doc already said "called by `rm`" — but it wasn't.
+    let _ = images.unmount_rootfs(&c.id);
+    // Then the definitive DESTROY of the container's directory (with the flat `rootfs/`).
+    // `unmount_rootfs` PRESERVES it on purpose (it's the container's state, for
+    // `start` to reuse); only `rm` may delete it. Without this the rootfs was left
+    // orphaned forever: 49 directories (45 GiB) piled up in a single test session,
+    // and the kubelet marked the node with `disk-pressure`. The `purge_container_dir`
+    // doc already said "called by `rm`" — but it wasn't.
     purge_container_dir(images, &c.id);
     delonix_node::events::emit(
         &super::util::state_root(),
@@ -6789,7 +6799,6 @@ pub(crate) fn cmd_rm(images: &ImageStore, store: &Store, id: &str, force: bool) 
         &c.name,
         None,
     );
-    println!("{}", c.id);
     Ok(())
 }
 

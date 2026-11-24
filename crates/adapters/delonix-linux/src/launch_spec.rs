@@ -110,6 +110,7 @@ mod tests {
             apparmor: None,
             log_path: None,
             replaces_record: false,
+            auto_remove: false,
         }
     }
 

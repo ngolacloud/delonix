@@ -970,6 +970,7 @@ fn work_launch(rootfs: &str) -> delonix_compute::launch::Launch {
         apparmor: None,
         log_path: None,
         replaces_record: false,
+        auto_remove: false,
     }
 }
 

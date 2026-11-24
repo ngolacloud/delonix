@@ -9,8 +9,9 @@
 //! take it: what the NETWORK decides (the resolver and `/etc/hosts` address, and
 //! the container's own slirp), and what belongs to the TERMINAL or to the CLI's
 //! own helpers (the health monitor, printing the id, removing what a refused
-//! start left behind). An adapter does not depend on another adapter, so the
-//! network's answers cannot be fetched from here.
+//! start left behind, removing a `--rm` container once it has exited). An
+//! adapter does not depend on another adapter, so the network's answers cannot
+//! be fetched from here.
 
 use std::path::Path;
 
@@ -47,6 +48,10 @@ pub struct HostWorkload<'a> {
     pub on_supervised: &'a dyn Fn(&Container),
     /// Removes what a start that never happened left behind.
     pub discard: &'a dyn Fn(&str),
+    /// Removes a container whose process has exited, as `rm -f` does, given
+    /// the pid its last incarnation had. The supervisor calls it for a
+    /// [`Launch::auto_remove`] start.
+    pub remove: &'a crate::supervise::RemoveHook<'a>,
 }
 
 impl WorkloadRuntime for HostWorkload<'_> {
@@ -85,6 +90,7 @@ impl WorkloadRuntime for HostWorkload<'_> {
                 silent_death: self.silent_death,
                 discard: self.discard,
                 on_exit: self.detach_slirp,
+                remove: l.auto_remove.then_some(self.remove),
             },
         )?;
         (self.on_supervised)(c);

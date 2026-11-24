@@ -84,7 +84,7 @@ graph TB
         end
 
         subgraph PERCONT["Por container — quando aplicavel"]
-            SUP["supervisor<br>fork da CLI em run -d<br>pai do container: waitpid, codigo real, --restart"]
+            SUP["supervisor<br>fork da CLI em run -d<br>pai do container: waitpid, codigo real, --restart, --rm"]
             CONT["processo do container<br>PID 1 proprio apos clone + exec"]
             SLIRPN["slirp4netns por container<br>default (--net private) e com -p"]
             SHIM["log shim<br>fork no spawn; escreve o log com rotacao<br>formato cru ou CRI"]
@@ -117,13 +117,13 @@ Confirmation in the code, piece by piece:
 |---|---|---|
 | `delonix` (CLI) | `bins/delonix/src/main.rs` | one command; in foreground it `waitpid`s the container and exits; with `-d` it returns once the supervisor reports the first start |
 | `delonix-cri` | `bins/delonix-cri-bin/src/main.rs` (crate `delonix-cri-bin`); `delonix serve cri` execs it | service (e.g. the systemd unit `dist/delonix-cri.service` inside the golden VM image) |
-| supervisor (`run -d`) | `run_supervised` (`crates/adapters/delonix-linux/src/supervise.rs`): a `fork` of the CLI that does the `clone` itself, so it is the container's parent; chosen by `should_supervise` (`crates/contexts/delonix-compute/src/domain/launch.rs`) for every detached start whose caller can fork | lifetime of the container, restarts included: it reaps each exit, records the real status, applies `--restart` with capped backoff, and exits when the policy says stop |
+| supervisor (`run -d`) | `run_supervised` (`crates/adapters/delonix-linux/src/supervise.rs`): a `fork` of the CLI that does the `clone` itself, so it is the container's parent; chosen by `should_supervise` (`crates/contexts/delonix-compute/src/domain/launch.rs`) for every detached start whose caller can fork | lifetime of the container, restarts included: it reaps each exit, records the real status, applies `--restart` with capped backoff, and exits when the policy says stop — first removing the container as `rm -f` does when it was started with `--rm` (`Supervision::remove`, from `Launch::auto_remove`) |
 | `netns pin` | `infra::start_pin` (`crates/adapters/delonix-sdn/src/infra.rs`) spawns `<self> netns pin` directly; the pin calls `unshare(USER\|NET\|NS)` itself and the caller, still outside, writes the id maps (`crates/adapters/delonix-sdn/src/pin_userns.rs`); caught in `main.rs` before telemetry and clap (`infra::pin_main`) | lifetime of the ingress infrastructure, managed by a file-based ref-count (`infra::acquire`/`release`); it holds the namespaces and does nothing else |
 | `netns control` | `infra::start_control`: `nsenter -t <pin> -U -m -n --preserve-credentials -- <self> netns control` (`infra::control_main`): sets up `delonix0` + `nft`, opens the control socket (`0600` + `SO_PEERCRED`) and runs DHCP/DNS/RA as threads | restartable: `ensure_up` starts a new one inside the surviving pin if it died, and no wire moves |
 | single slirp4netns | `infra::start_slirp` — connects `tap0` to the pin's netns, with an api-socket for `add_hostfwd` | follows the pin; restarted by `ensure_up` only if it is gone |
 | per-container slirp4netns | `delonix_sdn::slirp_attach` (`crates/adapters/delonix-sdn/src/lib.rs`) — called as the `on_started` hook of the `RunSpec` | lifetime of the container (dies with the netns); orphans cleaned up by `reap_orphan_slirp` |
 | log shim | `fork` in the parent at `spawn` (`crates/adapters/delonix-linux/src/lib.rs`), runs `log_shim` — reads the pipe (or the pty master in console mode) and writes the log with rotation | lifetime of the container; detaches from stdio with `setsid` + `/dev/null` |
-| `--rm` watcher | `spawn_rm_watcher` (`bins/delonix/src/cmd/container.rs`) — only on a detached start that is NOT supervised (`RunOpts.no_supervisor`, which no CLI flag sets) | until the container exits; performs the same cleanup as `rm -f` |
+| `--rm` watcher | `spawn_rm_watcher` (`bins/delonix/src/cmd/container.rs`) — only on a detached start that is NOT supervised (`RunOpts.no_supervisor`, which no CLI flag sets); a supervised `-d --rm` is removed by its supervisor instead | until the container exits; performs the same cleanup as `rm -f` (`destroy_container`, shared with `rm` and the supervisor) |
 | microVM | `delonix_vm::create` — a `cloud-hypervisor` process (inside the infra netns, tap via `infra::vm_attach`) or a libvirt domain | lifetime of the VM |
 
 State lives in `$DELONIX_ROOT` (default `/var/lib/delonix` for root,
@@ -663,18 +663,19 @@ Names below are the English equivalents of the labels in the drawings.
 | A | Docker panel: CLI (client of the socket), host, dockerd, containerd, containerd-shim, runc, container, kernel band, and their arrows | External — the reference image plus Docker's public architecture (the shim added so the comparison does not flatter Delonix); not code of this repository |
 | A | Banner "no daemon: no mandatory resident process" | Level 2 above and ADR-1; the only long-running units shipped are opt-in: [`dist/`](dist/) (`delonix-cri.service`, socket-activated `delonix-node-api` and `delonix-storage-helper`) |
 | A | Host box around the Delonix side (the CLI runs on the host) | the CLI clones locally: `clone` at [`delonix-linux/src/lib.rs:9759`](crates/adapters/delonix-linux/src/lib.rs#L9759), called in-process from `cmd_run` |
-| A | delonix CLI, ephemeral (`container run`) | [`bins/delonix/src/main.rs:2228`](bins/delonix/src/main.rs#L2228); `cmd_run` in [`bins/delonix/src/cmd/container.rs:3622`](bins/delonix/src/cmd/container.rs#L3622) |
-| A | Arrow CLI → container (foreground) | `launch::start` at [`container.rs:4374`](bins/delonix/src/cmd/container.rs#L4374) → [`delonix-compute/src/domain/launch.rs:193`](crates/contexts/delonix-compute/src/domain/launch.rs#L193) → `HostWorkload::create` in [`delonix-linux/src/workload.rs:52`](crates/adapters/delonix-linux/src/workload.rs#L52) |
-| A | Arrows CLI → supervisor ("fork") → container ("clone"), for `-d` | `should_supervise` (detach) [`launch.rs:165`](crates/contexts/delonix-compute/src/domain/launch.rs#L165); `fork` [`supervise.rs:103`](crates/adapters/delonix-linux/src/supervise.rs#L103); `create_with` inside the fork [`supervise.rs:132`](crates/adapters/delonix-linux/src/supervise.rs#L132) |
-| A | Arrow CLI → per-container group | log shim forked by the in-process spawn [`delonix-linux/src/lib.rs:8966`](crates/adapters/delonix-linux/src/lib.rs#L8966); slirp hook [`container.rs:3563`](bins/delonix/src/cmd/container.rs#L3563); watcher [`container.rs:4802`](bins/delonix/src/cmd/container.rs#L4802) |
+| A | delonix CLI, ephemeral (`container run`) | [`bins/delonix/src/main.rs:2228`](bins/delonix/src/main.rs#L2228); `cmd_run` in [`bins/delonix/src/cmd/container.rs:3627`](bins/delonix/src/cmd/container.rs#L3627) |
+| A | Arrow CLI → container (foreground) | `launch::start` at [`container.rs:4380`](bins/delonix/src/cmd/container.rs#L4380) → [`delonix-compute/src/domain/launch.rs:211`](crates/contexts/delonix-compute/src/domain/launch.rs#L211) → `HostWorkload::create` in [`delonix-linux/src/workload.rs:57`](crates/adapters/delonix-linux/src/workload.rs#L57) |
+| A | Arrows CLI → supervisor ("fork") → container ("clone"), for `-d` | `should_supervise` (detach) [`launch.rs:183`](crates/contexts/delonix-compute/src/domain/launch.rs#L183); `fork` [`supervise.rs:152`](crates/adapters/delonix-linux/src/supervise.rs#L152); `create_with` inside the fork [`supervise.rs:181`](crates/adapters/delonix-linux/src/supervise.rs#L181) |
+| A | Arrow CLI → per-container group | log shim forked by the in-process spawn [`delonix-linux/src/lib.rs:8966`](crates/adapters/delonix-linux/src/lib.rs#L8966); slirp hook [`container.rs:3563`](bins/delonix/src/cmd/container.rs#L3563); watcher [`container.rs:4800`](bins/delonix/src/cmd/container.rs#L4800) |
 | A | Arrow CLI → microVM | `delonix_vm::create` from the CLI [`bins/delonix/src/cmd/vm.rs:3468`](bins/delonix/src/cmd/vm.rs#L3468) |
 | A | clone + namespaces | `clone_flags` (NEWNS/UTS/PID/IPC/NET/USER) in [`delonix-linux/src/lib.rs:9558`](crates/adapters/delonix-linux/src/lib.rs#L9558); `clone` at [`lib.rs:9759`](crates/adapters/delonix-linux/src/lib.rs#L9759) |
 | A | pivot_root | [`delonix-linux/src/lib.rs:2908`](crates/adapters/delonix-linux/src/lib.rs#L2908) (runs inside the clone) |
 | A | cgroups v2 | `setup_cgroup` in [`delonix-linux/src/lib.rs:7877`](crates/adapters/delonix-linux/src/lib.rs#L7877) (unified files: `memory.max`, `cgroup.subtree_control`) |
 | A | State group, `$DELONIX_ROOT` (JSON), read and written by the CLI | `Store` [`delonix-state/src/store.rs:298`](crates/adapters/delonix-state/src/store.rs#L298), `JsonStore<T>` [`:681`](crates/adapters/delonix-state/src/store.rs#L681), `default_root` [`:314`](crates/adapters/delonix-state/src/store.rs#L314), `flock` [`:23`](crates/adapters/delonix-state/src/store.rs#L23); `images/` in [`delonix-oci/src/image.rs:152`](crates/adapters/delonix-oci/src/image.rs#L152); `cri/` in [`lifecycle.rs:663`](crates/interfaces/delonix-cri/src/runtime_svc/lifecycle.rs#L663) |
-| A | Supervisor (`-d`, one per detached container) | `run_supervised` [`delonix-linux/src/supervise.rs:81`](crates/adapters/delonix-linux/src/supervise.rs#L81); module doc [`supervise.rs:1`](crates/adapters/delonix-linux/src/supervise.rs#L1) |
+| A | Supervisor (`-d`, one per detached container) | `run_supervised` [`delonix-linux/src/supervise.rs:130`](crates/adapters/delonix-linux/src/supervise.rs#L130); module doc [`supervise.rs:1`](crates/adapters/delonix-linux/src/supervise.rs#L1) |
 | A | Log shim | `log_shim` [`delonix-linux/src/lib.rs:1445`](crates/adapters/delonix-linux/src/lib.rs#L1445), started at [`:8966`](crates/adapters/delonix-linux/src/lib.rs#L8966) |
-| A | `--rm` watcher (only without a supervisor: `RunOpts.no_supervisor`, no CLI flag) | `spawn_rm_watcher` [`container.rs:4802`](bins/delonix/src/cmd/container.rs#L4802), reached only on the unsupervised detached path [`container.rs:4388`](bins/delonix/src/cmd/container.rs#L4388) |
+| A | `--rm` watcher (only without a supervisor: `RunOpts.no_supervisor`, no CLI flag) | `spawn_rm_watcher` [`container.rs:4800`](bins/delonix/src/cmd/container.rs#L4800), reached only on the unsupervised detached path [`container.rs:4396`](bins/delonix/src/cmd/container.rs#L4396) |
+| A | `--rm` on a supervised `-d`: the supervisor removes the container after its last exit | `auto_remove: rm` in `cmd_run` [`container.rs:4360`](bins/delonix/src/cmd/container.rs#L4360) → `remove: l.auto_remove.then_some(..)` [`workload.rs:93`](crates/adapters/delonix-linux/src/workload.rs#L93) → `leave`/`honour_rm` [`supervise.rs:95`](crates/adapters/delonix-linux/src/supervise.rs#L95), called where the policy stops [`supervise.rs:293`](crates/adapters/delonix-linux/src/supervise.rs#L293); the cleanup is `rm`'s own `destroy_container` [`container.rs:6760`](bins/delonix/src/cmd/container.rs#L6760); `--rm` with a restart policy is refused by `check_auto_remove` [`launch.rs:172`](crates/contexts/delonix-compute/src/domain/launch.rs#L172) |
 | A | Per-container `slirp4netns` | `slirp_attach` [`delonix-sdn/src/lib.rs:2235`](crates/adapters/delonix-sdn/src/lib.rs#L2235), hooked at [`container.rs:3563`](bins/delonix/src/cmd/container.rs#L3563) |
 | A | Rootless network group: `netns pin`, `netns control`, single `slirp4netns` | `PidKind` [`delonix-sdn/src/infra.rs:455`](crates/adapters/delonix-sdn/src/infra.rs#L455); re-exec [`main.rs:2259`](bins/delonix/src/main.rs#L2259), [`:2269`](bins/delonix/src/main.rs#L2269); `start_slirp` [`infra.rs:2592`](crates/adapters/delonix-sdn/src/infra.rs#L2592); pin creates its own namespaces: [`pin_userns.rs`](crates/adapters/delonix-sdn/src/pin_userns.rs) |
 | A | Arrow CLI → rootless network ("on demand", ref-counted) | `ensure_up` [`infra.rs:1933`](crates/adapters/delonix-sdn/src/infra.rs#L1933); `acquire`/`release` [`:1783`](crates/adapters/delonix-sdn/src/infra.rs#L1783), [`:1794`](crates/adapters/delonix-sdn/src/infra.rs#L1794) |
@@ -705,8 +706,9 @@ rootless ingress (the holder split into `netns pin` + `netns control` in v0.42.0
 detached supervisor (limitations 4 and 6, ADR-1) and the CRI's delegation (limitation 7,
 flow c). All four are now fixed in place in the sections above. Checking them also
 showed that limitation 1 (rootless `--net <network>`) had been closed by the re-exec
-path, and turned up one real gap, now limitation 9: `run -d --rm` does not remove the
-container on the supervised path.
+path, and turned up one real gap: `run -d --rm` did not remove the container on the
+supervised path. That is fixed — the supervisor removes it after the last exit (rows
+above) — and `--rm` with a restart policy other than `no` is refused, as in Docker.
 
 ---
 
@@ -969,14 +971,6 @@ annotated in the diagrams above.
    is already dedicated cgroup2 delegation logic for Kind nodes (`setup_node_cgroup_ns`,
    enabled by `--privileged` + the `io.x-k8s.kind.*` label), but it is not enough.
    Investigation detail in `AGENTS.md` (section "Kind-mode cluster without Docker").
-9. **`run -d --rm` does not remove the container on the supervised path.** The `--rm`
-   cleanup is armed only in the unsupervised branch of `cmd_run` (`spawn_rm_watcher`,
-   `bins/delonix/src/cmd/container.rs`); when `launch::start` returns
-   `Started::Supervised` — every detached start from the CLI — `cmd_run` returns before
-   reaching it, and the supervisor's exit path (`run_supervised`) does not remove the
-   record. `container run -d --rm --net none python:3.11-slim
-   python3 -c 'import sys; sys.exit(3)'` leaves the container listed as `Exited (3)` (measured 2026-11-24 on `develop` at `6b8d18f3`).
-   The real exit code is kept (limitation 6), the auto-removal is not.
 
 ---
 
