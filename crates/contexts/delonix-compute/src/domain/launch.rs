@@ -73,6 +73,10 @@ pub struct Launch {
     /// `start` of a stopped container, not a `run`. A record removed while the
     /// start runs then stays removed, and the start is refused.
     pub replaces_record: bool,
+    /// `--rm`: the container goes away when its process exits. Under a
+    /// supervisor, the supervisor removes it after the last exit (the policy
+    /// restarts nothing more); it is the one process still there to do it.
+    pub auto_remove: bool,
 }
 
 impl Launch {
@@ -160,6 +164,20 @@ pub fn policy_supervised(policy: &str) -> bool {
     )
 }
 
+/// Refuses `--rm` with a restart policy that brings the container back. PURE.
+///
+/// The two ask for opposite things when the process exits: remove it, or start
+/// it again. Docker refuses the pair («Conflicting options: --restart and
+/// --rm»), and so does this, before anything is pulled or prepared.
+pub fn check_auto_remove(rm: bool, restart: &str) -> Result<()> {
+    if rm && policy_supervised(restart) {
+        return Err(delonix_model::Error::Invalid(format!(
+            "--rm and --restart {restart} conflict: --rm removes the container when it exits, the policy starts it again — pick one"
+        )));
+    }
+    Ok(())
+}
+
 /// Every detached start is supervised when the caller can fork: only the real
 /// parent can collect the exit code, whatever the restart policy. PURE.
 pub fn should_supervise(_policy: &str, detach: bool, forkable: bool) -> bool {
@@ -243,6 +261,18 @@ pub fn should_restart(policy: &str, status: &Status, restarts: u32) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn rm_is_refused_only_with_a_policy_that_restarts() {
+        use super::check_auto_remove;
+        for p in ["always", "unless-stopped", "on-failure", "on-failure:3"] {
+            let err = check_auto_remove(true, p).unwrap_err().to_string();
+            assert!(err.contains("--rm and --restart"), "{p}: {err}");
+        }
+        assert!(check_auto_remove(true, "no").is_ok());
+        assert!(check_auto_remove(true, "").is_ok());
+        assert!(check_auto_remove(false, "always").is_ok());
+    }
+
     #[test]
     fn restart_policy_docker_semantics() {
         use delonix_model::records::Status as S;

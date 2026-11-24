@@ -5341,8 +5341,8 @@ msgstr "Afina a pontuação do assassino de memória (`--oom-score-adj` do Docke
 msgid "Remove the bandwidth cap"
 msgstr "Remove o tecto de largura de banda"
 
-msgid "Remove the container when the process exits (with `-d`, a detached watcher handles removal when the container dies)"
-msgstr "Remove o container quando o processo sair (com `-d`, um vigia desanexado trata da remoção quando o container morrer)"
+msgid "Remove the container when the process exits (with `-d`, its supervisor does). Refused with a `--restart` policy other than `no`, as in Docker."
+msgstr "Remove o container quando o processo sair (com `-d`, fá-lo o seu supervisor). Recusado com uma política `--restart` diferente de `no`, como no Docker."
 
 msgid "Keep STDIN open (Docker/Podman `-i`); a daemonless foreground `run` already inherits it, so `-it` gives an interactive shell. See `docs/cli-stability.md`."
 msgstr "Mantém o STDIN aberto (Docker/Podman `-i`); um `run` em primeiro plano, sem daemon, já o herda, por isso `-it` dá uma shell interactiva. Ver `docs/cli-stability.md`."

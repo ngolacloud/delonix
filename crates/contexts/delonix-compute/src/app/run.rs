@@ -112,6 +112,8 @@ where
     D: DeviceResolver,
     H: RunHost,
 {
+    // Before any port is called: a refused pair must not pull or prepare anything.
+    crate::launch::check_auto_remove(o.rm, &o.restart)?;
     let mut mounts = storage.resolve_mounts(&o.volumes, &namespace)?;
     let edits = devices.resolve(o.gpus.as_deref(), &o.devices)?;
     mounts.extend(edits.mounts);
@@ -1105,6 +1107,20 @@ mod tests {
         o.env_file = vec!["gone.env".into()];
         let err = run(&o, &Fake::new(), false).unwrap_err().to_string();
         assert!(err.contains("--env-file gone.env"), "{err}");
+    }
+
+    #[test]
+    fn resolve_run_refuses_rm_with_a_restart_policy_before_touching_anything() {
+        let f = Fake::new();
+        let mut o = opts();
+        o.rm = true;
+        o.restart = "on-failure:3".into();
+        let err = run(&o, &f, false).unwrap_err().to_string();
+        assert!(err.contains("--rm and --restart on-failure:3"), "{err}");
+        assert!(f.calls.borrow().is_empty(), "{:?}", f.calls.borrow());
+
+        o.restart = "no".into();
+        run(&o, &Fake::new(), false).unwrap();
     }
 
     #[test]
