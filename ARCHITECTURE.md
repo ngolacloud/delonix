@@ -478,7 +478,7 @@ Notes for reading the graph (all verified against the `Cargo.toml` files and `ca
   `delonix-telemetry`, `delonix-compute`, `delonix-node` and `delonix-model`; every
   engine use case it serves arrives through its `EngineOps` port
   (`crates/interfaces/delonix-mgmt/src/lib.rs`), implemented by `delonix-mgmt-bin` and,
-  for `delonix dash`, by `delonix-bin` (`bins/delonix/src/cmd/engine_vms.rs`). The
+  for `delonix dashboard`, by `delonix-bin` (`bins/delonix/src/cmd/engine_vms.rs`). The
   adapters that appear under `[dev-dependencies]` in its `Cargo.toml` back the tests
   only. It is local by design: unix socket, `SO_PEERCRED`, only its own uid (ADR-0010).
   It is depended on by `delonix-bin`, `delonix-mgmt-bin` and `delonix-mcp`.

@@ -894,7 +894,7 @@ the only crates with no internal dependency at all are it, <code>delonix-net-rul
   <code>delonix-telemetry</code>, <code>delonix-compute</code>, <code>delonix-node</code> and <code>delonix-model</code>; every
   engine use case it serves arrives through its <code>EngineOps</code> port
   (<code>crates/interfaces/delonix-mgmt/src/lib.rs</code>), implemented by <code>delonix-mgmt-bin</code> and,
-  for <code>delonix dash</code>, by <code>delonix-bin</code> (<code>bins/delonix/src/cmd/engine_vms.rs</code>). The
+  for <code>delonix dashboard</code>, by <code>delonix-bin</code> (<code>bins/delonix/src/cmd/engine_vms.rs</code>). The
   adapters that appear under <code>[dev-dependencies]</code> in its <code>Cargo.toml</code> back the tests
   only. It is local by design: unix socket, <code>SO_PEERCRED</code>, only its own uid (ADR-0010).
   It is depended on by <code>delonix-bin</code>, <code>delonix-mgmt-bin</code> and <code>delonix-mcp</code>.</li>
