@@ -81,6 +81,34 @@ class Hook(unittest.TestCase):
         r = run("feat: x\n\nwhy.\n\nAssisted-by: Something <bot@openai.com>\n")
         self.assertEqual(r.returncode, 1)
 
+    def test_a_ci_skip_directive_is_refused_even_when_only_mentioned(self):
+        """The inverse of the trailer case, and that is the whole point.
+
+        A message may NAME the AI trailer while explaining the rule, so the hook
+        asks git what a trailer is. GitHub's CI-skip directive has no parser to
+        ask: it is matched as a SUBSTRING anywhere in the message, so mentioning
+        it IS acting on it. Measured 2026-11-23 by walking into it — a commit
+        whose body explained that ANOTHER commit had used the directive gave its
+        branch a head whose pull request ran zero checks.
+        """
+        r = run("chore: explain\n\nThe other commit was pushed with [skip ci].\n")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("CI-skip directive", r.stderr)
+        self.assertIn("[skip ci]", r.stderr, "the refusal must quote what it found")
+
+    def test_every_form_github_honours_is_refused(self):
+        for tok in ("[skip ci]", "[ci skip]", "[no ci]", "[skip actions]", "[actions skip]",
+                    "[SKIP CI]", "[skip-ci]"):
+            with self.subTest(tok=tok):
+                r = run(f"chore: x\n\nsomething {tok} something\n")
+                self.assertEqual(r.returncode, 1, f"{tok} was accepted")
+
+    def test_writing_about_it_without_the_brackets_passes(self):
+        """The escape the refusal itself offers has to work, or the gate just
+        makes the subject unwritable."""
+        r = run("chore: x\n\nIt was pushed with the `skip ci` directive, so CI never ran.\n")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
     def test_it_refuses_without_a_message_file(self):
         r = subprocess.run([str(HOOK)], capture_output=True, text=True)
         self.assertNotEqual(r.returncode, 0)

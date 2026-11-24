@@ -61,6 +61,20 @@ def _ensure_admin() -> None:
 
 def main() -> None:
     os.chdir("/app")
+    # The chdir is for relative paths; this line is for the IMPORT, and
+    # `os.chdir` does not do it. The entrypoint runs this file as a SCRIPT, so
+    # `sys.path[0]` is `/app/docker` — not `/app` — and the image's PYTHONPATH
+    # carries only the venv's site-packages. So the in-process Django bootstrap
+    # below (`MIGRATE_ON_START`) could not import `config.settings` and the
+    # container exited 1 before anything bound: `delonix init -t django --up`
+    # gave up after 120s with `ModuleNotFoundError: No module named 'config'`.
+    #
+    # The `os.execv` at the end was never affected — `python -m gunicorn …` puts
+    # the CWD on `sys.path` — which is why a plain `docker run` of this image
+    # (no MIGRATE_ON_START in the environment) passed and the `--up` path did
+    # not. Measured on v0.2.0; see the gate in `cmd::scaffold`.
+    if "/app" not in sys.path:
+        sys.path.insert(0, "/app")
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
     if os.environ.get("MIGRATE_ON_START", "false").strip().lower() in _TRUTHY:
