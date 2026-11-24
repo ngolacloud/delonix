@@ -305,9 +305,15 @@ mod tests {
 
     #[test]
     fn plan_refuses_a_non_lan_network() {
+        // `default_bridge` resolves — and on a first call PERSISTS — the octet
+        // under the ambient root. Unpinned, it wrote `net/default-base` into
+        // whichever temp root another test had pinned, racing that test's
+        // removal (`crate::testenv::assert_pinned`).
+        let root = crate::testenv::TempRoot::new();
         let bridge = Network::default_bridge();
         let err = plan(&bridge, "deadbeef").expect_err("bridge is not a LAN driver");
         assert!(matches!(err, Error::UnknownDriver(_)), "got {err:?}");
+        root.close();
     }
 
     #[test]
