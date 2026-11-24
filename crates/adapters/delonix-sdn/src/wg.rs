@@ -103,6 +103,8 @@ pub fn keygen() -> Result<WgKey> {
 }
 
 fn wg_dir() -> PathBuf {
+    #[cfg(test)]
+    crate::testenv::assert_pinned("wg_dir");
     let root = std::env::var_os("DELONIX_ROOT")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/share/delonix")))

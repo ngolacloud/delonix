@@ -94,6 +94,56 @@ pub(crate) mod testenv {
 
     static LOCK: Mutex<()> = Mutex::new(());
 
+    thread_local! {
+        /// Whether THIS thread holds [`LOCK`] — set by [`lock`], cleared by
+        /// [`EnvGuard`]'s `Drop`.
+        static HOLDS_LOCK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    /// Called by every reader of the ambient roots (`DELONIX_ROOT`,
+    /// `DELONIX_NET_RUNTIME_DIR`): a test thread that resolves them without
+    /// holding the lock FAILS, on every run.
+    ///
+    /// # Why a check and not a review rule
+    ///
+    /// The lock serialises the WRITERS of the variables; the readers are
+    /// production code and take no lock. So a test that reaches an ambient
+    /// reader unpinned reads whichever root another test pinned at that
+    /// instant — and if the path writes, it writes INTO that test's temp dir.
+    /// Measured 2026-11-24 (CI `main`, run 45284855461, `test (arm64)`):
+    /// `lan::tests::plan_refuses_a_non_lan_network` called
+    /// `Network::default_bridge()` unpinned, `default_base_in` picked an octet
+    /// and persisted `<root>/net/default-base` into the root of
+    /// `ipam::tests_transactional::two_vms_on_one_dhcp_address_are_refused`
+    /// while that test's [`TempRoot::close`] was removing it, and the removal
+    /// failed with `Directory not empty`. With no root pinned, the same test
+    /// wrote into the developer's real `~/.local/share/delonix`.
+    ///
+    /// The race needs two tests to overlap within microseconds; this check
+    /// needs none, so the rule holds on every run instead of failing one CI
+    /// run in a few hundred.
+    ///
+    /// libtest names each test's thread after the test. A thread a test
+    /// spawns is unnamed and runs under the lock its test took (the test joins
+    /// it before releasing), so unnamed threads — and `main`, where a
+    /// single-threaded harness may run tests inline with nothing to race —
+    /// are not checked.
+    pub(crate) fn assert_pinned(reader: &str) {
+        if HOLDS_LOCK.with(|h| h.get()) {
+            return;
+        }
+        let thread = std::thread::current();
+        let Some(test) = thread.name().filter(|n| *n != "main") else {
+            return;
+        };
+        panic!(
+            "test `{test}` resolved the ambient root through `{reader}` without holding \
+             `crate::testenv::lock()`: it reads (and may write into) whichever root another \
+             test pinned at that instant — pin one with `crate::testenv::TempRoot` or take \
+             the lock"
+        );
+    }
+
     /// Holds the lock, and remembers what it overwrote.
     pub(crate) struct EnvGuard {
         _lock: MutexGuard<'static, ()>,
@@ -104,10 +154,12 @@ pub(crate) mod testenv {
     /// environment is done. A poisoned mutex is recovered rather than
     /// propagated: one failing test must not cascade into every other.
     pub(crate) fn lock() -> EnvGuard {
-        EnvGuard {
+        let guard = EnvGuard {
             _lock: LOCK.lock().unwrap_or_else(|e| e.into_inner()),
             saved: Vec::new(),
-        }
+        };
+        HOLDS_LOCK.with(|h| h.set(true));
+        guard
     }
 
     impl EnvGuard {
@@ -182,6 +234,7 @@ pub(crate) mod testenv {
         /// Without this, a test that legitimately needs the variable UNSET for
         /// its last assertion leaves it unset for whatever runs next.
         fn drop(&mut self) {
+            HOLDS_LOCK.with(|h| h.set(false));
             for (key, old) in self.saved.drain(..) {
                 // SAFETY: still holding the mutex — it drops after this.
                 unsafe {
@@ -340,6 +393,8 @@ fn default_base_in(root: &std::path::Path) -> u8 {
 /// already has one. Kept byte for byte as it was so this fix changes where a
 /// store with its OWN root writes, and nothing else.
 fn ambient_root() -> std::path::PathBuf {
+    #[cfg(test)]
+    testenv::assert_pinned("ambient_root");
     std::env::var_os("DELONIX_ROOT")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::PathBuf::from("/var/lib/delonix"))
@@ -3910,6 +3965,8 @@ tcp 6 100 ESTABLISHED src=10.0.0.5 dst=10.0.0.6 sport=3000 dport=5432 src=10.0.0
 
     #[test]
     fn user_network_is_isolated_subnet() {
+        // `alloc_ip_in` consults the IPAM registry under the ambient root.
+        let root = crate::testenv::TempRoot::new();
         let base = Network::base_for("frontend");
         assert!((100..=239).contains(&base), "base {base} fora do intervalo");
         let n = Network::user_with_base("frontend", base);
@@ -3921,6 +3978,7 @@ tcp 6 100 ESTABLISHED src=10.0.0.5 dst=10.0.0.6 sport=3000 dport=5432 src=10.0.0
         assert_ne!(base, 90);
         // a container IP lands in the network's subnet.
         assert!(alloc_ip_in(&n.prefix, "deadbeef").starts_with(&format!("10.{base}.")));
+        root.close();
     }
 
     #[test]
@@ -4474,6 +4532,8 @@ mod tests_slirp_ownership {
 
     #[test]
     fn the_slirp_of_one_of_our_containers_is_recognised() {
+        // `is_ours` compares against the runtime dir, resolved from the env.
+        let _env = crate::testenv::lock();
         let s = parse(&our_container_slirp(1234)).expect("it is a slirp4netns");
         assert_eq!(s.pid, 4242);
         assert_eq!(s.target, 1234);
@@ -4582,6 +4642,8 @@ mod tests_slirp_ownership {
     /// The finding. Same binary, same argv shape, socket somewhere else.
     #[test]
     fn a_foreign_slirp_is_not_ours_and_is_not_reaped() {
+        // `is_ours` compares against the runtime dir, resolved from the env.
+        let _env = crate::testenv::lock();
         let argv = vec![
             "slirp4netns".to_string(),
             "--disable-host-loopback".into(),
@@ -4622,6 +4684,8 @@ mod tests_slirp_ownership {
     /// would have traded one bug for another (the published port stayed stuck).
     #[test]
     fn an_orphan_of_ours_is_still_reaped() {
+        // `is_ours` compares against the runtime dir, resolved from the env.
+        let _env = crate::testenv::lock();
         let s = parse(&our_container_slirp(1234)).unwrap();
         assert!(should_reap_orphan(&s, false), "dead target + ours = orphan");
         assert!(

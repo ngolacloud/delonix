@@ -56,6 +56,8 @@ pub const INGRESS_FAMILY: &str = "inet";
 /// (otherwise it would resolve to `/var/lib/delonix` instead of the user's store). The
 /// parent always passes `DELONIX_ROOT` to the holder so the paths line up.
 pub(crate) fn base_root() -> PathBuf {
+    #[cfg(test)]
+    crate::testenv::assert_pinned("base_root");
     if let Some(root) = std::env::var_os("DELONIX_ROOT") {
         return PathBuf::from(root);
     }
@@ -284,6 +286,8 @@ const RUNTIME_DIR_ENV: &str = "DELONIX_NET_RUNTIME_DIR";
 /// containerd's `/run/containerd/containerd.sock` — none of which nest their
 /// control socket under the (potentially deep) data/storage root.
 fn runtime_dir() -> PathBuf {
+    #[cfg(test)]
+    crate::testenv::assert_pinned("runtime_dir");
     if let Some(dir) = std::env::var_os(RUNTIME_DIR_ENV) {
         return PathBuf::from(dir);
     }
@@ -7173,12 +7177,21 @@ fn networks_lock() -> PathBuf {
 /// confirms the record's `name` field, so a collision yields "does not exist" and
 /// not one network swapped for another.
 fn netdef_path(name: &str) -> PathBuf {
+    networks_dir().join(netdef_file_name(name))
+}
+
+/// The record's FILE NAME, with no root in it — what [`network_list_in`]
+/// compares against. It used to take `netdef_path(..).file_name()`, which
+/// resolved the AMBIENT root inside a function handed an explicit one: a
+/// caller listing root A depended on whatever `DELONIX_ROOT` said at that
+/// instant (in the test suite, another test's temp dir).
+fn netdef_file_name(name: &str) -> String {
     let readable: String = name
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
         .take(32)
         .collect();
-    networks_dir().join(format!("{readable}-{:08x}.json", crate::fnv32(name)))
+    format!("{readable}-{:08x}.json", crate::fnv32(name))
 }
 
 /// The OLD path, truncated. It is still READ — a record on disk is the
@@ -7745,8 +7758,7 @@ pub fn network_list_in(root: &std::path::Path) -> Vec<NetDef> {
                 // A network with both a legacy AND a new record (mid-migration) is ONE
                 // network. Without this, it would appear twice in `network ls` and — worse
                 // — twice in the set of used prefixes that the allocator reads.
-                let is_new =
-                    e.file_name() == netdef_path(&def.name).file_name().unwrap_or_default();
+                let is_new = e.file_name().to_str() == Some(netdef_file_name(&def.name).as_str());
                 match v.iter_mut().find(|d| d.name == def.name) {
                     Some(existing) if is_new => *existing = def,
                     Some(_) => {}
@@ -12948,10 +12960,13 @@ Inter-|   Receive                                                |  Transmit
 
     #[test]
     fn container_ip_in_infra_subnet() {
+        // `container_ip` consults the IPAM registry under the ambient root.
+        let root = crate::testenv::TempRoot::new();
         let ip = container_ip("0a0b0c0d1122");
         assert!(ip.starts_with(&format!("{INFRA_PREFIX}.")), "{ip}");
         assert!(crate::valid_ip_in_subnet(INFRA_PREFIX, &ip), "{ip}");
         assert_eq!(ip, container_ip("0a0b0c0d1122")); // deterministic
+        root.close();
     }
 
     #[test]
