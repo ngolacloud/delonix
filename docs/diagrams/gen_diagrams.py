@@ -266,7 +266,7 @@ def docker_vs_delonix() -> Svg:
     s.card(1106, 180, 90, 100, "swap", "slirp4netns", PURPLE,
            sub=("um por container", "--net private"), muted=True, sub_size=9)
     s.card(1008, 290, 188, 90, "trash", "watcher --rm", PURPLE,
-           sub=("só com --no-supervisor",), muted=True)
+           sub=("só sem supervisor (RunOpts)",), muted=True)
     s.arrow([(932, 205), (998, 205)], PURPLE)
 
     # Rootless network plane, brought up on demand (ref-counted, not a daemon).

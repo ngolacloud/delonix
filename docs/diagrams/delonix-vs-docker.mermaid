@@ -32,7 +32,7 @@ flowchart TB
       subgraph PERC["Por container (opcional)"]
         shimd["log shim<br/><small>fork; escreve o log</small>"]
         slirp["slirp4netns<br/><small>um por container · --net private</small>"]
-        rmw["watcher --rm<br/><small>só com --no-supervisor</small>"]
+        rmw["watcher --rm<br/><small>só sem supervisor (RunOpts)</small>"]
       end
       subgraph NET["Rede rootless (sob procura)"]
         pin["netns pin<br/><small>userns + netns</small>"]
