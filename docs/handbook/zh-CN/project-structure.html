@@ -601,6 +601,12 @@ th:first-child,td:first-child{white-space:nowrap}
 <td><a class="src" href="https://github.com/ngolacloud/delonix/tree/main/docs/adr" target="_blank" rel="noopener"><code>docs/adr/</code></a></td>
 </tr>
 <tr>
+<td><a class="src" href="https://github.com/ngolacloud/delonix/tree/main/docs/diagrams" target="_blank" rel="noopener"><code>docs/diagrams/</code></a></td>
+<td>架构图（“Docker vs Delonix”、“Kubernetes 与 Delonix”、crate 分层）：每个 <code>.svg</code> 都有一个 <code>.mermaid</code> 文本副本，由 <code>gen_diagrams.py</code>（仅标准库）<strong>生成</strong>，每个方框和箭头都在 <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/ARCHITECTURE.md" target="_blank" rel="noopener"><code>ARCHITECTURE.md</code></a> 的 "Diagrams" 一节中得到确认。不要手工编辑 SVG。</td>
+<td>编辑 <code>gen_diagrams.py</code>，运行 <code>python3 docs/<wbr>diagrams/<wbr>gen_diagrams.<wbr>py</code>，并在方框或箭头变化时更新确认表。</td>
+<td><a class="src" href="https://github.com/ngolacloud/delonix/blob/main/ARCHITECTURE.md" target="_blank" rel="noopener"><code>ARCHITECTURE.md</code></a></td>
+</tr>
+<tr>
 <td><a class="src" href="https://github.com/ngolacloud/delonix/tree/main/docs/launch" target="_blank" rel="noopener"><code>docs/launch/</code></a></td>
 <td>发布叙事（<code>why-delonix.md</code>）：产品定位与一句话卖点，每一个数字都是在一台真实宿主机上测量出来的，每一个上限都被点名。是引言和落地页文案的来源。</td>
 <td>为一次 launch 或发布修订定位的人。</td>

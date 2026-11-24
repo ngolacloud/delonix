@@ -1,0 +1,64 @@
+---
+title: "Kubernetes com Delonix — sem containerd: o kubelet fala directamente com o delonix-cri"
+---
+%% Kubernetes com Delonix — text twin of delonix-kubernetes.svg (source: gen_diagrams.py).
+%% Grey = Kubernetes (context, not Delonix code). Every Delonix element is confirmed
+%% in ARCHITECTURE.md, section "Diagrams".
+flowchart TB
+  yaml["Deployment<br/><code>replicas: 3</code><br/><code>image: nginx</code>"]
+  subgraph CP["Control Plane (contexto)"]
+    api["API Server"]
+    etcd["etcd"]
+    cm["Controller Manager"]
+    sch["Scheduler"]
+    api <-.-> etcd
+    api <-.-> cm
+    api <-.-> sch
+  end
+  dcl["delonix cluster<br/><code>delonix cluster apply -f …</code><br/><small>ssh + kubeadm init / join em cada nó</small>"]
+  yaml -. "kubectl apply" .-> api
+
+  subgraph N1["Node 1"]
+    kl1["kubelet"]
+    cri1["delonix-cri<br/><code>unix:///run/delonix-cri.sock</code><br/><small>no lugar do containerd</small>"]
+    st1["$DELONIX_ROOT/cri<br/><small>JSON · reconcile_status</small>"]
+    pa["Pod A"]
+    pb["Pod B"]
+    kl1 -. "gRPC CRI" .-> cri1
+    cri1 <-. "load_reconciled" .-> st1
+    cri1 -. "delonix __apirun" .-> pa
+    cri1 -.-> pb
+  end
+
+  subgraph N2["Node 2"]
+    kl2["kubelet"]
+    cri2["delonix-cri<br/><code>unix:///run/delonix-cri.sock</code><br/><small>no lugar do containerd</small>"]
+    st2["$DELONIX_ROOT/cri<br/><small>JSON · reconcile_status</small>"]
+    pc["Pod C"]
+    kl2 -. "gRPC CRI" .-> cri2
+    cri2 <-. "load_reconciled" .-> st2
+    cri2 -. "delonix __apirun" .-> pc
+  end
+
+  api -.-> kl1
+  api -.-> kl2
+  dcl -. "provisiona" .-> N1
+  dcl -.-> N2
+
+  client["Client"] -.-> ing["Ingress"] -.-> svc["Service"]
+  svc -.-> pb
+  svc -.-> pc
+
+  classDef k8s fill:#fff,stroke:#64748b,color:#0f172a
+  classDef delonix fill:#fff,stroke:#6d28d9,color:#0f172a
+  classDef data fill:#fff,stroke:#15803d,color:#0f172a
+  class yaml,api,etcd,cm,sch,kl1,kl2,client,ing,svc k8s
+  class dcl,cri1,cri2,pa,pb,pc delonix
+  class st1,st2 data
+  style CP fill:none,stroke:#64748b,stroke-dasharray:5 4
+  style N1 fill:none,stroke:#6d28d9,stroke-dasharray:5 4
+  style N2 fill:none,stroke:#6d28d9,stroke-dasharray:5 4
+  %% links counted from 0 in declaration order: data/client flow green, Delonix
+  %% control flow purple, the rest (Kubernetes) keeps the default grey.
+  linkStyle 5,9,15,16,17,18 stroke:#15803d
+  linkStyle 4,6,7,8,10,13,14 stroke:#6d28d9

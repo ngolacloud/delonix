@@ -624,6 +624,12 @@ HTML (<code>index.html</code>, <code>cheatsheet.html</code>, <code>estrutura.htm
 <td><a class="src" href="https://github.com/ngolacloud/delonix/tree/main/docs/adr" target="_blank" rel="noopener"><code>docs/adr/</code></a></td>
 </tr>
 <tr>
+<td><a class="src" href="https://github.com/ngolacloud/delonix/tree/main/docs/diagrams" target="_blank" rel="noopener"><code>docs/diagrams/</code></a></td>
+<td>Desenhos de arquitectura («Docker vs Delonix», «Kubernetes com Delonix», as camadas de crates): cada <code>.svg</code> com um gémeo <code>.mermaid</code> em texto, <strong>gerado</strong> por <code>gen_diagrams.py</code> (stdlib), com cada caixa e cada seta confirmada na secção "Diagrams" do <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/ARCHITECTURE.md" target="_blank" rel="noopener"><code>ARCHITECTURE.md</code></a>. Nunca editar o SVG à mão.</td>
+<td>Editar <code>gen_diagrams.py</code>, correr <code>python3 docs/<wbr>diagrams/<wbr>gen_diagrams.<wbr>py</code> e actualizar a tabela de confirmação quando muda uma caixa ou uma seta.</td>
+<td><a class="src" href="https://github.com/ngolacloud/delonix/blob/main/ARCHITECTURE.md" target="_blank" rel="noopener"><code>ARCHITECTURE.md</code></a></td>
+</tr>
+<tr>
 <td><a class="src" href="https://github.com/ngolacloud/delonix/tree/main/docs/launch" target="_blank" rel="noopener"><code>docs/launch/</code></a></td>
 <td>A narrativa de lançamento (<code>why-delonix.md</code>): o posicionamento do produto e o pitch de uma frase, cada número medido num host real e cada tecto nomeado. Fonte da introdução e do texto da landing page.</td>
 <td>Quem revê o posicionamento para um lançamento ou release.</td>

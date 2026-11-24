@@ -5949,12 +5949,26 @@ def c4_page():
     src = open(os.path.join(ROOT, "..", "ARCHITECTURE.md")).read()
     # split out the mermaid blocks BEFORE the markdown (so they aren't treated as code)
     parts = re.split(r"```mermaid\n(.*?)```", src, flags=re.S)
+
+    # ARCHITECTURE.md links are relative to the repository root, but this page is
+    # served from `docs/`: `docs/X` becomes `X` (the diagrams next to the page),
+    # and any other repository path points at the file on GitHub, since the
+    # published site does not carry the source tree.
+    def site_link(m):
+        attr, url = m.group(1), m.group(2)
+        if url.startswith(("http://", "https://", "#", "mailto:")):
+            return m.group(0)
+        if url.startswith("docs/"):
+            return f'{attr}="{url[len("docs/"):]}"'
+        return f'{attr}="https://github.com/ngolacloud/delonix/blob/main/{url}"'
+
     out = []
     for i, part in enumerate(parts):
         if i % 2 == 1:
             out.append(f'<pre class="mermaid">{html.escape(part)}</pre>')
         else:
-            out.append(markdown.markdown(part, extensions=["tables", "fenced_code"]))
+            rendered = markdown.markdown(part, extensions=["tables", "fenced_code"])
+            out.append(re.sub(r'(href|src)="([^"]+)"', site_link, rendered))
     body = (
         "\n".join(out)
         + """
