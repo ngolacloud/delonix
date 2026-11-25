@@ -30,9 +30,22 @@ pub fn create_bridge(
     subnet: Option<&str>,
     gateway: impl FnOnce(&Network) -> Result<Option<String>>,
 ) -> Result<Network> {
+    create_bridge_avoiding(store, name, subnet, &[], gateway)
+}
+
+/// [`create_bridge`], with `avoid` handed to the allocator when no `subnet` is
+/// given (see [`NetworkStore::create_avoiding`]). An explicit `subnet` is the
+/// caller's choice and is not second-guessed here.
+pub fn create_bridge_avoiding(
+    store: &NetworkStore,
+    name: &str,
+    subnet: Option<&str>,
+    avoid: &[crate::Cidr],
+    gateway: impl FnOnce(&Network) -> Result<Option<String>>,
+) -> Result<Network> {
     let net = match subnet {
         Some(s) => store.create_with_cidr(name, NetworkStore::validate_subnet(s)?)?,
-        None => store.create(name)?,
+        None => store.create_avoiding(name, avoid)?,
     };
     let declared = match gateway(&net) {
         Ok(g) => g,
@@ -46,6 +59,57 @@ pub fn create_bridge(
         return Err(e);
     }
     Ok(net)
+}
+
+/// What [`ensure_node_network`] found or made.
+#[derive(Debug)]
+pub enum NodeNetwork {
+    /// Allocated now, outside the ranges it was given.
+    Created(Network),
+    /// Already there, and clear of them.
+    Existing(Network),
+    /// Already there, ON one of them — left untouched, for the caller to refuse.
+    Overlaps {
+        subnet: String,
+        label: String,
+        range: String,
+    },
+}
+
+/// The network a Kubernetes cluster's NODES sit on: created outside `ranges`
+/// (`(label, cidr)`, the cluster's pod and service CIDRs), or, when it already
+/// exists, checked against them.
+///
+/// Inside every node the pod CIDR is routed to the CNI, so a node network on it
+/// sends the replies of anything addressed on that network to the pods: the API
+/// answered from inside the node and hung from the host. Reported on a live
+/// cluster whose nodes the allocator had put on `10.244.0.0/16` — the default
+/// pod CIDR, and one of the 54 `/16`s it draws from.
+pub fn ensure_node_network(
+    store: &NetworkStore,
+    name: &str,
+    ranges: &[(&str, &str)],
+) -> Result<NodeNetwork> {
+    let parsed: Vec<(&str, &str, crate::Cidr)> = ranges
+        .iter()
+        .filter_map(|(l, r)| crate::Cidr::parse(r).map(|c| (*l, *r, c)))
+        .collect();
+    if let Ok(net) = store.get(name) {
+        let ours = crate::Cidr::parse(&net.subnet);
+        if let Some((label, range, _)) = parsed
+            .iter()
+            .find(|(_, _, c)| ours.is_some_and(|o| o.overlaps(c)))
+        {
+            return Ok(NodeNetwork::Overlaps {
+                subnet: net.subnet,
+                label: label.to_string(),
+                range: range.to_string(),
+            });
+        }
+        return Ok(NodeNetwork::Existing(net));
+    }
+    let avoid: Vec<crate::Cidr> = parsed.iter().map(|(_, _, c)| *c).collect();
+    create_bridge_avoiding(store, name, None, &avoid, |_| Ok(None)).map(NodeNetwork::Created)
 }
 
 /// Who, among these records, is on network `name` — as `container <name>` /
@@ -111,4 +175,46 @@ pub fn remove(store: &NetworkStore, name: &str) -> Result<()> {
     infra::network_remove(name);
     store.remove(name)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod node_network_tests {
+    use super::{ensure_node_network, NodeNetwork};
+    use crate::NetworkStore;
+
+    const RANGES: &[(&str, &str)] = &[
+        ("pod subnet", "10.244.0.0/16"),
+        ("service subnet", "10.96.0.0/12"),
+    ];
+
+    #[test]
+    fn an_existing_node_network_on_a_cluster_range_is_reported_and_left_alone() {
+        let root = tempfile::tempdir().unwrap();
+        let store = NetworkStore::open(root.path()).unwrap();
+        // What an older binary left: the record only, on the pod CIDR.
+        let cidr = NetworkStore::validate_subnet("10.244.0.0/16").unwrap();
+        store.create_with_cidr("dlx-old", cidr).unwrap();
+        match ensure_node_network(&store, "dlx-old", RANGES).unwrap() {
+            NodeNetwork::Overlaps {
+                subnet,
+                label,
+                range,
+            } => {
+                assert_eq!(
+                    (subnet.as_str(), label.as_str()),
+                    ("10.244.0.0/16", "pod subnet")
+                );
+                assert_eq!(range, "10.244.0.0/16");
+            }
+            other => panic!("expected an overlap, got {other:?}"),
+        }
+        assert_eq!(store.get("dlx-old").unwrap().subnet, "10.244.0.0/16");
+
+        let clear = NetworkStore::validate_subnet("10.230.0.0/16").unwrap();
+        store.create_with_cidr("dlx-ok", clear).unwrap();
+        assert!(matches!(
+            ensure_node_network(&store, "dlx-ok", RANGES).unwrap(),
+            NodeNetwork::Existing(_)
+        ));
+    }
 }
