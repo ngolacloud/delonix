@@ -1158,6 +1158,15 @@ pub(crate) fn create(images: &ImageStore, store: &Store, cfg: &KindCluster) -> R
         cfg.control_planes + cfg.workers,
         true,
     )?;
+    // And against the networks this engine already has — the check the kubeadm
+    // path always made and kind mode never did. The cluster's own network is
+    // left out: `ensure_cluster_node_network` judges it with a message that
+    // says what to remove.
+    super::net_profiles::check_cidrs_env_overlap(
+        pod,
+        service,
+        &super::cluster::engine_networks(Some(&cluster_net(&cfg.name))),
+    )?;
 
     let node = format!("{}-control-plane", cfg.name); // kind naming convention
     if store.list()?.iter().any(|c| c.name == node) {

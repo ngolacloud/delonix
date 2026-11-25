@@ -1034,15 +1034,23 @@ fn observed_profile_via_kubectl(kubeconfig: &std::path::Path) -> String {
 /// enumerate is not a reason to refuse the cluster — so a failure to read is
 /// skipped, never turned into a false conflict.
 fn check_env_overlap(plan: &super::net_profiles::NetworkPlan) -> Result<()> {
-    let mut known: Vec<(String, String)> = Vec::new();
-    if let Ok(store) = delonix_sdn::NetworkStore::open(state_root()) {
-        if let Ok(nets) = store.list() {
-            for n in nets {
-                known.push((format!("network \"{}\"", n.name), n.subnet));
-            }
-        }
-    }
-    super::net_profiles::check_env_overlap(plan, &known)
+    super::net_profiles::check_env_overlap(plan, &engine_networks(None))
+}
+
+/// The engine's declared networks as `(label, cidr)`, leaving out `except` —
+/// what a cluster's pod and service CIDRs must not overlap. Best-effort, like
+/// [`check_env_overlap`]: an unreadable store gives no entries.
+pub(crate) fn engine_networks(except: Option<&str>) -> Vec<(String, String)> {
+    let Ok(store) = delonix_sdn::NetworkStore::open(state_root()) else {
+        return Vec::new();
+    };
+    store
+        .list()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|n| Some(n.name.as_str()) != except)
+        .map(|n| (format!("network \"{}\"", n.name), n.subnet))
+        .collect()
 }
 
 fn target_for(host: &HostSpec, ssh: &SshSpec) -> SshTarget {

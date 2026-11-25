@@ -323,6 +323,11 @@ exists on one of them — left by an older binary, or by a failed create — is
 refused with DX-1704 before anything is created, naming the
 `delonix network rm` that clears it.
 
+Kind mode also checks its pod and service CIDRs against the engine's OTHER
+networks now, as `cluster kubeadm` always did: a pod CIDR on a network the host
+already uses is refused with DX-1704 before the cluster's network, state or
+image exist.
+
 ## 5. Lab procedure — how to unblock B1-B12
 
 Prerequisites: ~40 GiB free, `/dev/kvm`, `libvirt`, `virt-customize`,
