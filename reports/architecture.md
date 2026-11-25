@@ -9,12 +9,12 @@
 | --- | ---: | ---: | ---: |
 | foundation | 3 | 7,991 | 2.0% |
 | context | 6 | 29,874 | 7.6% |
-| adapter | 11 | 91,494 | 23.2% |
+| adapter | 11 | 91,696 | 23.3% |
 | provider | 10 | 55,077 | 14.0% |
 | interface | 4 | 40,470 | 10.3% |
 | assembly | 1 | 1,132 | 0.3% |
-| bin | 6 | 167,726 | 42.6% |
-| **total** | **41** | **393,764** | 100% |
+| bin | 6 | 167,751 | 42.6% |
+| **total** | **41** | **393,991** | 100% |
 
 ## Lines per crate
 
@@ -41,7 +41,7 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-sdn ⚠️ >20k | 30,955 |
+| delonix-sdn ⚠️ >20k | 31,157 |
 | delonix-linux ⚠️ >20k | 26,033 |
 | delonix-oci | 15,503 |
 | delonix-vm | 5,427 |
@@ -87,7 +87,7 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-bin ⚠️ >20k | 164,325 |
+| delonix-bin ⚠️ >20k | 164,350 |
 | delonix-node-api-bin | 1,465 |
 | delonix-cri-bin | 838 |
 | delonix-storage-helper | 645 |
@@ -103,9 +103,9 @@ Context destinations (the `cli_context_lines` ratchet) come first.
 | --- | ---: | ---: | :---: |
 | delonix-compute | 27,121 | 9 | ✓ |
 | delonix-stack | 23,771 | 10 | ✓ |
-| delonix-networking | 20,025 | 26 | ✓ |
+| delonix-networking | 20,060 | 26 | ✓ |
 | delonix-artifact | 17,193 | 7 | ✓ |
-| delonix-cluster | 13,744 | 10 | ✓ |
+| delonix-cluster | 13,734 | 10 | ✓ |
 | delonix-storage | 10,108 | 9 | ✓ |
 | delonix-node | 7,449 | 4 | ✓ |
 | delonix-gateway | 5,351 | 2 | ✓ |
@@ -121,7 +121,7 @@ Context destinations (the `cli_context_lines` ratchet) come first.
 | delonix-ssh | 274 | 1 |  |
 | tests | 256 | 1 |  |
 | delonix-mcp | 36 | 1 |  |
-| **context total** | **127,978** | | |
+| **context total** | **128,003** | | |
 
 ## Ratchets
 
@@ -136,7 +136,7 @@ falls without the baseline lowered in the same commit.
 | shared_error_imports | 3 | 3 | 0 |
 | raw_error_variant_matches | 0 | 0 | 0 |
 | context_spawns | 0 | 0 | 0 |
-| cli_context_lines | 127,978 | 127,978 | 0 (R4) |
+| cli_context_lines | 128,003 | 128,003 | 0 (R4) |
 | interface_mechanism_deps | 0 | 0 | 0 (R3) |
 | provider_namers | 17 | 17 | 0 (R3/R4) |
 | bin_crates | 6 | 6 | 1 (R1) |
