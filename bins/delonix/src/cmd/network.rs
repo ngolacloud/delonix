@@ -1980,6 +1980,41 @@ fn cmd_node(action: NodeCmd) -> Result<()> {
     Ok(())
 }
 
+/// Makes sure the network a Kubernetes cluster's NODES sit on exists, never on
+/// the cluster's own `ranges` (`(label, cidr)`: its pod and service CIDRs).
+/// Returns whether it was created now. See `netops::ensure_node_network`; an
+/// existing one that overlaps is refused here with DX-1704.
+pub(crate) fn ensure_cluster_node_network(
+    store: &NetworkStore,
+    name: &str,
+    ranges: &[(&str, &str)],
+) -> Result<bool> {
+    match delonix_sdn::netops::ensure_node_network(store, name, ranges)? {
+        delonix_sdn::netops::NodeNetwork::Created(_) => Ok(true),
+        delonix_sdn::netops::NodeNetwork::Existing(_) => Ok(false),
+        delonix_sdn::netops::NodeNetwork::Overlaps {
+            subnet,
+            label,
+            range,
+        } => Err(Error::coded(
+            1704,
+            Error::Invalid(super::po::tf(
+                "network '{net}' ({subnet}), where the cluster's nodes would sit, overlaps \
+                 the cluster's {label} {range}. Inside each node that range is routed to the \
+                 pods, so the API answers from inside the node and hangs from the host. \
+                 Nothing was created; remove the network (`delonix network rm {net}`) and \
+                 retry, or choose another {label}",
+                &[
+                    ("net", name),
+                    ("subnet", &subnet),
+                    ("label", &label),
+                    ("range", &range),
+                ],
+            )),
+        )),
+    }
+}
+
 #[cfg(test)]
 mod dependents_tests {
     use delonix_compute::{Container, ExtraNet};

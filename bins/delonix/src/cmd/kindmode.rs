@@ -647,19 +647,7 @@ fn create_ha(images: &ImageStore, store: &Store, cfg: &KindCluster) -> Result<()
     std::fs::create_dir_all(cluster_dir(&cfg.name))?;
     let net = cluster_net(&cfg.name);
     let nstore = delonix_sdn::NetworkStore::open(super::util::state_root())?;
-    if nstore.get(&net).is_err() {
-        super::network::create_network(
-            &nstore,
-            &net,
-            "bridge",
-            None,
-            None,
-            "",
-            None,
-            Vec::new(),
-            None,
-        )?;
-    }
+    super::network::ensure_cluster_node_network(&nstore, &net, &cluster_ranges(cfg))?;
 
     let short_ref = cfg
         .image
@@ -982,6 +970,15 @@ fn cluster_net(name: &str) -> String {
     format!("dlx-{name}")
 }
 
+/// The cluster's own address ranges, `(label, cidr)` — what its node network
+/// must never be placed on.
+fn cluster_ranges(cfg: &KindCluster) -> [(&str, &str); 2] {
+    [
+        ("pod subnet", cfg.pod_subnet.as_str()),
+        ("service subnet", cfg.service_subnet.as_str()),
+    ]
+}
+
 /// Boots ONE node of the cluster (control-plane or worker) on the shared network.
 fn boot_node(
     images: &ImageStore,
@@ -1218,23 +1215,12 @@ pub(crate) fn create(images: &ImageStore, store: &Store, cfg: &KindCluster) -> R
     // The cluster network: the nodes must all be born on it.
     let net = cluster_net(&cfg.name);
     let nstore = delonix_sdn::NetworkStore::open(super::util::state_root())?;
-    if nstore.get(&net).is_err() {
-        // `create_network` (and not `infra::network_create`) because there are TWO
-        // coordinated stores: the declarative registry + the holder's physical plan, with the
-        // same prefix. Only the physical one left `run --net` refusing with
-        // "no such container: network <x>" — caught while testing multi-node.
-        super::network::create_network(
-            &nstore,
-            &net,
-            "bridge",
-            None,
-            None,
-            "",
-            None,
-            Vec::new(),
-            None,
-        )?;
-    }
+    // Through `netops::create_bridge` (and not `infra::network_create`) because
+    // there are TWO coordinated stores: the declarative registry + the holder's
+    // physical plan, with the same prefix. Only the physical one left `run --net`
+    // refusing with "no such container: network <x>" — caught while testing
+    // multi-node. And never on the cluster's own pod/service ranges.
+    super::network::ensure_cluster_node_network(&nstore, &net, &cluster_ranges(cfg))?;
 
     // The node image is ensured ONCE, here, before any parallelism.
     // If missing, it is pulled; if already in the store, it is reused (the `resolve` accepts

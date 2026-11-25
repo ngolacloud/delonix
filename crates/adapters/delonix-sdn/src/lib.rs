@@ -1224,6 +1224,19 @@ pub(crate) fn used_bases(root: &std::path::Path) -> std::collections::HashSet<u8
 /// The first base octet of the user span not in `used`, walking ONE full circle
 /// from `start` (clamped into the span). `None` when every one is taken — the
 /// caller says so instead of writing a network onto another's `/16`.
+/// The base octets of the user span whose `10.X.0.0/16` overlaps any of `avoid`.
+fn bases_overlapping(avoid: &[Cidr]) -> std::collections::HashSet<u8> {
+    (first_user_base()..=last_user_base())
+        .filter(|b| {
+            let slash16 = Cidr {
+                base: u32::from_be_bytes([10, *b, 0, 0]),
+                len: 16,
+            };
+            avoid.iter().any(|c| c.overlaps(&slash16))
+        })
+        .collect()
+}
+
 pub(crate) fn pick_user_base(start: u8, used: &std::collections::HashSet<u8>) -> Option<u8> {
     let (lo, hi) = (first_user_base(), last_user_base());
     let mut base = start.clamp(lo, hi);
@@ -1411,6 +1424,20 @@ impl NetworkStore {
 
     /// Creates a user network (free subnet, no collision with existing ones).
     pub fn create(&self, name: &str) -> Result<Network> {
+        self.create_avoiding(name, &[])
+    }
+
+    /// [`Self::create`], with `avoid` treated as occupied: no `/16` that
+    /// overlaps any of them is picked.
+    ///
+    /// The caller that needs it is the network a Kubernetes cluster's NODES sit
+    /// on. The allocator draws from `10.201`–`10.254`, and kubeadm's default
+    /// pod CIDR is `10.244.0.0/16` — so about one cluster name in 55 hashed
+    /// straight onto its own pod range. Inside the node that range is routed to
+    /// the CNI, so replies to anything addressed on the node network went to
+    /// the pods: the API answered from inside the node and hung from the host.
+    /// The allocator could not refuse it, because nothing told it.
+    pub fn create_avoiding(&self, name: &str, avoid: &[Cidr]) -> Result<Network> {
         if name.is_empty() || name == DEFAULT_NET {
             return Err(Error::ReservedNetworkName(
                 "'bridge' is the default network (reserved)".into(),
@@ -1452,8 +1479,23 @@ impl NetworkStore {
         // THIS root occupies — records, `NetDef`s and the reserved prefixes (see
         // `used_bases`). With no free slot, refuse: network no. 55 used to land,
         // in silence, on another one's `/16`.
-        let base = pick_user_base(Network::base_for(name), &used_bases(&self.root()))
-            .ok_or_else(|| self.no_free_subnet(name))?;
+        let mut used = used_bases(&self.root());
+        used.extend(bases_overlapping(avoid));
+        let base = pick_user_base(Network::base_for(name), &used).ok_or_else(|| {
+            if avoid.is_empty() {
+                self.no_free_subnet(name)
+            } else {
+                let ranges: Vec<String> = avoid.iter().map(Cidr::to_string_cidr).collect();
+                Error::NoFreeSubnet(format!(
+                    "no free /16 left for network '{name}' outside {}: every free one in \
+                     the workload space overlaps them — pick ranges that leave part of \
+                     10.{}.0.0-10.{}.255.255 free, or remove a network",
+                    ranges.join(", "),
+                    first_user_base(),
+                    last_user_base()
+                ))
+            }
+        })?;
         delonix_state::write_atomic(&self.path(name), base.to_string().as_bytes())?;
         self.get(name)
     }
@@ -4394,6 +4436,60 @@ mod tests_network_name {
 mod tests_16_allocation {
     use super::*;
     use std::collections::HashSet;
+
+    /// A name whose first candidate is `10.244` — kubeadm's default pod CIDR.
+    fn name_on_244() -> String {
+        (0..20_000)
+            .map(|i| format!("dlx-c{i}"))
+            .find(|n| Network::base_for(n) == 244)
+            .expect("some name hashes to 244")
+    }
+
+    #[test]
+    fn a_network_created_avoiding_a_range_is_never_placed_on_it() {
+        let name = name_on_244();
+        let pods = Cidr::parse("10.244.0.0/16").unwrap();
+
+        // Control: without being told, the allocator lands exactly there —
+        // which is how a kind cluster's nodes ended up on their own pod CIDR.
+        let root = tempfile::tempdir().unwrap();
+        let blind = NetworkStore::open(root.path())
+            .unwrap()
+            .create(&name)
+            .unwrap();
+        assert_eq!(blind.subnet, "10.244.0.0/16");
+
+        let root = tempfile::tempdir().unwrap();
+        let store = NetworkStore::open(root.path()).unwrap();
+        let net = store.create_avoiding(&name, &[pods]).unwrap();
+        assert!(
+            !Cidr::parse(&net.subnet).unwrap().overlaps(&pods),
+            "{} overlaps the range it was told to avoid",
+            net.subnet
+        );
+        // A wider range (a /12 service CIDR) is avoided whole, not just its base.
+        let wide = Cidr::parse("10.240.0.0/12").unwrap();
+        let other = store.create_avoiding("dlx-other", &[wide]).unwrap();
+        assert!(
+            !Cidr::parse(&other.subnet).unwrap().overlaps(&wide),
+            "{}",
+            other.subnet
+        );
+    }
+
+    #[test]
+    fn avoiding_the_whole_space_is_refused_naming_the_range() {
+        let root = tempfile::tempdir().unwrap();
+        let store = NetworkStore::open(root.path()).unwrap();
+        let all = Cidr::parse("10.0.0.0/8").unwrap();
+        let e = store.create_avoiding("dlx-x", &[all]).unwrap_err();
+        assert!(matches!(e, Error::NoFreeSubnet(_)), "{e:?}");
+        assert!(e.to_string().contains("10.0.0.0/8"), "{e}");
+        assert!(
+            store.list().unwrap().is_empty(),
+            "a refused create wrote a record"
+        );
+    }
 
     /// `n` names that ALL fall on the same initial candidate.
     fn colliding_names(n: usize) -> Vec<String> {
