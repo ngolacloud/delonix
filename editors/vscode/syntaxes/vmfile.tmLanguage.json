@@ -1,39 +1,105 @@
 {
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-  "name": "VMfile",
+  "name": "Vmfile",
   "scopeName": "source.vmfile",
+  "comment": "Mirrors cmd/vmfile.rs: one LOGICAL line per instruction (a trailing backslash joins the next physical line; a region ends at a `$` not preceded by a backslash — nor by the newline vscode-textmate appends, after which `$` matches again), a comment only on a line of its own, and any other first word an error — the parser fails closed on it. The instruction list is held to vmfile::INSTRUCTIONS by a test.",
   "patterns": [
     { "include": "#comment" },
     { "include": "#from" },
+    { "include": "#run" },
     { "include": "#instruction" },
-    { "include": "#option" },
-    { "include": "#continuation" },
-    { "include": "#string" }
+    { "include": "#unknown" }
   ],
   "repository": {
     "comment": {
       "comment": "Only a whole line is a comment — the parser does the same, so that `RUN sed -i 's/#a/b/'` keeps its hash.",
-      "match": "^\\s*#.*$",
-      "name": "comment.line.number-sign.vmfile"
+      "match": "^\\s*(#).*$",
+      "name": "comment.line.number-sign.vmfile",
+      "captures": { "1": { "name": "punctuation.definition.comment.vmfile" } }
     },
     "from": {
-      "comment": "FROM <image> [AS <stage>] — the image is highlighted apart because it is the one argument that names something outside the file.",
-      "match": "^\\s*(?i:(from))\\s+(\\S+)(?:\\s+(?i:(as))\\s+(\\S+))?",
-      "captures": {
-        "1": { "name": "keyword.control.from.vmfile" },
-        "2": { "name": "string.unquoted.image.vmfile" },
-        "3": { "name": "keyword.control.as.vmfile" },
-        "4": { "name": "entity.name.type.stage.vmfile" }
-      }
+      "comment": "FROM <image> [AS <stage>] — the image names something outside the file, the stage is a name later lines refer to (COPY --from=).",
+      "begin": "^\\s*(?i:(from))\\b",
+      "beginCaptures": { "1": { "name": "keyword.control.from.vmfile" } },
+      "end": "(?<![\\\\\\n])$",
+      "patterns": [
+        { "include": "#continuation" },
+        { "include": "#flag" },
+        {
+          "match": "\\b(?i:(as))\\s+(\\S+)",
+          "captures": {
+            "1": { "name": "keyword.control.as.vmfile" },
+            "2": { "name": "entity.name.type.stage.vmfile" }
+          }
+        },
+        { "match": "\\S+", "name": "string.unquoted.image.vmfile" }
+      ]
+    },
+    "run": {
+      "comment": "RUN is shell inside the guest: the rest of the logical line is highlighted as shell.",
+      "begin": "^\\s*(?i:(run))\\b",
+      "beginCaptures": { "1": { "name": "keyword.control.run.vmfile" } },
+      "end": "(?<![\\\\\\n])$",
+      "contentName": "meta.embedded.block.shellscript",
+      "patterns": [
+        { "include": "#continuation" },
+        { "include": "source.shell" }
+      ]
     },
     "instruction": {
-      "comment": "Exactly the instructions cmd/vmfile.rs accepts. It fails closed on anything else, so this list must not grow past it.",
-      "match": "^\\s*(?i:(run|copy|env|user|password|rootpassword|cloudinit|sshkey|size|hostname|vcpus|memory|hypervisor|label))\\b",
-      "captures": { "1": { "name": "keyword.control.vmfile" } }
+      "comment": "Every other instruction cmd/vmfile.rs accepts (FROM and RUN have rules of their own). The alternation is checked against vmfile::INSTRUCTIONS.",
+      "begin": "^\\s*(?i:(copy|env|user|password|rootpassword|cloudinit|sshkey|size|hostname|vcpus|memory|hypervisor|label|slim|install|remove|autostart|budget))\\b",
+      "beginCaptures": { "1": { "name": "keyword.control.vmfile" } },
+      "end": "(?<![\\\\\\n])$",
+      "patterns": [
+        { "include": "#continuation" },
+        { "include": "#flag" },
+        { "include": "#string" },
+        { "include": "#size" },
+        { "include": "#assignment" }
+      ]
     },
-    "option": {
-      "match": "--from=\\S+",
-      "name": "variable.parameter.vmfile"
+    "unknown": {
+      "comment": "A logical line that starts with any other word is refused by the parser (`unknown instruction`); say so before the build does.",
+      "match": "^\\s*([A-Za-z][A-Za-z0-9_-]*)",
+      "captures": { "1": { "name": "invalid.illegal.unknown-instruction.vmfile" } }
+    },
+    "flag": {
+      "patterns": [
+        {
+          "comment": "--name=value: on/off, a comma-separated list, a stage, a size.",
+          "match": "(--[a-z][a-z-]*)(=)(\\S*)",
+          "captures": {
+            "1": { "name": "variable.parameter.flag.vmfile" },
+            "2": { "name": "keyword.operator.assignment.vmfile" },
+            "3": {
+              "patterns": [
+                { "match": "(?<==)(?:on|off)(?=\\s|$)", "name": "constant.language.boolean.vmfile" },
+                { "match": ",", "name": "punctuation.separator.comma.vmfile" },
+                { "match": "[^,]+", "name": "string.unquoted.value.vmfile" }
+              ]
+            }
+          }
+        },
+        {
+          "comment": "A bare flag (AUTOSTART --only).",
+          "match": "--[a-z][a-z-]*",
+          "name": "variable.parameter.flag.vmfile"
+        }
+      ]
+    },
+    "size": {
+      "comment": "SIZE 4G, BUDGET 450M, MEMORY 1G, VCPUS 2.",
+      "match": "(?<![\\w.:/-])\\d+[KMG]?(?![\\w.:/-])",
+      "name": "constant.numeric.vmfile"
+    },
+    "assignment": {
+      "comment": "ENV KEY=value, LABEL key=value.",
+      "match": "(?<![\\w.-])([A-Za-z_][\\w.-]*)(=)",
+      "captures": {
+        "1": { "name": "variable.other.key.vmfile" },
+        "2": { "name": "keyword.operator.assignment.vmfile" }
+      }
     },
     "continuation": {
       "match": "\\\\$",

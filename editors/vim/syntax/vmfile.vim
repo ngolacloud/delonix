@@ -1,52 +1,87 @@
-" Vim/Neovim syntax for VMfile — delonix's recipe for a bootable qcow2.
+" Vim/Neovim syntax for Vmfile (also spelled VMfile) — delonix's recipe for a
+" bootable qcow2.
 "
-" The instruction set is the one `cmd/vmfile.rs` parses, and nothing else: the
-" parser fails closed on a word it does not know, so an instruction that
-" highlights here but does not exist there would be the editor promising a build
-" that cannot happen. Keep the two lists in step.
+" It mirrors what `cmd/vmfile.rs` parses, and nothing else:
 "
-" Matching is case-INSENSITIVE at the start of a line because the parser
-" uppercases the first word (`line.to_ascii_uppercase()`) — `from ubuntu:24.04`
-" builds exactly like `FROM ubuntu:24.04`, so it has to look like it too.
+" * one LOGICAL line per instruction — a trailing backslash joins the next
+"   physical line, so each instruction is a region that ends on the first line
+"   that does not end in `\`;
+" * a comment only on a line of its own (`RUN sed -i 's/#a/b/'` keeps its hash);
+" * matching is case-INSENSITIVE, because the parser uppercases the first word;
+" * any other first word is an error — the parser fails closed on it, and the
+"   editor should say so before the build does.
+"
+" The instruction alternation below is held to `vmfile::INSTRUCTIONS` by a test
+" (`editor_grammars_know_exactly_the_instructions`); change both together.
 
 if exists("b:current_syntax")
   finish
 endif
 
-" A comment is only a comment on its OWN line — the same rule the parser
-" follows, because `RUN sed -i 's/#foo/bar/' x` is ordinary shell and stripping
-" from the `#` would mutilate it.
-syn match   vmfileComment     "^\s*#.*$" contains=vmfileTodo
-syn keyword vmfileTodo        TODO FIXME XXX NOTE contained
+" RUN is shell inside the guest.
+syn include @vmfileShell syntax/sh.vim
+unlet! b:current_syntax
 
-" The stage-opening instruction, so `FROM x AS builder` reads as one thing.
-syn match   vmfileFrom        "^\s*\c\<from\>"     nextgroup=vmfileImage skipwhite
-syn match   vmfileImage       "\S\+"               contained
-syn match   vmfileAs          "\s\c\<as\>\s\+\S\+"
+syn case ignore
+syn sync fromstart
 
-" Everything else, at the start of a line.
-syn match   vmfileInstruction "^\s*\c\<\%(run\|copy\|env\|user\|password\|rootpassword\|cloudinit\|sshkey\|size\|hostname\|vcpus\|memory\|hypervisor\|label\)\>"
+" Lowest priority first: vim prefers the item defined LAST when two match at
+" the same position, so the catch-all comes before the real instructions.
+syn match   vmfileUnknown      "^\s*\a[[:alnum:]_-]*"
 
-" `COPY --from=<stage>` — the one flag the format has.
-syn match   vmfileOption      "--from=\S\+"
+syn match   vmfileComment      "^\s*#.*$" contains=vmfileTodo
+syn keyword vmfileTodo         TODO FIXME XXX NOTE contained
+
+" FROM <image> [AS <stage>]
+syn region  vmfileFromLine     matchgroup=vmfileFrom start="^\s*\<from\>" end="\\\@<!$" keepend contains=vmfileImage,vmfileAs,vmfileFlag,vmfileContinuation
+syn match   vmfileImage        "\S\+" contained
+syn match   vmfileAs           "\<as\>" contained nextgroup=vmfileStage skipwhite
+syn match   vmfileStage        "\S\+" contained
+
+" RUN <shell>
+syn region  vmfileRunLine      matchgroup=vmfileInstruction start="^\s*\<run\>" end="\\\@<!$" keepend contains=@vmfileShell,vmfileContinuation
+
+" Every other instruction.
+syn region  vmfileLine         matchgroup=vmfileInstruction start="^\s*\<\%(copy\|env\|user\|password\|rootpassword\|cloudinit\|sshkey\|size\|hostname\|vcpus\|memory\|hypervisor\|label\|slim\|install\|remove\|autostart\|budget\)\>" end="\\\@<!$" keepend contains=vmfileFlag,vmfileString,vmfileNumber,vmfileKey,vmfileContinuation
+
+" --name=value and bare --name (AUTOSTART --only).
+syn match   vmfileFlag         "--\a[[:alnum:]-]*" contained nextgroup=vmfileFlagEq
+syn match   vmfileFlagEq       "=" contained nextgroup=vmfileOnOff,vmfileFlagValue
+syn match   vmfileFlagValue    "[^[:space:],]\+" contained nextgroup=vmfileComma
+syn match   vmfileComma        "," contained nextgroup=vmfileFlagValue
+syn match   vmfileOnOff        "\<\%(on\|off\)\>\ze\%(\s\|$\)" contained
+
+" ENV KEY=value, LABEL key=value.
+syn match   vmfileKey          "\%(^\|\s\)\zs[[:alpha:]_][[:alnum:]_.-]*\ze=" contained
+
+" SIZE 4G, BUDGET 450M, MEMORY 1G, VCPUS 2.
+syn match   vmfileNumber       "\%(^\|\s\)\zs\d\+[GMK]\=\ze\%(\s\|$\)" contained
+
+syn region  vmfileString       start=+"+ skip=+\\"+ end=+"+ oneline contained
+syn region  vmfileString       start=+'+ end=+'+ oneline contained
 
 " A trailing backslash joins the next line; seeing it is how you notice it is
 " missing.
-syn match   vmfileContinuation "\\$"
+syn match   vmfileContinuation "\\$" contained
 
-syn region  vmfileString      start=+"+ skip=+\\"+ end=+"+ oneline
-syn region  vmfileString      start=+'+ skip=+\\'+ end=+'+ oneline
-syn match   vmfileNumber      "\<\d\+[GMK]\?\>"
+syn case match
 
+hi def link vmfileUnknown      Error
 hi def link vmfileComment      Comment
 hi def link vmfileTodo         Todo
 hi def link vmfileFrom         Keyword
 hi def link vmfileInstruction  Keyword
 hi def link vmfileAs           Keyword
 hi def link vmfileImage        String
-hi def link vmfileOption       Special
-hi def link vmfileContinuation Special
-hi def link vmfileString       String
+hi def link vmfileStage        Type
+hi def link vmfileFlag         Special
+hi def link vmfileFlagEq       Operator
+hi def link vmfileFlagValue    String
+hi def link vmfileComma        Delimiter
+hi def link vmfileOnOff        Boolean
+hi def link vmfileKey          Identifier
 hi def link vmfileNumber       Number
+hi def link vmfileString       String
+hi def link vmfileContinuation Special
 
 let b:current_syntax = "vmfile"

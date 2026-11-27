@@ -73,23 +73,29 @@ NetBIOS (`nmbd`) is masked.
 ## 5. What has and has not been run
 
 On the development host (2026-11-27), against the real `debian:trixie` cloud image
-(`debian-13-genericcloud-amd64-20250814-2204`):
+(`debian-13-genericcloud-amd64-20250814-2204`), with an isolated `DELONIX_ROOT`:
 
-- **an offline probe** with every directive except `INSTALL` (`SLIM`, `REMOVE`,
-  `AUTOSTART --only ssh fstrim.timer`, `BUDGET`) built and was read back from the disk:
-  `/usr/share/man` went from 33 entries to 0, `/usr/share/locale` from 116 directories to 13
-  (pt and en only), the dpkg/apt rules were in place, `apparmor.service` and `ssh`'s
-  `sshd-keygen.service` stayed enabled, and 11 units were disabled (the apt and man-db timers,
-  `e2scrub`, `grub-common`, `systemd-pstore`, `systemd-timesyncd`, `uuidd.socket`, …). Root
-  filesystem: 480.5 MiB. The same probe with `BUDGET 100M` failed and named the 15 largest
-  packages.
-- **this recipe end to end was not run**: on that host the packaged `passt` starts but never
-  hands out a DHCP lease, so `INSTALL samba` failed on `Temporary failure resolving
-  'deb.debian.org'` — trap 3 of [Building microVMs](../../docs/dev/microvm-setup.md). The
-  remedy there (a current passt first on `PATH`) was not applied.
+- **this recipe, end to end** (`--network`, passt built from `passt.top` at `15980a90`, first on
+  `PATH`) — rc=0, 1m28s inside the guest:
 
-Treat the first network build on a capable host as the test of the `INSTALL` path and of
-`BUDGET 1G` for this recipe.
+  ```text
+  footprint: root filesystem 552.9 MiB, 338 packages — largest: vim-runtime 37.5 MiB,
+    libicu76:amd64 36.5 MiB, linux-image-6.12.41+deb13-cloud-amd64 33.4 MiB, samba-libs:amd64 25.3 MiB, …
+  AUTOSTART --only disabled 11: e2scrub_reap.service, grub-common.service, systemd-pstore.service,
+    unattended-upgrades.service, uuidd.socket, apt-daily-upgrade.timer, apt-daily.timer,
+    apt-listchanges.timer, dpkg-db-backup.timer, e2scrub_all.timer, man-db.timer
+  ```
+
+  Read back from the qcow2 (244 MiB, zstd): enabled are `smbd`, `ssh` (with
+  `sshd-keygen` in `ssh.service.wants/`), `systemd-timesyncd`, `fstrim.timer`, `apparmor` and the
+  network; `nmbd` and `samba-ad-dc` are masked; `smb.conf`, the `sambadata` fstab line, the
+  tmpfiles rule and the `smbusers` group are in place; `/usr/share/man` is empty, `/usr/share/doc`
+  holds only `copyright` files, and the apt indexes are gone.
+- **an offline probe** with every directive except `INSTALL`, and the same probe with
+  `BUDGET 100M`, which failed and named the 15 largest packages.
+
+**Not run:** booting the image and connecting a client. The next candidates the measurement
+points at are `vim-runtime` (37.5 MiB, from the base image) and what pulls `libicu76` in.
 
 ## Troubleshooting
 
@@ -101,5 +107,9 @@ Two more seen on the same host:
   that kernel's `/boot/vmlinuz-*` is still `0600`. Point supermin at the running kernel instead
   of changing permissions:
   `SUPERMIN_KERNEL=/boot/vmlinuz-$(uname -r) SUPERMIN_MODULES=/lib/modules/$(uname -r)`.
+- **`INSTALL` fails on `Temporary failure resolving`** after a ~300 s pause: the packaged passt
+  never leased. Build a current one and put it first on `PATH` for the build only:
+  `git clone --depth 1 https://passt.top/passt && make -C passt passt`, then
+  `PATH=$PWD/passt:$PATH delonix vm image build --network …`.
 - **`socket path too long`**: `XDG_RUNTIME_DIR` (where libguestfs puts its socket) must be a
   short path — `/tmp/delonix-run`, as the passt remedy says, not a deep scratch directory.

@@ -36,6 +36,37 @@ use super::vmfile_slim::{self as slim, Autostart, Removal, Slim};
 /// spelling every recipe before it used, and stays valid.
 pub(crate) const VMFILE_NAMES: &[&str] = &["Vmfile", "VMfile"];
 
+/// Every instruction `parse` accepts, in the order the refusal lists them.
+///
+/// The one list three things must agree with: the parser's `match`, its
+/// refusal message, and the editor grammars under `editors/` (vim and VS
+/// Code). The parser fails closed on any other word, so a grammar that
+/// highlights more would promise a build that cannot happen, and one that
+/// highlights less hides a valid line — `editor_grammars_know_exactly_the_instructions`
+/// holds the grammars to this list.
+pub(crate) const INSTRUCTIONS: &[&str] = &[
+    "FROM",
+    "RUN",
+    "COPY",
+    "ENV",
+    "USER",
+    "PASSWORD",
+    "ROOTPASSWORD",
+    "CLOUDINIT",
+    "SSHKEY",
+    "SIZE",
+    "HOSTNAME",
+    "VCPUS",
+    "MEMORY",
+    "HYPERVISOR",
+    "LABEL",
+    "SLIM",
+    "INSTALL",
+    "REMOVE",
+    "AUTOSTART",
+    "BUDGET",
+];
+
 /// Finds the recipe in `dir` under either spelling.
 ///
 /// **Both at once is an error, not a choice.** On a case-sensitive filesystem
@@ -358,9 +389,8 @@ pub(crate) fn parse(text: &str) -> Result<VmFile> {
                 return Err(err(
                     ln,
                     &format!(
-                        "unknown instruction '{other}' — supported: FROM RUN COPY ENV USER \
-                         PASSWORD ROOTPASSWORD CLOUDINIT SSHKEY SIZE HOSTNAME VCPUS MEMORY \
-                         HYPERVISOR LABEL SLIM INSTALL REMOVE AUTOSTART BUDGET"
+                        "unknown instruction '{other}' — supported: {}",
+                        INSTRUCTIONS.join(" ")
                     ),
                 ))
             }
@@ -1499,6 +1529,55 @@ mod tests {
         let e2 = tempfile::tempdir().unwrap();
         std::fs::create_dir(e2.path().join("Vmfile")).unwrap();
         assert!(find_vmfile(e2.path()).unwrap().is_none());
+    }
+
+    /// The editor grammars highlight exactly what the parser accepts: the
+    /// instructions other than FROM/RUN (which each have a rule of their own,
+    /// FROM for the stage, RUN for its embedded shell) appear in each grammar
+    /// as ONE alternation, in `INSTRUCTIONS` order — so a word added to the
+    /// parser and not to a grammar, or the other way round, fails here.
+    #[test]
+    fn editor_grammars_know_exactly_the_instructions() {
+        // Every instruction must reach the parser's match arm…
+        for i in INSTRUCTIONS {
+            let probe = format!("FROM debian:trixie\n{i}\n");
+            if let Err(e) = parse(&probe) {
+                assert!(
+                    !e.to_string().contains("unknown instruction"),
+                    "{i} is listed but the parser refuses it: {e}"
+                );
+            }
+        }
+        let rest: Vec<String> = INSTRUCTIONS
+            .iter()
+            .filter(|i| !matches!(**i, "FROM" | "RUN"))
+            .map(|i| i.to_ascii_lowercase())
+            .collect();
+        let editors = concat!(env!("CARGO_MANIFEST_DIR"), "/../../editors");
+        let tm =
+            std::fs::read_to_string(format!("{editors}/vscode/syntaxes/vmfile.tmLanguage.json"))
+                .unwrap();
+        let tm_alt = format!("(?i:({}))", rest.join("|"));
+        assert!(
+            tm.contains(&tm_alt),
+            "the VS Code grammar must carry {tm_alt}"
+        );
+        let vim = std::fs::read_to_string(format!("{editors}/vim/syntax/vmfile.vim")).unwrap();
+        let vim_alt = format!("\\%({}\\)", rest.join("\\|"));
+        assert!(
+            vim.contains(&vim_alt),
+            "the vim syntax must carry {vim_alt}"
+        );
+        // …and both editors recognise the file under both spellings.
+        let pkg = std::fs::read_to_string(format!("{editors}/vscode/package.json")).unwrap();
+        let ftd = std::fs::read_to_string(format!("{editors}/vim/ftdetect/vmfile.vim")).unwrap();
+        for name in VMFILE_NAMES {
+            assert!(
+                pkg.contains(&format!("\"{name}\"")),
+                "package.json misses {name}"
+            );
+            assert!(ftd.contains(name), "ftdetect misses {name}");
+        }
     }
 
     /// A hard link is the same file under two names — what a case-insensitive

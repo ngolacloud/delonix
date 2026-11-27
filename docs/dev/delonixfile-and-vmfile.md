@@ -535,6 +535,12 @@ A full build (`virt-customize`, downloads, compression) was **not executed in th
 - Keep both parsers **fail-closed**: an unknown instruction is an error, never a skipped line.
 - A new instruction lands with a unit test in the parser's `mod tests`, a row in this page, and — if
   the scaffold uses it — the scaffold test still passing.
+- A new VMfile instruction goes into `vmfile::INSTRUCTIONS` (the refusal message is built from it)
+  and into both editor grammars — `editors/vim/syntax/vmfile.vim` and
+  `editors/vscode/syntaxes/vmfile.tmLanguage.json`. `editor_grammars_know_exactly_the_instructions`
+  fails until all three agree. The grammars mirror the parser: one logical line per instruction
+  (`\` continuations), `RUN` highlighted as shell, flags and their values, sizes, and any other
+  first word marked as an error, because the parser refuses it.
 - If an instruction is parsed but not yet wired to an effect (as `SCAN`, `CPUS`/`MEMORY`/`SECURITY`
   and VMfile `LABEL` are today), say so here; a field the user writes and the engine ignores must be
   documented as such or removed.

@@ -997,6 +997,12 @@ VMfile:2: invalid argument: unknown VM backend: &#x27;vmware&#x27; (use &#x27;cl
 <li>Keep both parsers <strong>fail-closed</strong>: an unknown instruction is an error, never a skipped line.</li>
 <li>A new instruction lands with a unit test in the parser's <code>mod tests</code>, a row in this page, and — if
   the scaffold uses it — the scaffold test still passing.</li>
+<li>A new VMfile instruction goes into <code>vmfile::INSTRUCTIONS</code> (the refusal message is built from it)
+  and into both editor grammars — <code>editors/vim/syntax/vmfile.vim</code> and
+  <code>editors/vscode/syntaxes/vmfile.tmLanguage.json</code>. <code>editor_grammars_know_exactly_the_instructions</code>
+  fails until all three agree. The grammars mirror the parser: one logical line per instruction
+  (<code>\</code> continuations), <code>RUN</code> highlighted as shell, flags and their values, sizes, and any other
+  first word marked as an error, because the parser refuses it.</li>
 <li>If an instruction is parsed but not yet wired to an effect (as <code>SCAN</code>, <code>CPUS</code>/<code>MEMORY</code>/<code>SECURITY</code>
   and VMfile <code>LABEL</code> are today), say so here; a field the user writes and the engine ignores must be
   documented as such or removed.</li>
