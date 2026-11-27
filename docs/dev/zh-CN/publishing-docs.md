@@ -86,7 +86,7 @@ python3 scripts/dev_docs.py --check    # exit 1 when docs/dev is stale (CI job `
 
 1. 针对发布构建重新生成用户站点，如果 `docs/` 有差异就**失败**；
 2. 以 `docs/releases/<tag>.md` 作为正文发布 GitHub Release（如果该文件不存在，就用生成的说明）；
-3. 检出 `main`，跑 `scripts/gen-releases.sh`（`docs/RELEASES.md` 附录）、`scripts/dev_docs.py`（手册的事实部分）和 `scripts/dev_docs_site.py`（手册站点，`markdown` 装在一个 virtualenv 里），把有变化的内容提交到 `main`，并带上 `[skip ci]`。这些生成器在 Python 3.12 上运行（`actions/setup-python`，只从这一步开始生效），因为该 job 自己的 runner 自带的 Python 没有 `tomllib`。如果某个生成器失败，这一步仍然会提交已经重新生成的部分，然后**失败**，并点名是哪个生成器——一次绿色的 release 运行，除非这一步也是绿色，否则不再意味着手册已经重新生成。
+3. 从 `main` 出发，跑 `scripts/gen-releases.sh`（`docs/RELEASES.md` 附录）、`scripts/dev_docs.py`（手册的事实部分）和 `scripts/dev_docs_site.py`（手册站点，`markdown` 装在一个 virtualenv 里），把有变化的内容推送到 `release-docs/<tag>` 分支。`main` 受保护（需要 PR 和必需的检查），所以由维护者打开 job 摘要里链接的 PR，等 CI 变绿后合并。这些生成器在 Python 3.12 上运行（`actions/setup-python`，只从这一步开始生效），因为该 job 自己的 runner 自带的 Python 没有 `tomllib`。如果某个生成器失败，这一步仍然会提交已经重新生成的部分，然后**失败**，并点名是哪个生成器——一次绿色的 release 运行，除非这一步也是绿色，否则不再意味着手册已经重新生成。
 
 手册的**叙述**部分不会被 CI 重新生成。在一次发布被发布并验证之后，会有一个由维护者手动触发的评审步骤，读取上一个标签和新标签之间的改动以及发布说明，只更新那些改动所影响到的手册页面，并为此开一个拉取请求。当没有任何结构性或流程性的东西发生变化时，那次评审的结论就是"没什么要更新的"，并明确说出来。
 

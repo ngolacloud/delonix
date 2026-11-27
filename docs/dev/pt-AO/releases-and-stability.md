@@ -86,10 +86,12 @@ o nome à release, por isso um `tag: main` não verificado teria publicado uma r
    que a release é *deste projecto*, para quem já confia na sua chave pública embutida).
 6. Publica a GitHub Release, com `docs/releases/<tag>.md` como notas quando esse ficheiro existe,
    ou `--generate-notes` caso contrário.
-7. Faz checkout à `main` e regenera o `docs/RELEASES.md` (`scripts/gen-releases.sh`) e os factos
+7. Parte da `main` e regenera o `docs/RELEASES.md` (`scripts/gen-releases.sh`) e os factos
    gerados do manual (`scripts/dev_docs.py`) e, à parte, o **site** do manual
-   (`scripts/dev_docs_site.py`) — comitando o que tiver mudado, `[skip ci]`, para a documentação
-   nunca ficar mais de um commit atrás de uma release. Uma falha do gerador aqui é um aviso alto,
+   (`scripts/dev_docs_site.py`) — empurrando o que tiver mudado para uma branch
+   `release-docs/<tag>`. A `main` está protegida (PR e checks obrigatórios), por isso um
+   mantenedor abre o PR para que o resumo do job aponta e faz o merge quando o CI estiver verde:
+   a documentação fica atrás de uma release por esse único PR. Uma falha do gerador aqui é um aviso alto,
    não uma release falhada: a release em si não depende disso.
 
 A metade **narrativa** do manual — a prosa destas páginas — não é regenerada pela CI. Depois de

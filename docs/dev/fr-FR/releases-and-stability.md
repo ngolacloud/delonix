@@ -89,10 +89,12 @@ aurait publié une release appelée « main ». Ensuite seulement, en un seul 
    publique embarquée).
 6. Publie la GitHub Release, avec `docs/releases/<tag>.md` comme notes quand ce fichier existe,
    ou `--generate-notes` sinon.
-7. Fait un checkout de `main` et régénère `docs/RELEASES.md` (`scripts/gen-releases.sh`) et les
+7. Part de `main` et régénère `docs/RELEASES.md` (`scripts/gen-releases.sh`) et les
    faits générés du manuel (`scripts/dev_docs.py`) et, séparément, le **site** du manuel
-   (`scripts/dev_docs_site.py`) — en commitant ce qui a changé, `[skip ci]`, pour que la
-   documentation ne soit jamais en retard de plus d'un commit sur une release. Un échec du
+   (`scripts/dev_docs_site.py`) — en poussant ce qui a changé sur une branche
+   `release-docs/<tag>`. `main` est protégée (PR et checks obligatoires) : un mainteneur ouvre la
+   PR vers laquelle pointe le résumé du job et la fusionne une fois la CI au vert ; la
+   documentation a une PR de retard sur la release. Un échec du
    générateur ici est un avertissement fort, pas une release échouée : la release elle-même
    n'en dépend pas.
 

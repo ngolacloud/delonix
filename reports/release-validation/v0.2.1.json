@@ -1,0 +1,25 @@
+{
+  "suites": {
+    "cargo-test": {
+      "commit": "e0a776647417e1a0b70f42d1aa90c18d8430e236",
+      "passed": true,
+      "when": "2026-11-27T16:44:18Z"
+    },
+    "chaos": {
+      "commit": "e0a776647417e1a0b70f42d1aa90c18d8430e236",
+      "passed": true,
+      "when": "2026-11-27T17:40:49Z"
+    },
+    "critest": {
+      "commit": "e0a776647417e1a0b70f42d1aa90c18d8430e236",
+      "passed": true,
+      "when": "2026-11-27T17:09:41Z"
+    },
+    "e2e": {
+      "commit": "e0a776647417e1a0b70f42d1aa90c18d8430e236",
+      "passed": true,
+      "when": "2026-11-27T17:06:58Z"
+    }
+  },
+  "tag": "v0.2.1"
+}
