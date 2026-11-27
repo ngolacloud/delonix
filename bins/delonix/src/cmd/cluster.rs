@@ -1034,15 +1034,23 @@ fn observed_profile_via_kubectl(kubeconfig: &std::path::Path) -> String {
 /// enumerate is not a reason to refuse the cluster — so a failure to read is
 /// skipped, never turned into a false conflict.
 fn check_env_overlap(plan: &super::net_profiles::NetworkPlan) -> Result<()> {
-    let mut known: Vec<(String, String)> = Vec::new();
-    if let Ok(store) = delonix_sdn::NetworkStore::open(state_root()) {
-        if let Ok(nets) = store.list() {
-            for n in nets {
-                known.push((format!("network \"{}\"", n.name), n.subnet));
-            }
-        }
-    }
-    super::net_profiles::check_env_overlap(plan, &known)
+    super::net_profiles::check_env_overlap(plan, &engine_networks(None))
+}
+
+/// The engine's declared networks as `(label, cidr)`, leaving out `except` —
+/// what a cluster's pod and service CIDRs must not overlap. Best-effort, like
+/// [`check_env_overlap`]: an unreadable store gives no entries.
+pub(crate) fn engine_networks(except: Option<&str>) -> Vec<(String, String)> {
+    let Ok(store) = delonix_sdn::NetworkStore::open(state_root()) else {
+        return Vec::new();
+    };
+    store
+        .list()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|n| Some(n.name.as_str()) != except)
+        .map(|n| (format!("network \"{}\"", n.name), n.subnet))
+        .collect()
 }
 
 fn target_for(host: &HostSpec, ssh: &SshSpec) -> SshTarget {
@@ -1784,7 +1792,7 @@ pub fn run(action: ClusterCmd) -> Result<()> {
             // BEFORE `name` moves into the args below.
             let network = match network {
                 Some(n) => n,
-                None => ensure_cluster_network(&name)?,
+                None => ensure_cluster_network(&name, &pod_subnet, &service_subnet)?,
             };
             provision_and_apply(ProvisionArgs {
                 name,
@@ -3329,15 +3337,19 @@ fn cluster_vm_net(name: &str) -> String {
 /// Goes through [`super::network::create_network`] — the same entry point kind
 /// mode uses — and NOT `infra::network_create` alone, which would leave the
 /// `NetworkStore` without a record (see that function's own doc-comment for
-/// what breaks then). The subnet is left to the allocator, exactly as a bare
-/// `delonix network create` would.
-fn ensure_cluster_network(cluster: &str) -> Result<String> {
+/// what breaks then). The subnet is left to the allocator, told to keep off
+/// the cluster's pod and service CIDRs — a node network on its own pod range
+/// is routed to the pods inside every node.
+fn ensure_cluster_network(cluster: &str, pod_subnet: &str, service_subnet: &str) -> Result<String> {
     let net = cluster_vm_net(cluster);
     let store = delonix_sdn::NetworkStore::open(state_root())?;
-    if store.get(&net).is_ok() {
+    let ranges = [
+        ("pod subnet", pod_subnet),
+        ("service subnet", service_subnet),
+    ];
+    if !super::network::ensure_cluster_node_network(&store, &net, &ranges)? {
         return Ok(net);
     }
-    super::network::create_network(&store, &net, "bridge", None, None, "", None, vec![], None)?;
     output::info(&super::po::tf(
         "created network \"{net}\" for cluster \"{cluster}\" (removed again by `cluster destroy`)",
         &[("net", &net), ("cluster", cluster)],

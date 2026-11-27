@@ -1010,13 +1010,23 @@ pub(crate) fn validate_cluster_cidrs(
 /// "the cluster works but one host is unreachable from pods", and it is
 /// cheap to refuse and expensive to debug.
 pub(crate) fn check_env_overlap(plan: &NetworkPlan, known: &[(String, String)]) -> Result<()> {
+    check_cidrs_env_overlap(plan.pod_subnet, plan.service_subnet, known)
+}
+
+/// [`check_env_overlap`] for a caller that has the two CIDRs and no plan —
+/// kind mode, whose pod network is kindnet and not a profile.
+pub(crate) fn check_cidrs_env_overlap(
+    pod_subnet: Cidr4,
+    service_subnet: Cidr4,
+    known: &[(String, String)],
+) -> Result<()> {
     for (label, cidr) in known {
         let Some(other) = Cidr4::parse(cidr) else {
             continue;
         };
         for (field, ours) in [
-            ("spec.podSubnet", plan.pod_subnet),
-            ("spec.serviceSubnet", plan.service_subnet),
+            ("spec.podSubnet", pod_subnet),
+            ("spec.serviceSubnet", service_subnet),
         ] {
             if ours.overlaps(other) {
                 return Err(Error::coded(

@@ -9,12 +9,12 @@
 | --- | ---: | ---: | ---: |
 | foundation | 3 | 7,991 | 2.0% |
 | context | 6 | 29,874 | 7.6% |
-| adapter | 11 | 91,494 | 23.1% |
+| adapter | 11 | 91,696 | 23.2% |
 | provider | 10 | 55,077 | 13.9% |
 | interface | 4 | 40,470 | 10.2% |
 | assembly | 1 | 1,132 | 0.3% |
-| bin | 6 | 169,304 | 42.8% |
-| **total** | **41** | **395,342** | 100% |
+| bin | 6 | 169,395 | 42.8% |
+| **total** | **41** | **395,635** | 100% |
 
 ## Lines per crate
 
@@ -41,7 +41,7 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-sdn ⚠️ >20k | 30,955 |
+| delonix-sdn ⚠️ >20k | 31,157 |
 | delonix-linux ⚠️ >20k | 26,033 |
 | delonix-oci | 15,503 |
 | delonix-vm | 5,427 |
@@ -87,7 +87,7 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-bin ⚠️ >20k | 165,903 |
+| delonix-bin ⚠️ >20k | 165,994 |
 | delonix-node-api-bin | 1,465 |
 | delonix-cri-bin | 838 |
 | delonix-storage-helper | 645 |
@@ -103,14 +103,14 @@ Context destinations (the `cli_context_lines` ratchet) come first.
 | --- | ---: | ---: | :---: |
 | delonix-compute | 27,130 | 9 | ✓ |
 | delonix-stack | 23,771 | 10 | ✓ |
-| delonix-networking | 20,025 | 26 | ✓ |
+| delonix-networking | 20,070 | 26 | ✓ |
 | delonix-artifact | 18,758 | 8 | ✓ |
-| delonix-cluster | 13,744 | 10 | ✓ |
+| delonix-cluster | 13,751 | 10 | ✓ |
 | delonix-storage | 10,108 | 9 | ✓ |
 | delonix-node | 7,449 | 4 | ✓ |
 | delonix-gateway | 5,351 | 2 | ✓ |
 | delonix-security | 3,216 | 4 | ✓ |
-| delonix-cli | 19,779 | 20 |  |
+| delonix-cli | 19,818 | 20 |  |
 | delonix-docker-api | 3,825 | 1 |  |
 | delonix-engine | 3,423 | 5 |  |
 | delonix-l7proxy | 2,052 | 1 |  |
@@ -121,7 +121,7 @@ Context destinations (the `cli_context_lines` ratchet) come first.
 | delonix-ssh | 274 | 1 |  |
 | tests | 256 | 1 |  |
 | delonix-mcp | 36 | 1 |  |
-| **context total** | **129,552** | | |
+| **context total** | **129,604** | | |
 
 ## Ratchets
 
@@ -136,7 +136,7 @@ falls without the baseline lowered in the same commit.
 | shared_error_imports | 3 | 3 | 0 |
 | raw_error_variant_matches | 0 | 0 | 0 |
 | context_spawns | 0 | 0 | 0 |
-| cli_context_lines | 129,552 | 129,552 | 0 (R4) |
+| cli_context_lines | 129,604 | 129,604 | 0 (R4) |
 | interface_mechanism_deps | 0 | 0 | 0 (R3) |
 | provider_namers | 17 | 17 | 0 (R3/R4) |
 | bin_crates | 6 | 6 | 1 (R1) |

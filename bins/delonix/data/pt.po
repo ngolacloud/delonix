@@ -18213,3 +18213,6 @@ msgstr "BUDGET: não foi possível medir a imagem, por isso o orçamento não po
 
 msgid "BUDGET {budget} exceeded: the root filesystem uses {root}. Largest packages:\n{top}"
 msgstr "BUDGET {budget} ultrapassado: o sistema de ficheiros raiz usa {root}. Maiores pacotes:\n{top}"
+
+msgid "network '{net}' ({subnet}), where the cluster's nodes would sit, overlaps the cluster's {label} {range}. Inside each node that range is routed to the pods, so the API answers from inside the node and hangs from the host. Nothing was created; remove the network (`delonix network rm {net}`) and retry, or choose another {label}"
+msgstr "a rede '{net}' ({subnet}), onde ficariam os nós do cluster, sobrepõe-se à {label} {range} do cluster. Dentro de cada nó essa gama é encaminhada para os pods, por isso a API responde de dentro do nó e fica pendurada a partir do host. Nada foi criado; remove a rede (`delonix network rm {net}`) e tenta de novo, ou escolhe outra {label}"
