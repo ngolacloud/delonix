@@ -18196,8 +18196,8 @@ msgstr "'{token}' começa por `-`, por isso não é um nome de container válido
 msgid "both {a} and {b} exist — keep one (or pass -f to choose)"
 msgstr "{a} e {b} existem os dois — mantém só um (ou usa -f para escolher)"
 
-msgid "INSTALL needs the network inside the guest — build with --network (a build that reaches the internet is not reproducible; that is why it is opt-in)"
-msgstr "INSTALL precisa de rede dentro do convidado — faz o build com --network (um build que chega à internet não é reprodutível; por isso é opcional)"
+msgid "INSTALL and KERNEL need the network inside the guest — build with --network (a build that reaches the internet is not reproducible; that is why it is opt-in)"
+msgstr "INSTALL e KERNEL precisam de rede dentro do convidado — faz o build com --network (um build que chega à internet não é reprodutível; por isso é opcional)"
 
 msgid "the image's footprint could not be read back"
 msgstr "não foi possível ler de volta a medição da imagem"
@@ -18216,3 +18216,6 @@ msgstr "BUDGET {budget} ultrapassado: o sistema de ficheiros raiz usa {root}. Ma
 
 msgid "network '{net}' ({subnet}), where the cluster's nodes would sit, overlaps the cluster's {label} {range}. Inside each node that range is routed to the pods, so the API answers from inside the node and hangs from the host. Nothing was created; remove the network (`delonix network rm {net}`) and retry, or choose another {label}"
 msgstr "a rede '{net}' ({subnet}), onde ficariam os nós do cluster, sobrepõe-se à {label} {range} do cluster. Dentro de cada nó essa gama é encaminhada para os pods, por isso a API responde de dentro do nó e fica pendurada a partir do host. Nada foi criado; remove a rede (`delonix network rm {net}`) e tenta de novo, ou escolhe outra {label}"
+
+msgid "kernel {kernel}, initrd {initrd}"
+msgstr "kernel {kernel}, initrd {initrd}"

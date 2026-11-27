@@ -648,7 +648,8 @@ pub(crate) const FOOTPRINT_PATH: &str = "/usr/share/delonix/footprint.tsv";
 /// converted in shell — the host does that where it is tested.
 pub(crate) fn footprint_op() -> CustomizeOp {
     CustomizeOp::RunCommand(format!(
-        r#"mkdir -p /usr/share/delonix && {{ printf 'root\t%s\n' "$(du -sxk / | cut -f1)"; if command -v dpkg-query >/dev/null 2>&1; then dpkg-query -W -f='dpkg\t${{Installed-Size}}\t${{binary:Package}}\n'; elif command -v rpm >/dev/null 2>&1; then rpm -qa --qf 'rpm\t%{{SIZE}}\t%{{NAME}}\n'; fi; if [ -f {AUTOSTART_DISABLED_PATH} ]; then while read -r u; do printf 'disabled\t%s\n' "$u"; done < {AUTOSTART_DISABLED_PATH}; fi; }} > {FOOTPRINT_PATH}"#
+        r#"mkdir -p /usr/share/delonix && {{ printf 'root\t%s\n' "$(du -sxk / | cut -f1)"; if command -v dpkg-query >/dev/null 2>&1; then dpkg-query -W -f='dpkg\t${{Installed-Size}}\t${{binary:Package}}\n'; elif command -v rpm >/dev/null 2>&1; then rpm -qa --qf 'rpm\t%{{SIZE}}\t%{{NAME}}\n'; fi; if [ -f {AUTOSTART_DISABLED_PATH} ]; then while read -r u; do printf 'disabled\t%s\n' "$u"; done < {AUTOSTART_DISABLED_PATH}; fi; {kernel}; }} > {FOOTPRINT_PATH}"#,
+        kernel = super::vmfile_kernel::footprint_lines(),
     ))
 }
 
@@ -661,6 +662,11 @@ pub(crate) struct Footprint {
     pub(crate) packages: Vec<(u64, String)>,
     /// Units `AUTOSTART --only` disabled, in the order it found them.
     pub(crate) disabled: Vec<String>,
+    /// The kernel the image boots (`uname -r` shape), as `KERNEL` recorded it
+    /// or as installed — never the build appliance's.
+    pub(crate) kernel: Option<String>,
+    /// That kernel's initrd, in bytes.
+    pub(crate) initrd: Option<u64>,
 }
 
 /// Reads the file [`footprint_op`] wrote. Lines it does not understand are
@@ -683,6 +689,8 @@ pub(crate) fn parse_footprint(text: &str) -> Footprint {
                 }
             }
             ["disabled", unit] if !unit.is_empty() => f.disabled.push(unit.to_string()),
+            ["kernel", v] if !v.trim().is_empty() => f.kernel = Some(v.trim().to_string()),
+            ["initrd", bytes] => f.initrd = bytes.trim().parse::<u64>().ok(),
             _ => {}
         }
     }
@@ -724,6 +732,21 @@ pub(crate) fn report(f: &Footprint) -> String {
             ("largest", &largest.join(", ")),
         ],
     );
+    if let Some(k) = &f.kernel {
+        out.push('\n');
+        out.push_str(&super::po::tf(
+            "kernel {kernel}, initrd {initrd}",
+            &[
+                ("kernel", k),
+                (
+                    "initrd",
+                    &f.initrd
+                        .map(super::output::fmt_size)
+                        .unwrap_or_else(|| "?".into()),
+                ),
+            ],
+        ));
+    }
     if !f.disabled.is_empty() {
         out.push('\n');
         out.push_str(&super::po::tf(
@@ -761,8 +784,25 @@ pub(crate) fn check_budget(f: &Footprint, budget: u64) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    /// Every guest command this module generates, for the `sh -n` check in
+    /// `vmfile_kernel::tests::generated_shell_parses`.
+    pub(crate) fn all_generated_commands() -> Vec<String> {
+        let mut a = Autostart::default();
+        parse_autostart("--only smbd serial-getty@ttyS0 fstrim.timer", &mut a).unwrap();
+        let mut ops = slim_ops(&parse_slim("--docs=off --recommends=off --locales=pt,en").unwrap());
+        ops.push(install_op(&["samba".into(), "openssh-server".into()]));
+        ops.push(package_cache_op());
+        ops.extend(remove_ops(
+            &parse_remove("--packages=a,b --services=nmbd --paths=/opt/x").unwrap(),
+        ));
+        ops.extend(autostart_ops(&a));
+        ops.extend(identity_reset_ops());
+        ops.push(footprint_op());
+        cmds(&ops)
+    }
 
     fn cmds(ops: &[CustomizeOp]) -> Vec<String> {
         ops.iter()
@@ -990,10 +1030,19 @@ mod tests {
              dpkg\t\tempty-size\n\
              rpm\t5242880\tsamba\n\
              disabled\tapt-daily.timer\n\
+             kernel\t6.12.41+deb13-cloud-amd64\n\
+             initrd\t18131120\n\
              disabled\t\n\
              garbage line\n",
         );
         assert_eq!(f.disabled, vec!["apt-daily.timer".to_string()]);
+        assert_eq!(f.kernel.as_deref(), Some("6.12.41+deb13-cloud-amd64"));
+        assert_eq!(f.initrd, Some(18_131_120));
+        assert!(
+            report(&f).contains("kernel 6.12.41+deb13-cloud-amd64, initrd 17.3 MiB"),
+            "{}",
+            report(&f)
+        );
         assert!(report(&f).contains("AUTOSTART --only disabled 1: apt-daily.timer"));
         assert_eq!(f.root, Some(409_600 * 1024));
         assert_eq!(

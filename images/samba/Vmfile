@@ -12,6 +12,13 @@ HOSTNAME samba
 # ── keep out, before anything is installed ────────────────────────────────
 SLIM --docs=off --recommends=off --locales=pt,en
 
+# ── the kernel it boots (ADR-0103) ────────────────────────────────────────
+# Debian's virtio-only cloud kernel, and nothing else; then an initrd with just
+# the drivers a VM needs to reach its root disk (the default carries most of
+# the kernel's modules).
+KERNEL linux-image-cloud-amd64 --purge-others
+INITRD --modules=virtio_pci,virtio_blk,virtio_scsi,ext4
+
 # ── what goes in ──────────────────────────────────────────────────────────
 INSTALL samba
 COPY smb.conf /etc/samba/smb.conf

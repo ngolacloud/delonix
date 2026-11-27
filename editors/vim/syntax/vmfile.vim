@@ -42,7 +42,7 @@ syn match   vmfileStage        "\S\+" contained
 syn region  vmfileRunLine      matchgroup=vmfileInstruction start="^\s*\<run\>" end="\\\@<!$" keepend contains=@vmfileShell,vmfileContinuation
 
 " Every other instruction.
-syn region  vmfileLine         matchgroup=vmfileInstruction start="^\s*\<\%(copy\|env\|user\|password\|rootpassword\|cloudinit\|sshkey\|size\|hostname\|vcpus\|memory\|hypervisor\|label\|slim\|install\|remove\|autostart\|budget\)\>" end="\\\@<!$" keepend contains=vmfileFlag,vmfileString,vmfileNumber,vmfileKey,vmfileContinuation
+syn region  vmfileLine         matchgroup=vmfileInstruction start="^\s*\<\%(copy\|env\|user\|password\|rootpassword\|cloudinit\|sshkey\|size\|hostname\|vcpus\|memory\|hypervisor\|label\|slim\|install\|remove\|autostart\|budget\|kernel\|initrd\)\>" end="\\\@<!$" keepend contains=vmfileFlag,vmfileString,vmfileNumber,vmfileKey,vmfileContinuation
 
 " --name=value and bare --name (AUTOSTART --only).
 syn match   vmfileFlag         "--\a[[:alnum:]-]*" contained nextgroup=vmfileFlagEq

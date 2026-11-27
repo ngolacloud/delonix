@@ -64,6 +64,8 @@ NetBIOS (`nmbd`) is masked.
 
 | Line | Effect |
 |---|---|
+| `KERNEL linux-image-cloud-amd64 --purge-others` | Debian's virtio-only cloud kernel, the newest in the archive, and no other kernel |
+| `INITRD --modules=virtio_pci,virtio_blk,virtio_scsi,ext4` | an initrd with just the drivers to reach the root disk |
 | `SLIM --docs=off --recommends=off --locales=pt,en` | apt never installs docs, man pages, Recommends/Suggests or other languages' catalogs; what the base already had is removed |
 | `INSTALL samba` | through those rules |
 | `REMOVE --services=nmbd,samba-ad-dc` | NetBIOS and the AD DC masked: this server is neither |
@@ -100,6 +102,14 @@ On the development host (2026-11-27), against the real `debian:trixie` cloud ima
   no data disk (`nofail`), and the two disks came back with **different** machine-ids and SSH
   host keys. (The first boot of an earlier build showed every clone would have shared one
   machine-id; the final stage now resets it — see *Declaring a small image*.)
+
+- **with `KERNEL` and `INITRD`** (ADR-0103 P1): the archive's cloud kernel `6.12.118` replaced the
+  base's `6.12.41`, which was purged; the build printed
+  `kernel 6.12.118+deb13-cloud-amd64, initrd 10.7 MiB` (18.6 MiB for the same kernel with the
+  default `MODULES=most`) and recorded the kernel in the image's metadata. Booted directly in
+  Cloud Hypervisor with that initrd and a NoCloud seed: `ssh` and `smbd` started, cloud-init
+  finished. A/B against the default initrd (same kernel and image, two boots each): no
+  difference in boot time — both varied with the host's load.
 
 **Not run:** a client connecting over the network (the boots had no network card). The next
 candidates the measurement points at are `vim-runtime` (37.5 MiB, from the base image) and what

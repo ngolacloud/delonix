@@ -29,6 +29,7 @@ use std::path::{Path, PathBuf};
 
 use delonix_model::{Error, Result};
 
+use super::vmfile_kernel::{self as kernel, KernelSpec};
 use super::vmfile_slim::{self as slim, Autostart, Removal, Slim};
 
 /// The file names a build looks for in a context, in the order `vm image
@@ -65,6 +66,8 @@ pub(crate) const INSTRUCTIONS: &[&str] = &[
     "REMOVE",
     "AUTOSTART",
     "BUDGET",
+    "KERNEL",
+    "INITRD",
 ];
 
 /// Finds the recipe in `dir` under either spelling.
@@ -137,6 +140,12 @@ pub(crate) enum Step {
     Install(Vec<String>),
     /// `REMOVE --packages= --paths= --services=` — positional, like any step.
     Remove(Removal),
+    /// `KERNEL <package> [--purge-others]` — the kernel the image boots
+    /// (ADR-0103). Needs `--network`; at most one per stage.
+    Kernel(KernelSpec),
+    /// `INITRD --modules=<list>` — that kernel's initrd, with exactly those
+    /// drivers. After `KERNEL` when the stage has one; at most one per stage.
+    Initrd(Vec<String>),
 }
 
 /// A stage: one base image plus the steps applied to it.
@@ -326,6 +335,32 @@ pub(crate) fn parse(text: &str) -> Result<VmFile> {
                 slim::check_stage(&st.autostart, &removals).map_err(|m| err(ln, &m))?;
             }
             "BUDGET" => vf.budget = Some(slim::parse_budget(&rest).map_err(|m| err(ln, &m))?),
+            "KERNEL" => {
+                let k = kernel::parse_kernel(&rest).map_err(|m| err(ln, &m))?;
+                let st = cur.as_mut().unwrap();
+                if st.steps.iter().any(|s| matches!(s, Step::Kernel(_))) {
+                    return Err(err(
+                        ln,
+                        "KERNEL given twice in the same stage — an image boots one kernel",
+                    ));
+                }
+                if st.steps.iter().any(|s| matches!(s, Step::Initrd(_))) {
+                    // The initrd would have been built for the kernel this replaces.
+                    return Err(err(ln, "KERNEL after INITRD — put INITRD after KERNEL, so the initrd is built for the new kernel"));
+                }
+                st.steps.push(Step::Kernel(k));
+            }
+            "INITRD" => {
+                let m = kernel::parse_initrd(&rest).map_err(|m| err(ln, &m))?;
+                let st = cur.as_mut().unwrap();
+                if st.steps.iter().any(|s| matches!(s, Step::Initrd(_))) {
+                    return Err(err(
+                        ln,
+                        "INITRD given twice in the same stage — put the whole module list in one",
+                    ));
+                }
+                st.steps.push(Step::Initrd(m));
+            }
             "RUN" => cur.as_mut().unwrap().steps.push(Step::Run(rest)),
             "COPY" => {
                 let step = parse_copy(&rest).map_err(|m| err(ln, &m))?;
@@ -649,14 +684,15 @@ pub(crate) fn build_parsed(
     // Refused before any disk work: finding out after a multi-GiB flatten
     // that the recipe could never run as asked is a slow way to read an error.
     if !network
-        && vf
-            .stages
-            .iter()
-            .any(|s| s.steps.iter().any(|st| matches!(st, Step::Install(_))))
+        && vf.stages.iter().any(|s| {
+            s.steps
+                .iter()
+                .any(|st| matches!(st, Step::Install(_) | Step::Kernel(_)))
+        })
     {
         return Err(Error::Invalid(
             super::po::t(
-                "INSTALL needs the network inside the guest — build with --network (a build that reaches the internet is not reproducible; that is why it is opt-in)",
+                "INSTALL and KERNEL need the network inside the guest — build with --network (a build that reaches the internet is not reproducible; that is why it is opt-in)",
             )
             .to_string(),
         ));
@@ -669,6 +705,9 @@ pub(crate) fn build_parsed(
     let mut built: std::collections::HashMap<String, PathBuf> = std::collections::HashMap::new();
     let total = vf.stages.len();
     let mut last: Option<PathBuf> = None;
+    // What the final stage measured inside the image — the source of
+    // `kernel_version` when the build could read it.
+    let mut measured: Option<slim::Footprint> = None;
     // The FINAL stage's base, when it is a local image — what the result
     // inherits its distro and kernel from. `None` for a URL or a `--from=`
     // stage, and that absence is the honest answer rather than a guess.
@@ -742,7 +781,7 @@ pub(crate) fn build_parsed(
             prog.ok();
         }
         if measure {
-            measure_and_check(&disk, vf.budget)?;
+            measured = Some(measure_and_check(&disk, vf.budget)?);
         }
         if let Some(n) = &stage.name {
             built.insert(n.clone(), disk.clone());
@@ -804,7 +843,13 @@ pub(crate) fn build_parsed(
         // would be a guess presented as a fact — the same reason
         // `ubuntu_release` records the recipe's own `FROM` rather than a
         // release this builder picked.
-        kernel_version: base_meta.as_ref().and_then(|b| b.kernel_version.clone()),
+        // Read from the image itself when the final stage was measured (the
+        // kernel KERNEL recorded, or the one installed), so every Vmfile build
+        // records its kernel (ADR-0103) — not only those whose base was local.
+        kernel_version: measured
+            .as_ref()
+            .and_then(|f| f.kernel.clone())
+            .or_else(|| base_meta.as_ref().and_then(|b| b.kernel_version.clone())),
         distro: base_meta.as_ref().and_then(|b| b.distro.clone()),
         // `VCPUS`/`MEMORY`/`HYPERVISOR` from the VMfile, if given — `vm
         // create` applies them when the disk resolves to this image AND the
@@ -865,7 +910,7 @@ fn final_stage_tail(vf: &VmFile, ops: &mut Vec<CustomizeOp>) -> bool {
 /// Without a budget the measurement is a report, so a disk it cannot read only
 /// warns. With one it is a gate, and an unreadable measurement fails the build
 /// (`slim::check_budget`).
-fn measure_and_check(disk: &Path, budget: Option<u64>) -> Result<()> {
+fn measure_and_check(disk: &Path, budget: Option<u64>) -> Result<slim::Footprint> {
     let text = std::process::Command::new("virt-cat")
         .args(["-a", &disk.to_string_lossy(), slim::FOOTPRINT_PATH])
         .output()
@@ -885,10 +930,10 @@ fn measure_and_check(disk: &Path, budget: Option<u64>) -> Result<()> {
             super::po::t("the image's footprint could not be read back")
         );
     }
-    match budget {
-        Some(b) => slim::check_budget(&f, b),
-        None => Ok(()),
+    if let Some(b) = budget {
+        slim::check_budget(&f, b)?;
     }
+    Ok(f)
 }
 
 /// Gets the qcow2 for a `FROM`, downloading it when needed.
@@ -1026,6 +1071,8 @@ fn stage_ops(
             Step::Run(cmd) => ops.push(CustomizeOp::RunCommand(cmd.clone())),
             Step::Install(pkgs) => ops.push(slim::install_op(pkgs)),
             Step::Remove(r) => ops.extend(slim::remove_ops(r)),
+            Step::Kernel(k) => ops.push(kernel::kernel_op(k)),
+            Step::Initrd(m) => ops.push(kernel::initrd_op(m)),
             Step::Copy { src, dst } => {
                 // Confined to the context, like the container build's `COPY`.
                 // Without this a recipe could read `../../.ssh` off the machine
@@ -1108,7 +1155,11 @@ fn stage_ops(
     }
     // What INSTALL downloaded, once, after the stage's last step could still
     // have used it.
-    if stage.steps.iter().any(|s| matches!(s, Step::Install(_))) {
+    if stage
+        .steps
+        .iter()
+        .any(|s| matches!(s, Step::Install(_) | Step::Kernel(_)))
+    {
         ops.push(slim::package_cache_op());
     }
     // Last: only now is the set of enabled units the final one.
@@ -1558,6 +1609,50 @@ mod tests {
     }
 
     #[test]
+    fn kernel_and_initrd_parse_in_order_once_per_stage() {
+        let vf = parse(
+            "FROM debian:trixie\nKERNEL linux-image-cloud-amd64 --purge-others\nINITRD --modules=virtio_blk,ext4\n",
+        )
+        .unwrap();
+        let st = vf.final_stage();
+        assert!(matches!(&st.steps[0], Step::Kernel(k) if k.purge_others));
+        assert!(matches!(&st.steps[1], Step::Initrd(m) if m == &["virtio_blk", "ext4"]));
+        // INITRD alone rebuilds the base kernel's initrd.
+        assert!(parse("FROM debian:trixie\nINITRD --modules=ext4\n").is_ok());
+        let e = parse("FROM debian:trixie\nINITRD --modules=ext4\nKERNEL k\n").unwrap_err();
+        assert!(
+            e.to_string().contains("VMfile:3") && e.to_string().contains("after INITRD"),
+            "{e}"
+        );
+        assert!(parse("FROM debian:trixie\nKERNEL a\nKERNEL b\n").is_err());
+        assert!(parse("FROM debian:trixie\nINITRD --modules=a\nINITRD --modules=b\n").is_err());
+        // Each stage has its own.
+        assert!(parse("FROM debian:trixie AS a\nKERNEL k\nFROM a\nKERNEL k\n").is_ok());
+    }
+
+    /// KERNEL installs, so it needs the network like INSTALL, and leaves no
+    /// package cache behind.
+    #[test]
+    fn kernel_needs_the_network_and_cleans_the_cache() {
+        let vf = parse("FROM debian:trixie\nKERNEL linux-image-cloud-amd64\n").unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let store = VmImageStore::open(root.path()).unwrap();
+        let e = build_parsed(&store, &vf, root.path(), "t:1", false, false, false)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("INSTALL and KERNEL need the network"), "{e}");
+        let c =
+            ops_of("FROM debian:trixie\nKERNEL linux-image-cloud-amd64\nINITRD --modules=ext4\n");
+        let at = |n: &str| {
+            c.iter()
+                .position(|x| x.contains(n))
+                .unwrap_or_else(|| panic!("{n}: {c:#?}"))
+        };
+        assert!(at("apt-get install -y -q linux-image-cloud-amd64") < at("update-initramfs"));
+        assert!(at("update-initramfs") < at("rm -rf /var/lib/apt/lists/*"));
+    }
+
+    #[test]
     fn no_install_means_no_cache_cleanup() {
         let c = ops_of("FROM debian:trixie\nRUN true\n");
         assert_eq!(c, vec!["true".to_string()]);
@@ -1571,7 +1666,7 @@ mod tests {
         let e = build_parsed(&store, &vf, root.path(), "t:1", false, false, false)
             .unwrap_err()
             .to_string();
-        assert!(e.contains("INSTALL needs the network"), "{e}");
+        assert!(e.contains("INSTALL and KERNEL need the network"), "{e}");
         assert!(
             store.get("t:1").is_err(),
             "nothing may be registered by a refused build"
