@@ -301,10 +301,12 @@ o nome à release, por isso um <code>tag: main</code> não verificado teria publ
    que a release é <em>deste projecto</em>, para quem já confia na sua chave pública embutida).</li>
 <li>Publica a GitHub Release, com <code>docs/releases/&lt;tag&gt;.md</code> como notas quando esse ficheiro existe,
    ou <code>--generate-notes</code> caso contrário.</li>
-<li>Faz checkout à <code>main</code> e regenera o <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/docs/RELEASES.md" target="_blank" rel="noopener"><code>docs/RELEASES.md</code></a> (<a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/gen-releases.sh" target="_blank" rel="noopener"><code>scripts/gen-releases.sh</code></a>) e os factos
+<li>Parte da <code>main</code> e regenera o <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/docs/RELEASES.md" target="_blank" rel="noopener"><code>docs/RELEASES.md</code></a> (<a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/gen-releases.sh" target="_blank" rel="noopener"><code>scripts/gen-releases.sh</code></a>) e os factos
    gerados do manual (<a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/dev_docs.py" target="_blank" rel="noopener"><code>scripts/dev_docs.py</code></a>) e, à parte, o <strong>site</strong> do manual
-   (<a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/dev_docs_site.py" target="_blank" rel="noopener"><code>scripts/dev_docs_site.py</code></a>) — comitando o que tiver mudado, <code>[skip ci]</code>, para a documentação
-   nunca ficar mais de um commit atrás de uma release. Uma falha do gerador aqui é um aviso alto,
+   (<a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/dev_docs_site.py" target="_blank" rel="noopener"><code>scripts/dev_docs_site.py</code></a>) — empurrando o que tiver mudado para uma branch
+   <code>release-docs/&lt;tag&gt;</code>. A <code>main</code> está protegida (PR e checks obrigatórios), por isso um
+   mantenedor abre o PR para que o resumo do job aponta e faz o merge quando o CI estiver verde:
+   a documentação fica atrás de uma release por esse único PR. Uma falha do gerador aqui é um aviso alto,
    não uma release falhada: a release em si não depende disso.</li>
 </ol>
 <p>A metade <strong>narrativa</strong> do manual — a prosa destas páginas — não é regenerada pela CI. Depois de

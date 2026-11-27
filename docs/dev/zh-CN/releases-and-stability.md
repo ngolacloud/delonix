@@ -80,10 +80,11 @@ gh workflow run release.yml -f tag=v4.5.0                 # publishes it
    项目*）。
 6. 发布 GitHub Release：当 `docs/releases/<tag>.md` 存在时，用它作为发布说明；否则用
    `--generate-notes`。
-7. 检出 `main`，重新生成 `docs/RELEASES.md`（`scripts/gen-releases.sh`）以及手册生成的
+7. 从 `main` 出发，重新生成 `docs/RELEASES.md`（`scripts/gen-releases.sh`）以及手册生成的
    事实部分（`scripts/dev_docs.py`），并单独重新生成手册的**站点**
-   （`scripts/dev_docs_site.py`）——把有变化的部分提交上去，带 `[skip ci]`，这样文档就
-   永远不会比一次发布落后超过这一次提交。生成器在这一步失败只是一个响亮的警告，而不是一次
+   （`scripts/dev_docs_site.py`）——把有变化的部分推送到 `release-docs/<tag>` 分支。
+   `main` 受保护（需要 PR 和必需的检查），所以由维护者打开 job 摘要里链接的 PR，等 CI
+   变绿后合并：文档比发布晚的就是这一个 PR。生成器在这一步失败只是一个响亮的警告，而不是一次
    失败的发布：发布本身并不依赖它。
 
 手册的**叙述**半边——这些页面上的文字——不会由 CI 重新生成。在一次发布发布出去之后，会有一位

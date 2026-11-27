@@ -127,9 +127,11 @@ documentation, il :
 1. régénère le site utilisateur contre le build de release et **échoue** si `docs/` diffère ;
 2. publie la GitHub Release avec `docs/releases/<tag>.md` comme notes (ou des notes générées lorsque
    ce fichier n'existe pas) ;
-3. fait un checkout de `main`, exécute `scripts/gen-releases.sh` (l'annexe `docs/RELEASES.md`),
+3. part de `main`, exécute `scripts/gen-releases.sh` (l'annexe `docs/RELEASES.md`),
    `scripts/dev_docs.py` (les faits du manuel) et `scripts/dev_docs_site.py` (le site du manuel,
-   avec `markdown` dans un virtualenv), puis commite ce qui a changé sur `main` avec `[skip ci]`.
+   avec `markdown` dans un virtualenv), puis pousse ce qui a changé sur une branche
+   `release-docs/<tag>`. `main` est protégée (PR et checks obligatoires) : un mainteneur ouvre la
+   PR vers laquelle pointe le résumé du job et la fusionne une fois la CI au vert.
    Les générateurs tournent sous Python 3.12 (`actions/setup-python`, seulement à partir de cette
    étape), parce que le runner du job lui-même fournit un Python sans `tomllib`. Si un générateur
    échoue, l'étape commite quand même ce qui a été régénéré puis **échoue**, en nommant le
