@@ -18192,3 +18192,24 @@ msgstr "'{token}' começa por `-`, por isso não é uma referência de imagem v�
 
 msgid "'{token}' begins with `-`, so it is not a valid container name. If you meant a flag, it is not one this command has — and flags go BEFORE the container. If you meant a literal container, a name cannot begin with `-`."
 msgstr "'{token}' começa por `-`, por isso não é um nome de container válido. Se queria uma flag, esta não existe neste comando — e as flags vão ANTES do container. Se queria mesmo um container com esse nome, um nome não pode começar por `-`."
+
+msgid "both {a} and {b} exist — keep one (or pass -f to choose)"
+msgstr "{a} e {b} existem os dois — mantém só um (ou usa -f para escolher)"
+
+msgid "INSTALL needs the network inside the guest — build with --network (a build that reaches the internet is not reproducible; that is why it is opt-in)"
+msgstr "INSTALL precisa de rede dentro do convidado — faz o build com --network (um build que chega à internet não é reprodutível; por isso é opcional)"
+
+msgid "the image's footprint could not be read back"
+msgstr "não foi possível ler de volta a medição da imagem"
+
+msgid "footprint: root filesystem {root}, {n} packages — largest: {largest}"
+msgstr "medição: sistema de ficheiros raiz {root}, {n} pacotes — maiores: {largest}"
+
+msgid "AUTOSTART --only disabled {n}: {units}"
+msgstr "AUTOSTART --only desactivou {n}: {units}"
+
+msgid "BUDGET: the image's footprint could not be measured, so the budget cannot be checked"
+msgstr "BUDGET: não foi possível medir a imagem, por isso o orçamento não pode ser verificado"
+
+msgid "BUDGET {budget} exceeded: the root filesystem uses {root}. Largest packages:\n{top}"
+msgstr "BUDGET {budget} ultrapassado: o sistema de ficheiros raiz usa {root}. Maiores pacotes:\n{top}"

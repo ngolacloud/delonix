@@ -256,7 +256,8 @@ templates.
 
 | Concern | File | Symbol |
 |---|---|---|
-| Grammar, scaffold, builder | `bins/delonix-runtime-bin/src/cmd/vmfile.rs` | `parse`, `classify_base`, `resolve_base`, `stage_ops`, `build`, `finalize`, `scaffold` |
+| Grammar, scaffold, builder | `bins/delonix-runtime-bin/src/cmd/vmfile.rs` | `parse`, `find_vmfile`, `classify_base`, `resolve_base`, `stage_ops`, `build`, `measure_and_check`, `finalize`, `scaffold` |
+| `SLIM`/`INSTALL`/`REMOVE`/`AUTOSTART`/`BUDGET` | `bins/delonix-runtime-bin/src/cmd/vmfile_slim.rs` | `parse_slim`, `slim_ops`, `install_op`, `remove_ops`, `autostart_ops`, `AUTOSTART_PLUMBING`, `footprint_op`, `check_budget` |
 | CLI entry, golden recipe | `bins/delonix-runtime-bin/src/cmd/vmimage.rs` | `VmImageCmd::Build`, `VmImageStore`, `VmImage`, `customize_args`, `tool_failure_hint` |
 | Declarative build | `bins/delonix-runtime-bin/src/cmd/vm.rs` | `VmBuildSpec` (`spec.build` of `kind: VirtualMachine`) |
 
@@ -266,7 +267,8 @@ templates.
 delonix vm image init [DIR] [--name <n>]
 ```
 
-Writes `VMfile` and `cloud-init/user-data.yaml` (*run* in a scratch directory). The scaffold is
+Writes `Vmfile` and `cloud-init/user-data.yaml` (*run* in a scratch directory). Over an existing
+recipe it refuses, and `--force` overwrites that recipe under the spelling it already has. The scaffold is
 meant to be a working recipe, and the `parseia_o_scaffold_que_escrevemos` test keeps it parseable.
 Two things to correct by hand in the "Next:" hint it prints: the flag is `vm create --disk`, not
 `--disk-image`; and see the `CLOUDINIT` note below about the file name.
@@ -282,7 +284,7 @@ shared one `BuildArgs` struct); it was folded into this single `vm image build` 
 → vm image" consolidation (AGENTS.md's CLI restructuring Sprint 9). Which recipe runs is
 decided like `docker build` decides between files: an explicit `-f` wins (a `.yaml`/`.yml` is read
 as a `vm.yaml`, anything else as a `VMfile`); with no `-f`, a `vm.yaml` in the context beats a
-`VMfile`, which beats the built-in golden recipe (see [Building microVMs](microvm-setup.md)). The
+`Vmfile` or `VMfile`, which beats the built-in golden recipe (see [Building microVMs](microvm-setup.md)). The
 golden-recipe flags (`--k8s-version`, `--extra-package`, `--extra-run`, `--offline`, `--no-k8s`,
 `--cri-bin`, `--delonix-bin`) are **refused** with a `vm.yaml` or a `VMfile`, and `--network` is
 refused without one of them.
@@ -347,8 +349,63 @@ may come first. `\` continuations are joined; a `#` starts a comment only at the
 | `MEMORY <n>` | image | Recorded as `default_memory`. |
 | `HYPERVISOR <backend>` | image | Validated and canonicalized by `delonix_vm::valid_backend_name` (`ch` → `cloud-hypervisor`); recorded as `default_backend`. |
 | `LABEL k=v` | image | **Parsed but not recorded** in the image metadata in this tree. |
+| `SLIM --docs=off --recommends=off --locales=<l,…>` | stage property | Tells the package manager what never to install, then removes what the base already carried. Must come **before every step** of its stage (after `FROM`/`SIZE`/`HOSTNAME` is fine); once per stage. See *Declaring a small image*. |
+| `INSTALL <pkg>…` | step | `apt-get install` or `dnf install`, chosen **inside the guest** by what it has (neither → the step fails). Needs `--network`, refused before any disk work otherwise. The package cache and indexes are removed at the end of a stage that installed anything. |
+| `REMOVE --packages=<a,b> --paths=</x> --services=<u>` | step | Positional. Packages: `apt-get purge` + `autoremove --purge`, or `dnf remove`. Services: disabled **and masked**. Paths: `rm -rf`, with the same protected list as `vm.yaml`'s `remove.paths`. Flags may repeat. |
+| `AUTOSTART [--only] <unit>…` | stage property | `systemctl enable` (fail-closed: a unit the image does not have fails the build). A name without a type is a `.service`; `.socket`/`.timer`/`.path` are accepted, other types are refused. Lines accumulate; applied **at the end of the stage**. With `--only`, every other enabled unit is disabled, except the engine's plumbing. A unit in both `AUTOSTART` and `REMOVE --services` of a stage is a parse error. |
+| `BUDGET <n>K\|M\|G` | image | Fails the build when the final root filesystem uses more than that (binary units). See *Declaring a small image*. |
 
 There is no `CMD`/`ENTRYPOINT`: a VM boots an init. `CLOUDINIT` is the closest equivalent.
+
+### File name
+
+A build with no `-f` looks for `Vmfile` and `VMfile` in the context (`vmfile::find_vmfile`) — the
+same format under two spellings; `vm image init` writes `Vmfile`. **Both in one directory is an
+error**, not a precedence rule: on a case-sensitive filesystem they are two recipes and the build
+will not guess which one the author is reading. Two names for the same file (a case-insensitive
+filesystem, a hard link) are one recipe. `-f` takes any name, and `spec.build` of a
+`VirtualMachine` and `build:` of a `vm.yaml` follow the same lookup when they name no file.
+
+### Declaring a small image
+
+A distro cloud image starts with everything its publisher thought someone might want. Removing
+after the fact is the expensive way to shrink it; these directives make the image what was
+**declared**, and measure it:
+
+1. **`SLIM`** writes the package manager's own rules before anything is installed:
+   - `--docs=off`: dpkg `path-exclude` for `/usr/share/{doc,man,info,groff,lintian}` (the
+     `copyright` files stay), dnf `tsflags=nodocs`;
+   - `--recommends=off`: apt `Install-Recommends`/`Install-Suggests "false"`, dnf
+     `install_weak_deps=False`;
+   - `--locales=pt,en`: dpkg excludes `/usr/share/locale/*` except those languages (and their
+     regional variants), rpm `%_install_langs`.
+
+   Then it removes the same files from what the base already carried, once.
+2. **`INSTALL`** goes through those rules. **`REMOVE`** prunes what still came in.
+3. **`AUTOSTART --only`** runs after every step — a package's postinst enables its own services,
+   so only then is the list final — and disables (does not mask) every other enabled
+   `.service`/`.socket`/`.timer`/`.path`. It keeps:
+   - the units the recipe lists;
+   - what those units asked for — anything in a kept unit's `.wants/` or `.requires/`
+     (`sshd-keygen.service` lives in `ssh.service.wants/` and is what gives `ssh` host keys when
+     cloud-init does not);
+   - `vmfile_slim::AUTOSTART_PLUMBING`: D-Bus, the network stack (networkd/resolved, ifupdown,
+     NetworkManager), cloud-init, the getty templates and `qemu-guest-agent` — what the engine
+     needs to configure, reach, log into and shut down the VM — plus `apparmor.service` and
+     SELinux's relabel mark, so confinement is never switched off by a line that lists services.
+
+   What it disabled is written to `/usr/share/delonix/autostart-disabled.txt` and printed by the
+   build (`virt-customize` hides a command's own output, so an `echo` would never reach the log).
+4. **The final image is measured.** Whenever the last stage is customized (or has a `BUDGET`),
+   the same `virt-customize` run writes `/usr/share/delonix/footprint.tsv`: the root filesystem's
+   used space (`du -x /`), every package's installed size as dpkg/rpm declare it, and what
+   `AUTOSTART --only` disabled. The build prints the total, the five largest packages and that
+   list. With `BUDGET`, a root filesystem over the
+   number fails the build and names the 15 largest packages; a measurement that cannot be read
+   also fails it, because an unmeasured image did not meet its budget.
+
+What `BUDGET` measures is the **root filesystem a VM sees**, before compression — not the qcow2
+file, which `finalize` compresses afterwards, and not a separate `/boot`.
 
 ### What `FROM` accepts
 
@@ -406,7 +463,7 @@ that fails leaves that directory behind (observed during this review); remove it
 ### Declarative build
 
 `kind: VirtualMachine` can build its own disk with `spec.build` (`VmBuildSpec`): `context` (relative
-to the **manifest's** directory), `file` (default `<context>/VMfile`), `tag` (default
+to the **manifest's** directory), `file` (default `<context>/Vmfile` or `<context>/VMfile`), `tag` (default
 `<metadata.name>:latest`), `compress`, `network`. `apply` calls the same `vmfile::build`. `disk` and
 `build` are mutually exclusive.
 
@@ -440,7 +497,7 @@ error invalid argument: FROM my-base:1.0: no such local VM image, and it is not 
 And the parser's refusals:
 
 ```text
-VMfile:2: unknown instruction 'CMD' — supported: FROM RUN COPY ENV USER PASSWORD ROOTPASSWORD CLOUDINIT SSHKEY SIZE HOSTNAME VCPUS MEMORY HYPERVISOR LABEL
+VMfile:2: unknown instruction 'CMD' — supported: FROM RUN COPY ENV USER PASSWORD ROOTPASSWORD CLOUDINIT SSHKEY SIZE HOSTNAME VCPUS MEMORY HYPERVISOR LABEL SLIM INSTALL REMOVE AUTOSTART BUDGET
 VMfile:2: no earlier stage named 'nope'
 VMfile:2: invalid argument: unknown VM backend: 'vmware' (use 'cloud-hypervisor', 'libvirt')
 --offline belong to the built-in golden recipe and mean nothing with a VMfile — the VMfile describes all of that itself
@@ -470,6 +527,7 @@ A full build (`virt-customize`, downloads, compression) was **not executed in th
 | Vulnerability gate | — | `SCAN` parsed, not enforced (use `image scan --fail-on`) | — |
 | Accounts / keys / passwords | — | — | `USER`, `SSHKEY`, `PASSWORD`, `ROOTPASSWORD` |
 | Disk size | — | — | `SIZE` (before any step) |
+| Size control | — | — | `SLIM` before any step, `REMOVE`, `AUTOSTART --only`, `BUDGET` on the measured root filesystem |
 | Unknown instruction | error | error | error |
 
 ## If you change a grammar

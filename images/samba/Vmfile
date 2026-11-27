@@ -1,0 +1,41 @@
+# Vmfile — a minimal Samba file server (standalone: no AD, no printers, no NetBIOS).
+#
+#   delonix vm image build --network -f images/samba/Vmfile -t samba:trixie images/samba
+#
+# The last argument is the build context: `COPY smb.conf` reads from it.
+# `--network` because INSTALL reaches the Debian archive.
+
+FROM debian:trixie
+SIZE 4G
+HOSTNAME samba
+
+# ── keep out, before anything is installed ────────────────────────────────
+SLIM --docs=off --recommends=off --locales=pt,en
+
+# ── what goes in ──────────────────────────────────────────────────────────
+INSTALL samba
+COPY smb.conf /etc/samba/smb.conf
+RUN testparm -s >/dev/null
+RUN groupadd --system smbusers
+# The shares live on a data disk labelled `sambadata`, never in the image.
+# `nofail`: the VM still boots without one (the share is then empty).
+RUN mkdir -p /srv/samba \
+ && echo 'LABEL=sambadata /srv/samba ext4 defaults,nofail,x-systemd.device-timeout=5s 0 2' >> /etc/fstab \
+ && printf 'd /srv/samba/dados 2770 root smbusers -\n' > /etc/tmpfiles.d/samba-dados.conf
+
+# ── what goes out ─────────────────────────────────────────────────────────
+# NetBIOS and the AD domain controller: this server is neither.
+REMOVE --services=nmbd,samba-ad-dc
+
+# ── what runs ─────────────────────────────────────────────────────────────
+# Everything else that was enabled is disabled at the end of the build (the
+# log lists it). Network, cloud-init, D-Bus, consoles and the guest agent are
+# kept by the engine whatever this line says.
+AUTOSTART --only smbd ssh systemd-timesyncd fstrim.timer
+
+# ── limits and defaults ───────────────────────────────────────────────────
+BUDGET 1G
+VCPUS 1
+MEMORY 1G
+LABEL org.delonix.image=samba
+LABEL org.delonix.role=fileserver

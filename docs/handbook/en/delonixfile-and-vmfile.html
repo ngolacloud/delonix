@@ -554,7 +554,12 @@ templates.</p>
 <tr>
 <td>Grammar, scaffold, builder</td>
 <td><code>bins/<wbr>delonix-runtime-bin/<wbr>src/<wbr>cmd/<wbr>vmfile.<wbr>rs</code></td>
-<td><code>parse</code>, <code>classify_base</code>, <code>resolve_base</code>, <code>stage_ops</code>, <code>build</code>, <code>finalize</code>, <code>scaffold</code></td>
+<td><code>parse</code>, <code>find_vmfile</code>, <code>classify_base</code>, <code>resolve_base</code>, <code>stage_ops</code>, <code>build</code>, <code>measure_and_check</code>, <code>finalize</code>, <code>scaffold</code></td>
+</tr>
+<tr>
+<td><code>SLIM</code>/<code>INSTALL</code>/<code>REMOVE</code>/<code>AUTOSTART</code>/<code>BUDGET</code></td>
+<td><code>bins/<wbr>delonix-runtime-bin/<wbr>src/<wbr>cmd/<wbr>vmfile_slim.<wbr>rs</code></td>
+<td><code>parse_slim</code>, <code>slim_ops</code>, <code>install_op</code>, <code>remove_ops</code>, <code>autostart_ops</code>, <code>AUTOSTART_PLUMBING</code>, <code>footprint_op</code>, <code>check_budget</code></td>
 </tr>
 <tr>
 <td>CLI entry, golden recipe</td>
@@ -571,7 +576,8 @@ templates.</p>
 <h3 id="scaffold">Scaffold<a class="hanchor" href="#scaffold" aria-label="#">#</a></h3>
 <div class="code" data-shell><div class="code-head"><span class="lang">shell</span><button class="copy" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span>Copy</span></button></div><pre><code class="language-bash">delonix vm image init [DIR] [--name &lt;n&gt;]
 </code></pre></div>
-<p>Writes <code>VMfile</code> and <code>cloud-init/user-data.yaml</code> (<em>run</em> in a scratch directory). The scaffold is
+<p>Writes <code>Vmfile</code> and <code>cloud-init/user-data.yaml</code> (<em>run</em> in a scratch directory). Over an existing
+recipe it refuses, and <code>--force</code> overwrites that recipe under the spelling it already has. The scaffold is
 meant to be a working recipe, and the <code>parseia_o_scaffold_que_escrevemos</code> test keeps it parseable.
 Two things to correct by hand in the "Next:" hint it prints: the flag is <code>vm create --disk</code>, not
 <code>--disk-image</code>; and see the <code>CLOUDINIT</code> note below about the file name.</p>
@@ -583,7 +589,7 @@ shared one <code>BuildArgs</code> struct); it was folded into this single <code>
 → vm image" consolidation (AGENTS.md's CLI restructuring Sprint 9). Which recipe runs is
 decided like <code>docker build</code> decides between files: an explicit <code>-f</code> wins (a <code>.yaml</code>/<code>.yml</code> is read
 as a <code>vm.yaml</code>, anything else as a <code>VMfile</code>); with no <code>-f</code>, a <code>vm.yaml</code> in the context beats a
-<code>VMfile</code>, which beats the built-in golden recipe (see <a href="microvm-setup.html">Building microVMs</a>). The
+<code>Vmfile</code> or <code>VMfile</code>, which beats the built-in golden recipe (see <a href="microvm-setup.html">Building microVMs</a>). The
 golden-recipe flags (<code>--k8s-version</code>, <code>--extra-package</code>, <code>--extra-run</code>, <code>--offline</code>, <code>--no-k8s</code>,
 <code>--cri-bin</code>, <code>--delonix-bin</code>) are <strong>refused</strong> with a <code>vm.yaml</code> or a <code>VMfile</code>, and <code>--network</code> is
 refused without one of them.</p>
@@ -712,9 +718,78 @@ may come first. <code>\</code> continuations are joined; a <code>#</code> starts
 <td>image</td>
 <td><strong>Parsed but not recorded</strong> in the image metadata in this tree.</td>
 </tr>
+<tr>
+<td><code>SLIM --docs=off --recommends=off --locales=&lt;l,…&gt;</code></td>
+<td>stage property</td>
+<td>Tells the package manager what never to install, then removes what the base already carried. Must come <strong>before every step</strong> of its stage (after <code>FROM</code>/<code>SIZE</code>/<code>HOSTNAME</code> is fine); once per stage. See <em>Declaring a small image</em>.</td>
+</tr>
+<tr>
+<td><code>INSTALL &lt;pkg&gt;…</code></td>
+<td>step</td>
+<td><code>apt-get install</code> or <code>dnf install</code>, chosen <strong>inside the guest</strong> by what it has (neither → the step fails). Needs <code>--network</code>, refused before any disk work otherwise. The package cache and indexes are removed at the end of a stage that installed anything.</td>
+</tr>
+<tr>
+<td><code>REMOVE --packages=&lt;a,b&gt; --paths=&lt;/<wbr>x&gt; --services=&lt;u&gt;</code></td>
+<td>step</td>
+<td>Positional. Packages: <code>apt-get purge</code> + <code>autoremove --purge</code>, or <code>dnf remove</code>. Services: disabled <strong>and masked</strong>. Paths: <code>rm -rf</code>, with the same protected list as <code>vm.yaml</code>'s <code>remove.paths</code>. Flags may repeat.</td>
+</tr>
+<tr>
+<td><code>AUTOSTART [--only] &lt;unit&gt;…</code></td>
+<td>stage property</td>
+<td><code>systemctl enable</code> (fail-closed: a unit the image does not have fails the build). A name without a type is a <code>.service</code>; <code>.socket</code>/<code>.timer</code>/<code>.path</code> are accepted, other types are refused. Lines accumulate; applied <strong>at the end of the stage</strong>. With <code>--only</code>, every other enabled unit is disabled, except the engine's plumbing. A unit in both <code>AUTOSTART</code> and <code>REMOVE --services</code> of a stage is a parse error.</td>
+</tr>
+<tr>
+<td><code>BUDGET &lt;n&gt;K|M\|G</code></td>
+<td>image</td>
+<td>Fails the build when the final root filesystem uses more than that (binary units). See <em>Declaring a small image</em>.</td>
+</tr>
 </tbody>
 </table></div>
 <p>There is no <code>CMD</code>/<code>ENTRYPOINT</code>: a VM boots an init. <code>CLOUDINIT</code> is the closest equivalent.</p>
+<h3 id="file-name">File name<a class="hanchor" href="#file-name" aria-label="#">#</a></h3>
+<p>A build with no <code>-f</code> looks for <code>Vmfile</code> and <code>VMfile</code> in the context (<code>vmfile::find_vmfile</code>) — the
+same format under two spellings; <code>vm image init</code> writes <code>Vmfile</code>. <strong>Both in one directory is an
+error</strong>, not a precedence rule: on a case-sensitive filesystem they are two recipes and the build
+will not guess which one the author is reading. Two names for the same file (a case-insensitive
+filesystem, a hard link) are one recipe. <code>-f</code> takes any name, and <code>spec.build</code> of a
+<code>VirtualMachine</code> and <code>build:</code> of a <code>vm.yaml</code> follow the same lookup when they name no file.</p>
+<h3 id="declaring-a-small-image">Declaring a small image<a class="hanchor" href="#declaring-a-small-image" aria-label="#">#</a></h3>
+<p>A distro cloud image starts with everything its publisher thought someone might want. Removing
+after the fact is the expensive way to shrink it; these directives make the image what was
+<strong>declared</strong>, and measure it:</p>
+<ol>
+<li><strong><code>SLIM</code></strong> writes the package manager's own rules before anything is installed:
+   - <code>--docs=off</code>: dpkg <code>path-exclude</code> for <code>/usr/share/{doc,man,info,groff,lintian}</code> (the
+     <code>copyright</code> files stay), dnf <code>tsflags=nodocs</code>;
+   - <code>--recommends=off</code>: apt <code>Install-Recommends</code>/<code>Install-Suggests "false"</code>, dnf
+     <code>install_weak_deps=False</code>;
+   - <code>--locales=pt,en</code>: dpkg excludes <code>/usr/share/locale/*</code> except those languages (and their
+     regional variants), rpm <code>%_install_langs</code>.</li>
+</ol>
+<p>Then it removes the same files from what the base already carried, once.
+2. <strong><code>INSTALL</code></strong> goes through those rules. <strong><code>REMOVE</code></strong> prunes what still came in.
+3. <strong><code>AUTOSTART --only</code></strong> runs after every step — a package's postinst enables its own services,
+   so only then is the list final — and disables (does not mask) every other enabled
+   <code>.service</code>/<code>.socket</code>/<code>.timer</code>/<code>.path</code>. It keeps:
+   - the units the recipe lists;
+   - what those units asked for — anything in a kept unit's <code>.wants/</code> or <code>.requires/</code>
+     (<code>sshd-keygen.service</code> lives in <code>ssh.service.wants/</code> and is what gives <code>ssh</code> host keys when
+     cloud-init does not);
+   - <code>vmfile_slim::AUTOSTART_PLUMBING</code>: D-Bus, the network stack (networkd/resolved, ifupdown,
+     NetworkManager), cloud-init, the getty templates and <code>qemu-guest-agent</code> — what the engine
+     needs to configure, reach, log into and shut down the VM — plus <code>apparmor.service</code> and
+     SELinux's relabel mark, so confinement is never switched off by a line that lists services.</p>
+<p>What it disabled is written to <code>/usr/share/delonix/autostart-disabled.txt</code> and printed by the
+   build (<code>virt-customize</code> hides a command's own output, so an <code>echo</code> would never reach the log).
+4. <strong>The final image is measured.</strong> Whenever the last stage is customized (or has a <code>BUDGET</code>),
+   the same <code>virt-customize</code> run writes <code>/usr/share/delonix/footprint.tsv</code>: the root filesystem's
+   used space (<code>du -x /</code>), every package's installed size as dpkg/rpm declare it, and what
+   <code>AUTOSTART --only</code> disabled. The build prints the total, the five largest packages and that
+   list. With <code>BUDGET</code>, a root filesystem over the
+   number fails the build and names the 15 largest packages; a measurement that cannot be read
+   also fails it, because an unmeasured image did not meet its budget.</p>
+<p>What <code>BUDGET</code> measures is the <strong>root filesystem a VM sees</strong>, before compression — not the qcow2
+file, which <code>finalize</code> compresses afterwards, and not a separate <code>/boot</code>.</p>
 <h3 id="what-from-accepts">What <code>FROM</code> accepts<a class="hanchor" href="#what-from-accepts" aria-label="#">#</a></h3>
 <p><code>classify_base</code> is pure and decides the kind of reference:</p>
 <ol>
@@ -764,7 +839,7 @@ host traps documented in <a href="microvm-setup.html#6-troubleshooting">Building
 that fails leaves that directory behind (observed during this review); remove it by hand.</p>
 <h3 id="declarative-build">Declarative build<a class="hanchor" href="#declarative-build" aria-label="#">#</a></h3>
 <p><code>kind: VirtualMachine</code> can build its own disk with <code>spec.build</code> (<code>VmBuildSpec</code>): <code>context</code> (relative
-to the <strong>manifest's</strong> directory), <code>file</code> (default <code>&lt;context&gt;/VMfile</code>), <code>tag</code> (default
+to the <strong>manifest's</strong> directory), <code>file</code> (default <code>&lt;context&gt;/Vmfile</code> or <code>&lt;context&gt;/VMfile</code>), <code>tag</code> (default
 <code>&lt;metadata.name&gt;:latest</code>), <code>compress</code>, <code>network</code>. <code>apply</code> calls the same <code>vmfile::build</code>. <code>disk</code> and
 <code>build</code> are mutually exclusive.</p>
 <h3 id="worked-example-parse-checked">Worked example (parse-checked)<a class="hanchor" href="#worked-example-parse-checked" aria-label="#">#</a></h3>
@@ -789,7 +864,7 @@ base resolution — before any disk work:</p>
 error invalid argument: FROM my-base:1.0: no such local VM image, and it is not a URL nor a known cloud image (ubuntu:/debian:/rocky:) — see `delonix vm ls`
 </code></pre></div>
 <p>And the parser's refusals:</p>
-<div class="code"><div class="code-head"><span class="lang">text</span><button class="copy" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span>Copy</span></button></div><pre><code class="language-text">VMfile:2: unknown instruction &#x27;CMD&#x27; — supported: FROM RUN COPY ENV USER PASSWORD ROOTPASSWORD CLOUDINIT SSHKEY SIZE HOSTNAME VCPUS MEMORY HYPERVISOR LABEL
+<div class="code"><div class="code-head"><span class="lang">text</span><button class="copy" type="button"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg><span>Copy</span></button></div><pre><code class="language-text">VMfile:2: unknown instruction &#x27;CMD&#x27; — supported: FROM RUN COPY ENV USER PASSWORD ROOTPASSWORD CLOUDINIT SSHKEY SIZE HOSTNAME VCPUS MEMORY HYPERVISOR LABEL SLIM INSTALL REMOVE AUTOSTART BUDGET
 VMfile:2: no earlier stage named &#x27;nope&#x27;
 VMfile:2: invalid argument: unknown VM backend: &#x27;vmware&#x27; (use &#x27;cloud-hypervisor&#x27;, &#x27;libvirt&#x27;)
 --offline belong to the built-in golden recipe and mean nothing with a VMfile — the VMfile describes all of that itself
@@ -904,6 +979,12 @@ VMfile:2: invalid argument: unknown VM backend: &#x27;vmware&#x27; (use &#x27;cl
 <td><code>SIZE</code> (before any step)</td>
 </tr>
 <tr>
+<td>Size control</td>
+<td>—</td>
+<td>—</td>
+<td><code>SLIM</code> before any step, <code>REMOVE</code>, <code>AUTOSTART --only</code>, <code>BUDGET</code> on the measured root filesystem</td>
+</tr>
+<tr>
 <td>Unknown instruction</td>
 <td>error</td>
 <td>error</td>
@@ -948,6 +1029,8 @@ VMfile:2: invalid argument: unknown VM backend: &#x27;vmware&#x27; (use &#x27;cl
 <li><a href="#building">Building</a></li>
 <li><a href="#vmyaml-the-compose-style-front-end">vm.yaml: the compose-style front end</a></li>
 <li><a href="#instructions">Instructions</a></li>
+<li><a href="#file-name">File name</a></li>
+<li><a href="#declaring-a-small-image">Declaring a small image</a></li>
 <li><a href="#what-from-accepts">What FROM accepts</a></li>
 <li><a href="#what-a-stage-is-and-where-the-result-lands">What a stage is, and where the result lands</a></li>
 <li><a href="#declarative-build">Declarative build</a></li>

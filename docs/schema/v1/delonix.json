@@ -5004,7 +5004,7 @@
         },
         "file": {
           "default": null,
-          "description": "The `VMfile` (default `<context>/VMfile`).",
+          "description": "The `VMfile` (default `<context>/Vmfile`, or `<context>/VMfile`).",
           "type": [
             "string",
             "null"

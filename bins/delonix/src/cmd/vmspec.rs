@@ -398,7 +398,7 @@ pub(crate) fn valid_pkg(p: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || "+._:=~-".contains(c))
 }
 
-fn valid_unit(u: &str) -> bool {
+pub(crate) fn valid_unit(u: &str) -> bool {
     !u.is_empty()
         && !u.starts_with('-')
         && u.chars()
@@ -446,7 +446,7 @@ fn valid_remove_path_like(p: &str) -> std::result::Result<(), String> {
     valid_remove_path(p)
 }
 
-fn valid_remove_path(p: &str) -> std::result::Result<(), String> {
+pub(crate) fn valid_remove_path(p: &str) -> std::result::Result<(), String> {
     if !p.starts_with('/') {
         return Err(super::po::t("must be absolute").into());
     }
@@ -705,7 +705,11 @@ pub(crate) fn plan(name: &str, img: &Image, dir: &Path, cli_network: bool) -> Re
             )));
         }
         let ctxdir = dir.join(b.context.as_deref().unwrap_or("."));
-        let file = dir.join(b.file.as_deref().unwrap_or("VMfile"));
+        let file = match b.file.as_deref() {
+            Some(f) => dir.join(f),
+            None => super::vmfile::find_vmfile(dir)?
+                .unwrap_or_else(|| dir.join(super::vmfile::VMFILE_NAMES[0])),
+        };
         return Ok(base(Route::File {
             file,
             context: ctxdir,
@@ -900,6 +904,7 @@ pub(crate) fn plan(name: &str, img: &Image, dir: &Path, cli_network: bool) -> Re
         steps: Vec::new(),
         size: img.size.clone(),
         hostname: img.hostname.clone(),
+        ..Stage::default()
     };
     let run = |st: &mut Stage, s: String| st.steps.push(Step::Run(s));
 
@@ -1140,6 +1145,7 @@ pub(crate) fn plan(name: &str, img: &Image, dir: &Path, cli_network: bool) -> Re
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect(),
+        budget: None,
     };
     Ok(base(Route::Custom(Box::new(vf))))
 }
