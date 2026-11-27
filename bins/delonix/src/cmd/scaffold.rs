@@ -1832,29 +1832,26 @@ fn tool_on_path(bin: &str) -> bool {
 /// reach the network, is a WARNING and never a failure — `delonix init` still
 /// finishes, and the Dockerfile and CI already tell the user how to produce the
 /// lock by hand. Skipped when the lockfile already exists (idempotent re-run).
+///
+/// Never in a unit test: there it ran the HOST's package manager against the
+/// network for every rendered project (`pnpm install` per Node template), and
+/// `pnpm` under Node 24 left a `node-compile-cache` in the test's `TMPDIR`,
+/// which `tmp_roots_gate.py` reports as a leak. Which command each lock needs
+/// is [`lock_command`], tested on its own.
 fn generate_lockfile(tname: &str, dir: &Path) {
+    if cfg!(test) {
+        return;
+    }
     let Some(lock) = meta_kv(tname, "lock") else {
         return;
     };
     if lock.is_empty() || dir.join(lock).exists() {
         return;
     }
-    let (bin, args): (&str, &[&str]) = match lock {
-        "uv.lock" => ("uv", &["lock"]),
-        "pnpm-lock.yaml" => ("pnpm", &["install", "--lockfile-only", "--ignore-scripts"]),
-        "Cargo.lock" => ("cargo", &["generate-lockfile"]),
-        "composer.lock" => (
-            "composer",
-            &[
-                "update",
-                "--no-install",
-                "--no-interaction",
-                "--no-progress",
-            ],
-        ),
-        // A lock name the generator does not know how to produce: leave it to
-        // the Dockerfile/CI guidance rather than guess a command.
-        _ => return,
+    // A lock name the generator does not know how to produce: leave it to
+    // the Dockerfile/CI guidance rather than guess a command.
+    let Some((bin, args)) = lock_command(lock) else {
+        return;
     };
     let cmd = format!("{bin} {}", args.join(" "));
     if !tool_on_path(bin) {
@@ -1885,6 +1882,26 @@ fn generate_lockfile(tname: &str, dir: &Path) {
             &[("cmd", &cmd), ("lock", lock), ("err", &e.to_string())],
         )),
     }
+}
+
+/// The command that produces lockfile `lock`, or `None` for one the generator
+/// does not know.
+fn lock_command(lock: &str) -> Option<(&'static str, &'static [&'static str])> {
+    Some(match lock {
+        "uv.lock" => ("uv", &["lock"]),
+        "pnpm-lock.yaml" => ("pnpm", &["install", "--lockfile-only", "--ignore-scripts"]),
+        "Cargo.lock" => ("cargo", &["generate-lockfile"]),
+        "composer.lock" => (
+            "composer",
+            &[
+                "update",
+                "--no-install",
+                "--no-interaction",
+                "--no-progress",
+            ],
+        ),
+        _ => return None,
+    })
 }
 
 /// Waits for `health` to answer 200, up to `secs`.
@@ -3386,6 +3403,28 @@ mod tests {
     /// that works when port 80 of the public address does not reach the host),
     /// and HAProxy, which has no webroot, says so instead of issuing a local
     /// certificate named after the arguments.
+    #[test]
+    fn every_declared_lockfile_has_a_command_that_never_installs() {
+        // Every `lock=` a template declares is one the generator can produce,
+        // and none of the commands runs install scripts or fills node_modules.
+        let mut seen = 0;
+        for tname in TEMPLATES.iter().map(|(n, _)| *n) {
+            let Some(lock) = meta_kv(tname, "lock").filter(|l| !l.is_empty()) else {
+                continue;
+            };
+            let (bin, args) = lock_command(lock).unwrap_or_else(|| panic!("{tname}: {lock}"));
+            seen += 1;
+            if bin == "pnpm" {
+                assert!(args.contains(&"--lockfile-only") && args.contains(&"--ignore-scripts"));
+            }
+            if bin == "composer" {
+                assert!(args.contains(&"--no-install"));
+            }
+        }
+        assert!(seen > 0, "no template declares a lock");
+        assert!(lock_command("yarn.lock").is_none());
+    }
+
     #[test]
     fn the_edge_templates_offer_lets_encrypt_by_dns() {
         for tpl in ["nginx", "httpd", "haproxy"] {
