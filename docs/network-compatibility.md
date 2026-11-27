@@ -304,6 +304,30 @@ Fixed: the MTU is **inserted**, anchored to the `"Network":` line, and the
 test now parses the real document as YAML and the `net-conf.json` as JSON,
 instead of searching for a substring.
 
+### 4.3. The nodes' network could be the cluster's own pod CIDR
+
+Reported on a live cluster, not found by these tests. A cluster's nodes sit on
+a network of their own (`dlx-<name>` in kind mode, the cluster's network in
+`cluster kubeadm` without `--network`), and its `/16` was picked from the
+network name's hash over `10.201`–`10.254` — a span that contains
+`10.244.0.0/16`, kubeadm's default pod CIDR. About one cluster name in 55
+landed on it (`c25` does). Inside each node that range is routed to the CNI, so
+replies to anything addressed on the node network went to the pods: the API
+answered from inside the node and **hung from the host**, with nothing refused
+at creation time. The workaround was an explicit `--pod-subnet`.
+
+Fixed in the allocator, which now takes ranges to keep off
+(`NetworkStore::create_avoiding`): both paths hand it the cluster's pod and
+service CIDRs (`netops::ensure_node_network`). A node network that already
+exists on one of them — left by an older binary, or by a failed create — is
+refused with DX-1704 before anything is created, naming the
+`delonix network rm` that clears it.
+
+Kind mode also checks its pod and service CIDRs against the engine's OTHER
+networks now, as `cluster kubeadm` always did: a pod CIDR on a network the host
+already uses is refused with DX-1704 before the cluster's network, state or
+image exist.
+
 ## 5. Lab procedure — how to unblock B1-B12
 
 Prerequisites: ~40 GiB free, `/dev/kvm`, `libvirt`, `virt-customize`,

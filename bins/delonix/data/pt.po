@@ -18192,3 +18192,6 @@ msgstr "'{token}' começa por `-`, por isso não é uma referência de imagem v�
 
 msgid "'{token}' begins with `-`, so it is not a valid container name. If you meant a flag, it is not one this command has — and flags go BEFORE the container. If you meant a literal container, a name cannot begin with `-`."
 msgstr "'{token}' começa por `-`, por isso não é um nome de container válido. Se queria uma flag, esta não existe neste comando — e as flags vão ANTES do container. Se queria mesmo um container com esse nome, um nome não pode começar por `-`."
+
+msgid "network '{net}' ({subnet}), where the cluster's nodes would sit, overlaps the cluster's {label} {range}. Inside each node that range is routed to the pods, so the API answers from inside the node and hangs from the host. Nothing was created; remove the network (`delonix network rm {net}`) and retry, or choose another {label}"
+msgstr "a rede '{net}' ({subnet}), onde ficariam os nós do cluster, sobrepõe-se à {label} {range} do cluster. Dentro de cada nó essa gama é encaminhada para os pods, por isso a API responde de dentro do nó e fica pendurada a partir do host. Nada foi criado; remove a rede (`delonix network rm {net}`) e tenta de novo, ou escolhe outra {label}"
