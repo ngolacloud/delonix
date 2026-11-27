@@ -94,8 +94,16 @@ On the development host (2026-11-27), against the real `debian:trixie` cloud ima
 - **an offline probe** with every directive except `INSTALL`, and the same probe with
   `BUDGET 100M`, which failed and named the 15 largest packages.
 
-**Not run:** booting the image and connecting a client. The next candidates the measurement
-points at are `vim-runtime` (37.5 MiB, from the base image) and what pulls `libicu76` in.
+- **two clones of it, booted** directly in Cloud Hypervisor v53 (the image's own kernel and
+  initrd, no firmware, no network card, each with its own NoCloud seed made by `cloud-localds`):
+  cloud-init finished in ~4 s, `ssh` and `smbd` started, `/srv/samba` was skipped cleanly with
+  no data disk (`nofail`), and the two disks came back with **different** machine-ids and SSH
+  host keys. (The first boot of an earlier build showed every clone would have shared one
+  machine-id; the final stage now resets it — see *Declaring a small image*.)
+
+**Not run:** a client connecting over the network (the boots had no network card). The next
+candidates the measurement points at are `vim-runtime` (37.5 MiB, from the base image) and what
+pulls `libicu76` in.
 
 ## Troubleshooting
 

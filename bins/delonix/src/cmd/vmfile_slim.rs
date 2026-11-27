@@ -583,9 +583,8 @@ fn autostart_keep(a: &Autostart) -> Vec<String> {
 /// `WantedBy=`/`RequiredBy=` of a kept unit lives in that unit's `.wants/` or
 /// `.requires/` directory, and disabling it breaks the unit the recipe asked
 /// for. Found on the first real build (Debian trixie, 2026-11-27):
-/// `sshd-keygen.service` is enabled into `ssh.service.wants/` — it is what
-/// gives `ssh` host keys when cloud-init does not — and `--only ssh` was
-/// disabling it.
+/// `sshd-keygen.service` is enabled into `ssh.service.wants/`, and `--only ssh`
+/// was disabling it.
 pub(crate) fn autostart_ops(a: &Autostart) -> Vec<CustomizeOp> {
     let mut ops = Vec::new();
     if !a.units.is_empty() {
@@ -612,6 +611,28 @@ pub(crate) fn autostart_ops(a: &Autostart) -> Vec<CustomizeOp> {
         )));
     }
     ops
+}
+
+/// The per-instance identity a reusable image must not carry: `/etc/machine-id`
+/// emptied (systemd binds a fresh id over it at boot and commits it once `/etc`
+/// is writable; D-Bus reads the same file) and no SSH host keys (cloud-init
+/// generates each clone's own from the NoCloud seed `vm create` attaches). The
+/// same two commands `vm.yaml`'s `cleanup:` runs.
+///
+/// **Empty, not `uninitialized`.** `uninitialized` would make the clone's
+/// first boot a systemd "first boot" (machine-id(5)), which runs
+/// `ConditionFirstBoot=` units such as `sshd-keygen` — but also presets every
+/// unit, and Debian's preset policy enables almost everything, which would
+/// undo `AUTOSTART --only` on the first boot of every VM. An empty file is not
+/// a first boot: unique id, nothing re-enabled.
+pub(crate) fn identity_reset_ops() -> Vec<CustomizeOp> {
+    vec![
+        CustomizeOp::RunCommand(
+            "truncate -s 0 /etc/machine-id; mkdir -p /var/lib/dbus; ln -sf /etc/machine-id /var/lib/dbus/machine-id"
+                .into(),
+        ),
+        CustomizeOp::RunCommand("rm -f /etc/ssh/ssh_host_*".into()),
+    ]
 }
 
 // ─── measurement ────────────────────────────────────────────────────────────

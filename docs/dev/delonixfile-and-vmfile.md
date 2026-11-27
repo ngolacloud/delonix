@@ -387,8 +387,7 @@ after the fact is the expensive way to shrink it; these directives make the imag
    `.service`/`.socket`/`.timer`/`.path`. It keeps:
    - the units the recipe lists;
    - what those units asked for — anything in a kept unit's `.wants/` or `.requires/`
-     (`sshd-keygen.service` lives in `ssh.service.wants/` and is what gives `ssh` host keys when
-     cloud-init does not);
+     (`sshd-keygen.service` lives in `ssh.service.wants/`);
    - `vmfile_slim::AUTOSTART_PLUMBING`: D-Bus, the network stack (networkd/resolved, ifupdown,
      NetworkManager), cloud-init, the getty templates and `qemu-guest-agent` — what the engine
      needs to configure, reach, log into and shut down the VM — plus `apparmor.service` and
@@ -403,6 +402,14 @@ after the fact is the expensive way to shrink it; these directives make the imag
    list. With `BUDGET`, a root filesystem over the
    number fails the build and names the 15 largest packages; a measurement that cannot be read
    also fails it, because an unmeasured image did not meet its budget.
+
+5. **The final stage resets the image's identity** — `/etc/machine-id` emptied, SSH host keys
+   removed — whenever it was customized, as `vm.yaml`'s `cleanup:` does (a `vm.yaml` keeps its
+   own `cleanup:`, so `machine_id: false` still means false). Found on the first real build: a
+   postinst of `INSTALL` had generated a machine-id, which every clone would have shared. Empty
+   rather than `uninitialized`: the latter makes the clone's first boot a systemd first boot,
+   which presets units and would re-enable what `AUTOSTART --only` disabled. Host keys come from
+   cloud-init and the seed `vm create` attaches.
 
 What `BUDGET` measures is the **root filesystem a VM sees**, before compression — not the qcow2
 file, which `finalize` compresses afterwards, and not a separate `/boot`.

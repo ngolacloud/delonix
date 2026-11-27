@@ -1146,6 +1146,8 @@ pub(crate) fn plan(name: &str, img: &Image, dir: &Path, cli_network: bool) -> Re
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect(),
         budget: None,
+        // `cleanup:` above already resets identity, and honours `machine_id: false`.
+        reset_identity: false,
     };
     Ok(base(Route::Custom(Box::new(vf))))
 }

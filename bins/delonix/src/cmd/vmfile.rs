@@ -183,6 +183,12 @@ pub(crate) struct VmFile {
     /// `BUDGET <n>[K|M|G]`, in bytes — the most the final image's root
     /// filesystem may use. Checked after the last stage, before compression.
     pub(crate) budget: Option<u64>,
+    /// Reset the image's per-instance identity at the end of the final stage
+    /// (`/etc/machine-id` emptied, SSH host keys removed). `parse` sets it: a
+    /// `Vmfile` has no `cleanup:` of its own. A `vm.yaml` leaves it off, because
+    /// its `cleanup:` already does this — and honours `machine_id: false`, which
+    /// an unconditional reset here would silently override.
+    pub(crate) reset_identity: bool,
 }
 
 impl VmFile {
@@ -234,7 +240,10 @@ fn err(line: usize, msg: &str) -> Error {
 /// that boots and is missing something, which is discovered much later and far
 /// from here. Same rule the seccomp profile parser follows.
 pub(crate) fn parse(text: &str) -> Result<VmFile> {
-    let mut vf = VmFile::default();
+    let mut vf = VmFile {
+        reset_identity: true,
+        ..VmFile::default()
+    };
     let mut cur: Option<Stage> = None;
 
     for (ln, line) in logical_lines(text) {
@@ -715,15 +724,7 @@ pub(crate) fn build_parsed(
         prog.ok();
 
         let mut ops = stage_ops(stage, context, &built, &work_dir, &label)?;
-        // The final image is measured whenever it is customized anyway (the
-        // measurement rides the same `virt-customize` run, at no extra boot of
-        // the appliance), and always when there is a BUDGET to hold it to. A
-        // recipe that touches nothing is not made to pay for a run it did not
-        // need.
-        let measure = i + 1 == total && (!ops.is_empty() || vf.budget.is_some());
-        if measure {
-            ops.push(slim::footprint_op());
-        }
+        let measure = i + 1 == total && final_stage_tail(vf, &mut ops);
         if !ops.is_empty() {
             let mut args = super::vmimage::customize_args(&disk, &ops);
             if !network {
@@ -828,6 +829,34 @@ pub(crate) fn build_parsed(
     store.save(&img)?;
     println!("{tag}");
     Ok(())
+}
+
+/// What only the FINAL stage gets, appended to its operations; returns whether
+/// the image is measured.
+///
+/// - **Identity reset** (when the stage is customized and `reset_identity`):
+///   measured on the first real samba build (2026-11-27) — the base Debian
+///   image had an empty `/etc/machine-id`, the built one had
+///   `eb1e5a33…` (a postinst of `INSTALL` generated it) and no SSH host keys.
+///   Every VM cloned from it would share one machine-id (one DHCP client-id,
+///   one lease — the bug `vmimage` already records for the golden recipe).
+///   Emptied, each clone gets its own id at boot (see
+///   [`slim::identity_reset_ops`] for why empty and not `uninitialized`). It
+///   runs after AUTOSTART, so nothing re-creates it.
+/// - **Measurement**: whenever the stage is customized anyway (it rides the
+///   same `virt-customize` run, at no extra boot of the appliance), and always
+///   when there is a BUDGET to hold it to. A recipe that touches nothing is
+///   not made to pay for a run it did not need.
+fn final_stage_tail(vf: &VmFile, ops: &mut Vec<CustomizeOp>) -> bool {
+    let customized = !ops.is_empty();
+    if customized && vf.reset_identity {
+        ops.extend(slim::identity_reset_ops());
+    }
+    let measure = customized || vf.budget.is_some();
+    if measure {
+        ops.push(slim::footprint_op());
+    }
+    measure
 }
 
 /// Reads back what [`slim::footprint_op`] measured inside the final disk,
@@ -1481,6 +1510,51 @@ mod tests {
         assert!(at("rm -rf /var/lib/apt/lists/*") < at("systemctl enable smbd.service"));
         assert!(at("systemctl enable smbd.service") < at("--state=enabled"));
         assert_eq!(at("--state=enabled"), c.len() - 1);
+    }
+
+    /// The final stage of a parsed Vmfile resets its identity, then measures;
+    /// a vm.yaml-built VmFile (reset off — its own cleanup: decides) only
+    /// measures; an untouched stage gets nothing unless a BUDGET needs it.
+    #[test]
+    fn the_final_stage_resets_identity_then_measures() {
+        let vf = parse("FROM debian:trixie\nRUN true\n").unwrap();
+        assert!(vf.reset_identity);
+        let mut ops = vec![CustomizeOp::RunCommand("true".into())];
+        assert!(final_stage_tail(&vf, &mut ops));
+        let c = run_cmds(&ops);
+        let at = |n: &str| {
+            c.iter()
+                .position(|x| x.contains(n))
+                .unwrap_or_else(|| panic!("{n}: {c:#?}"))
+        };
+        assert!(at("truncate -s 0 /etc/machine-id") < at(slim::FOOTPRINT_PATH));
+        assert!(at("rm -f /etc/ssh/ssh_host_*") < at(slim::FOOTPRINT_PATH));
+
+        let from_yaml = VmFile {
+            reset_identity: false,
+            ..vf.clone()
+        };
+        let mut ops = vec![CustomizeOp::RunCommand("true".into())];
+        final_stage_tail(&from_yaml, &mut ops);
+        assert!(!run_cmds(&ops).iter().any(|x| x.contains("machine-id")));
+
+        let mut none = Vec::new();
+        assert!(
+            !final_stage_tail(&vf, &mut none),
+            "nothing to customize, no budget"
+        );
+        assert!(none.is_empty());
+        let budgeted = VmFile {
+            budget: Some(1 << 30),
+            ..vf
+        };
+        let mut only_measure = Vec::new();
+        assert!(final_stage_tail(&budgeted, &mut only_measure));
+        assert_eq!(
+            only_measure.len(),
+            1,
+            "a budget measures, but resets nothing it did not touch"
+        );
     }
 
     #[test]
