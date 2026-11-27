@@ -828,15 +828,12 @@ pub fn run(action: VmImageCmd) -> Result<()> {
             } = a;
             // Precedence, the one `docker build` users expect: an explicit
             // `-f` decides; otherwise a `vm.yaml` in the context beats a
-            // `VMfile`, which beats the golden recipe.
+            // `Vmfile`/`VMfile`, which beats the golden recipe.
             let spec_path = super::vmspec::locate(file.as_deref(), &context);
-            let vmfile = if spec_path.is_some() {
-                None
-            } else {
-                file.or_else(|| {
-                    let p = context.join("VMfile");
-                    p.exists().then_some(p)
-                })
+            let vmfile = match (&spec_path, file) {
+                (Some(_), _) => None,
+                (None, Some(f)) => Some(f),
+                (None, None) => super::vmfile::find_vmfile(&context)?,
             };
             // The golden-recipe flags describe a recipe a `vm.yaml`/`VMfile`
             // replaces. Silently ignoring them would let someone believe their
@@ -1159,13 +1156,19 @@ fn run_appliance(
 fn cmd_init(name: &str, dir: Option<PathBuf>, force: bool) -> Result<()> {
     let dir = super::vmfile::init_dir(dir);
     std::fs::create_dir_all(&dir).map_err(|e| Error::Invalid(format!("{}: {e}", dir.display())))?;
-    let vmfile = dir.join("VMfile");
-    if vmfile.exists() && !force {
-        return Err(Error::Invalid(super::po::tf(
-            "{path} already exists — use --force to overwrite",
-            &[("path", &vmfile.display().to_string())],
-        )));
-    }
+    // A new scaffold is a `Vmfile`. Over an existing recipe, `--force` keeps
+    // ITS spelling: writing `Vmfile` next to an old `VMfile` would leave two
+    // recipes, which the build then refuses as ambiguous.
+    let vmfile = match super::vmfile::find_vmfile(&dir)? {
+        Some(existing) if !force => {
+            return Err(Error::Invalid(super::po::tf(
+                "{path} already exists — use --force to overwrite",
+                &[("path", &existing.display().to_string())],
+            )));
+        }
+        Some(existing) => existing,
+        None => dir.join(super::vmfile::VMFILE_NAMES[0]),
+    };
     std::fs::write(&vmfile, super::vmfile::scaffold(name))
         .map_err(|e| Error::Invalid(format!("{}: {e}", vmfile.display())))?;
     let ci_dir = dir.join("cloud-init");
@@ -6395,6 +6398,25 @@ mod tests {
     }
 
     use super::*;
+
+    /// `vm image init` writes a `Vmfile`; over an existing recipe it refuses,
+    /// and `--force` overwrites that recipe under ITS spelling instead of
+    /// adding a second file the build would then refuse as ambiguous.
+    #[test]
+    fn init_writes_vmfile_and_force_keeps_the_existing_spelling() {
+        let d = tempfile::tempdir().unwrap();
+        cmd_init("demo", Some(d.path().to_path_buf()), false).unwrap();
+        assert!(d.path().join("Vmfile").is_file());
+        assert!(cmd_init("demo", Some(d.path().to_path_buf()), false).is_err());
+
+        let old = tempfile::tempdir().unwrap();
+        std::fs::write(old.path().join("VMfile"), "FROM x\n").unwrap();
+        assert!(cmd_init("demo", Some(old.path().to_path_buf()), false).is_err());
+        cmd_init("demo", Some(old.path().to_path_buf()), true).unwrap();
+        assert!(!old.path().join("Vmfile").exists());
+        let text = std::fs::read_to_string(old.path().join("VMfile")).unwrap();
+        assert!(text.contains("FROM ubuntu:24.04"), "overwritten in place");
+    }
 
     /// Gap closed: `OFFICIAL_VM_BASE_IMAGE` existed but had no default-selection
     /// wiring — a bare `pull`/`ls-remote --no-k8s` now resolves to it, same as a

@@ -1,19 +1,36 @@
 {
   "name": "vmfile",
-  "displayName": "VMfile (delonix)",
-  "description": "Syntax highlighting for VMfile — delonix's recipe for a bootable VM image.",
-  "version": "0.1.0",
+  "displayName": "Vmfile (delonix)",
+  "description": "Syntax highlighting for Vmfile (also spelled VMfile) — delonix's recipe for a bootable VM image.",
+  "version": "0.2.0",
   "publisher": "delonix",
   "license": "Apache-2.0",
-  "engines": { "vscode": "^1.75.0" },
-  "categories": ["Programming Languages"],
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
   "contributes": {
     "languages": [
       {
         "id": "vmfile",
-        "aliases": ["VMfile", "vmfile"],
-        "filenames": ["VMfile"],
-        "filenamePatterns": ["VMfile.*", "*.VMfile", "*.vmfile"],
+        "aliases": [
+          "Vmfile",
+          "VMfile",
+          "vmfile"
+        ],
+        "filenames": [
+          "Vmfile",
+          "VMfile"
+        ],
+        "filenamePatterns": [
+          "Vmfile.*",
+          "VMfile.*",
+          "*.Vmfile",
+          "*.VMfile",
+          "*.vmfile"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -21,7 +38,10 @@
       {
         "language": "vmfile",
         "scopeName": "source.vmfile",
-        "path": "./syntaxes/vmfile.tmLanguage.json"
+        "path": "./syntaxes/vmfile.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.shellscript": "shellscript"
+        }
       }
     ]
   }

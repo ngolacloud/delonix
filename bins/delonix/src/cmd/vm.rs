@@ -42,7 +42,7 @@ pub(crate) struct VmBuildSpec {
     /// from wherever it is applied.
     #[serde(default = "default_build_context")]
     context: String,
-    /// The `VMfile` (default `<context>/VMfile`).
+    /// The `VMfile` (default `<context>/Vmfile`, or `<context>/VMfile`).
     #[serde(default)]
     file: Option<String>,
     /// Tag for the produced image (default `<metadata.name>:latest`), which is
@@ -3151,7 +3151,8 @@ fn resolve_vm_disk(
             let context = manifest_dir.join(&b.context);
             let file = match &b.file {
                 Some(f) => context.join(f),
-                None => context.join("VMfile"),
+                None => super::vmfile::find_vmfile(&context)?
+                    .unwrap_or_else(|| context.join(super::vmfile::VMFILE_NAMES[0])),
             };
             if !file.exists() {
                 return Err(Error::Invalid(super::po::tf(
@@ -7019,7 +7020,7 @@ mod tests {
         let e = super::resolve_vm_disk(&store, "v", &spec, std::path::Path::new("/tmp/proj"))
             .unwrap_err()
             .to_string();
-        assert!(e.contains("/tmp/proj/sub/VMfile"), "{e}");
+        assert!(e.contains("/tmp/proj/sub/Vmfile"), "{e}");
     }
 
     use super::{

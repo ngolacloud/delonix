@@ -25,9 +25,85 @@
 //! one — and nothing else. A stage is not a cache layer and does not become an
 //! image unless it is the last one.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use delonix_model::{Error, Result};
+
+use super::vmfile_slim::{self as slim, Autostart, Removal, Slim};
+
+/// The file names a build looks for in a context, in the order `vm image
+/// init` prefers them. `Vmfile` is what the scaffold writes; `VMfile` is the
+/// spelling every recipe before it used, and stays valid.
+pub(crate) const VMFILE_NAMES: &[&str] = &["Vmfile", "VMfile"];
+
+/// Every instruction `parse` accepts, in the order the refusal lists them.
+///
+/// The one list three things must agree with: the parser's `match`, its
+/// refusal message, and the editor grammars under `editors/` (vim and VS
+/// Code). The parser fails closed on any other word, so a grammar that
+/// highlights more would promise a build that cannot happen, and one that
+/// highlights less hides a valid line — `editor_grammars_know_exactly_the_instructions`
+/// holds the grammars to this list.
+pub(crate) const INSTRUCTIONS: &[&str] = &[
+    "FROM",
+    "RUN",
+    "COPY",
+    "ENV",
+    "USER",
+    "PASSWORD",
+    "ROOTPASSWORD",
+    "CLOUDINIT",
+    "SSHKEY",
+    "SIZE",
+    "HOSTNAME",
+    "VCPUS",
+    "MEMORY",
+    "HYPERVISOR",
+    "LABEL",
+    "SLIM",
+    "INSTALL",
+    "REMOVE",
+    "AUTOSTART",
+    "BUDGET",
+];
+
+/// Finds the recipe in `dir` under either spelling.
+///
+/// **Both at once is an error, not a choice.** On a case-sensitive filesystem
+/// they are two files, and picking one by a precedence rule would build a
+/// recipe the author may not be looking at. On a case-insensitive one both
+/// names resolve to the same file, which is not ambiguous — hence the inode
+/// comparison rather than a name comparison.
+pub(crate) fn find_vmfile(dir: &Path) -> Result<Option<PathBuf>> {
+    use std::os::unix::fs::MetadataExt;
+    let found: Vec<(PathBuf, std::fs::Metadata)> = VMFILE_NAMES
+        .iter()
+        .map(|n| dir.join(n))
+        .filter_map(|p| {
+            std::fs::metadata(&p)
+                .ok()
+                .filter(|m| m.is_file())
+                .map(|m| (p, m))
+        })
+        .collect();
+    match found.as_slice() {
+        [] => Ok(None),
+        [(p, _)] => Ok(Some(p.clone())),
+        [(a, ma), (b, mb), ..] => {
+            if ma.dev() == mb.dev() && ma.ino() == mb.ino() {
+                Ok(Some(a.clone()))
+            } else {
+                Err(Error::Invalid(super::po::tf(
+                    "both {a} and {b} exist — keep one (or pass -f to choose)",
+                    &[
+                        ("a", &a.display().to_string()),
+                        ("b", &b.display().to_string()),
+                    ],
+                )))
+            }
+        }
+    }
+}
 
 /// One build step of a stage.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,10 +132,15 @@ pub(crate) enum Step {
     CloudInit(String),
     /// `SSHKEY <user> <path-or-literal>` — authorized_keys for that user.
     SshKey { user: String, key: String },
+    /// `INSTALL <pkg>…` — through the guest's package manager, under the
+    /// stage's `SLIM` rules. Needs `--network`.
+    Install(Vec<String>),
+    /// `REMOVE --packages= --paths= --services=` — positional, like any step.
+    Remove(Removal),
 }
 
 /// A stage: one base image plus the steps applied to it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct Stage {
     /// `AS <name>`, when given.
     pub(crate) name: Option<String>,
@@ -72,6 +153,12 @@ pub(crate) struct Stage {
     pub(crate) size: Option<String>,
     /// `HOSTNAME <name>`.
     pub(crate) hostname: Option<String>,
+    /// `SLIM` — applied before every step of the stage, which is why the
+    /// parser refuses it after one: it decides what the package manager may
+    /// install, so it has to be in place before anything is installed.
+    pub(crate) slim: Option<Slim>,
+    /// `AUTOSTART` lines, accumulated and applied at the END of the stage.
+    pub(crate) autostart: Autostart,
 }
 
 /// A parsed `VMfile`.
@@ -93,6 +180,15 @@ pub(crate) struct VmFile {
     pub(crate) backend: Option<String>,
     /// `LABEL k=v`.
     pub(crate) labels: Vec<(String, String)>,
+    /// `BUDGET <n>[K|M|G]`, in bytes — the most the final image's root
+    /// filesystem may use. Checked after the last stage, before compression.
+    pub(crate) budget: Option<u64>,
+    /// Reset the image's per-instance identity at the end of the final stage
+    /// (`/etc/machine-id` emptied, SSH host keys removed). `parse` sets it: a
+    /// `Vmfile` has no `cleanup:` of its own. A `vm.yaml` leaves it off, because
+    /// its `cleanup:` already does this — and honours `machine_id: false`, which
+    /// an unconditional reset here would silently override.
+    pub(crate) reset_identity: bool,
 }
 
 impl VmFile {
@@ -144,7 +240,10 @@ fn err(line: usize, msg: &str) -> Error {
 /// that boots and is missing something, which is discovered much later and far
 /// from here. Same rule the seccomp profile parser follows.
 pub(crate) fn parse(text: &str) -> Result<VmFile> {
-    let mut vf = VmFile::default();
+    let mut vf = VmFile {
+        reset_identity: true,
+        ..VmFile::default()
+    };
     let mut cur: Option<Stage> = None;
 
     for (ln, line) in logical_lines(text) {
@@ -181,11 +280,52 @@ pub(crate) fn parse(text: &str) -> Result<VmFile> {
                 cur = Some(Stage {
                     name,
                     from,
-                    steps: Vec::new(),
-                    size: None,
-                    hostname: None,
+                    ..Stage::default()
                 });
             }
+            "SLIM" => {
+                let st = cur.as_mut().unwrap();
+                if st.slim.is_some() {
+                    return Err(err(
+                        ln,
+                        "SLIM given twice in the same stage — put all its flags on one line",
+                    ));
+                }
+                if !st.steps.is_empty() {
+                    // Rules for the package manager that arrive after a step
+                    // would leave whatever that step installed un-slimmed, and
+                    // the recipe would read as if it were not.
+                    return Err(err(
+                        ln,
+                        "SLIM must come before every other step of its stage (right after FROM/SIZE/HOSTNAME)",
+                    ));
+                }
+                st.slim = Some(slim::parse_slim(&rest).map_err(|m| err(ln, &m))?);
+            }
+            "INSTALL" => {
+                let pkgs = slim::parse_install(&rest).map_err(|m| err(ln, &m))?;
+                cur.as_mut().unwrap().steps.push(Step::Install(pkgs));
+            }
+            "REMOVE" => {
+                let r = slim::parse_remove(&rest).map_err(|m| err(ln, &m))?;
+                let st = cur.as_mut().unwrap();
+                slim::check_stage(&st.autostart, &[&r]).map_err(|m| err(ln, &m))?;
+                st.steps.push(Step::Remove(r));
+            }
+            "AUTOSTART" => {
+                let st = cur.as_mut().unwrap();
+                slim::parse_autostart(&rest, &mut st.autostart).map_err(|m| err(ln, &m))?;
+                let removals: Vec<&Removal> = st
+                    .steps
+                    .iter()
+                    .filter_map(|s| match s {
+                        Step::Remove(r) => Some(r),
+                        _ => None,
+                    })
+                    .collect();
+                slim::check_stage(&st.autostart, &removals).map_err(|m| err(ln, &m))?;
+            }
+            "BUDGET" => vf.budget = Some(slim::parse_budget(&rest).map_err(|m| err(ln, &m))?),
             "RUN" => cur.as_mut().unwrap().steps.push(Step::Run(rest)),
             "COPY" => {
                 let step = parse_copy(&rest).map_err(|m| err(ln, &m))?;
@@ -258,9 +398,8 @@ pub(crate) fn parse(text: &str) -> Result<VmFile> {
                 return Err(err(
                     ln,
                     &format!(
-                        "unknown instruction '{other}' — supported: FROM RUN COPY ENV USER \
-                         PASSWORD ROOTPASSWORD CLOUDINIT SSHKEY SIZE HOSTNAME VCPUS MEMORY \
-                         HYPERVISOR LABEL"
+                        "unknown instruction '{other}' — supported: {}",
+                        INSTRUCTIONS.join(" ")
                     ),
                 ))
             }
@@ -343,14 +482,15 @@ pub(crate) fn classify_base(from: &str) -> Base {
     Base::Local(from.to_string())
 }
 
-/// The `VMfile` a `vm init` writes.
+/// The `Vmfile` a `vm init` writes.
 ///
 /// A scaffold is documentation people actually read, so this one is a working
 /// recipe rather than a list of placeholders: it builds a real, bootable image
 /// as written, and every line it contains is one the reader can delete.
 pub(crate) fn scaffold(name: &str) -> String {
     format!(
-        r#"# VMfile — a bootable qcow2, built from a distro's cloud image.
+        r#"# Vmfile — a bootable qcow2, built from a distro's cloud image.
+# (`VMfile` is the same format under its older spelling; keep only one of them.)
 #
 #   delonix vm image build -t {name}:1.0 .
 #   delonix vm create dev --disk-image {name}:1.0
@@ -383,10 +523,16 @@ RUN systemctl enable ssh
 #
 #   delonix vm image build --network -t {name}:1.0 .
 #
-# with the RUN you actually want, for example:
+# A small image is declared, not cleaned up afterwards. SLIM goes right after
+# FROM/SIZE/HOSTNAME — it tells apt/dnf what never to install — then INSTALL
+# names what goes in, REMOVE prunes, AUTOSTART --only leaves running only what
+# you list, and BUDGET fails the build when the root filesystem grows past it:
 #
-#   RUN apt-get update && apt-get install -y --no-install-recommends nginx
-#   RUN systemctl enable nginx
+#   SLIM --docs=off --recommends=off --locales=en
+#   INSTALL nginx
+#   REMOVE --packages=snapd --services=ModemManager
+#   AUTOSTART --only nginx ssh
+#   BUDGET 1G
 
 # From the build context into the guest.
 # COPY ./site /var/www/html
@@ -500,6 +646,21 @@ pub(crate) fn build_parsed(
     network: bool,
     verbose: bool,
 ) -> Result<()> {
+    // Refused before any disk work: finding out after a multi-GiB flatten
+    // that the recipe could never run as asked is a slow way to read an error.
+    if !network
+        && vf
+            .stages
+            .iter()
+            .any(|s| s.steps.iter().any(|st| matches!(st, Step::Install(_))))
+    {
+        return Err(Error::Invalid(
+            super::po::t(
+                "INSTALL needs the network inside the guest — build with --network (a build that reaches the internet is not reproducible; that is why it is opt-in)",
+            )
+            .to_string(),
+        ));
+    }
     let work_dir = std::env::temp_dir().join(format!("delonix-vmfile-{}", std::process::id()));
     std::fs::create_dir_all(&work_dir)?;
     // Every stage's disk, by name, so `COPY --from=` can reach it. Unnamed
@@ -562,7 +723,8 @@ pub(crate) fn build_parsed(
         }
         prog.ok();
 
-        let ops = stage_ops(stage, context, &built, &work_dir, &label)?;
+        let mut ops = stage_ops(stage, context, &built, &work_dir, &label)?;
+        let measure = i + 1 == total && final_stage_tail(vf, &mut ops);
         if !ops.is_empty() {
             let mut args = super::vmimage::customize_args(&disk, &ops);
             if !network {
@@ -578,6 +740,9 @@ pub(crate) fn build_parsed(
             );
             super::vmimage::run_tool("virt-customize", &argv)?;
             prog.ok();
+        }
+        if measure {
+            measure_and_check(&disk, vf.budget)?;
         }
         if let Some(n) = &stage.name {
             built.insert(n.clone(), disk.clone());
@@ -664,6 +829,66 @@ pub(crate) fn build_parsed(
     store.save(&img)?;
     println!("{tag}");
     Ok(())
+}
+
+/// What only the FINAL stage gets, appended to its operations; returns whether
+/// the image is measured.
+///
+/// - **Identity reset** (when the stage is customized and `reset_identity`):
+///   measured on the first real samba build (2026-11-27) — the base Debian
+///   image had an empty `/etc/machine-id`, the built one had
+///   `eb1e5a33…` (a postinst of `INSTALL` generated it) and no SSH host keys.
+///   Every VM cloned from it would share one machine-id (one DHCP client-id,
+///   one lease — the bug `vmimage` already records for the golden recipe).
+///   Emptied, each clone gets its own id at boot (see
+///   [`slim::identity_reset_ops`] for why empty and not `uninitialized`). It
+///   runs after AUTOSTART, so nothing re-creates it.
+/// - **Measurement**: whenever the stage is customized anyway (it rides the
+///   same `virt-customize` run, at no extra boot of the appliance), and always
+///   when there is a BUDGET to hold it to. A recipe that touches nothing is
+///   not made to pay for a run it did not need.
+fn final_stage_tail(vf: &VmFile, ops: &mut Vec<CustomizeOp>) -> bool {
+    let customized = !ops.is_empty();
+    if customized && vf.reset_identity {
+        ops.extend(slim::identity_reset_ops());
+    }
+    let measure = customized || vf.budget.is_some();
+    if measure {
+        ops.push(slim::footprint_op());
+    }
+    measure
+}
+
+/// Reads back what [`slim::footprint_op`] measured inside the final disk,
+/// prints it, and holds it to the `BUDGET`.
+///
+/// Without a budget the measurement is a report, so a disk it cannot read only
+/// warns. With one it is a gate, and an unreadable measurement fails the build
+/// (`slim::check_budget`).
+fn measure_and_check(disk: &Path, budget: Option<u64>) -> Result<()> {
+    let text = std::process::Command::new("virt-cat")
+        .args(["-a", &disk.to_string_lossy(), slim::FOOTPRINT_PATH])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned());
+    let f = text
+        .as_deref()
+        .map(slim::parse_footprint)
+        .unwrap_or_default();
+    if f.root.is_some() {
+        eprintln!("{}", slim::report(&f));
+    } else if budget.is_none() {
+        eprintln!(
+            "{} {}",
+            super::po::t("warning:"),
+            super::po::t("the image's footprint could not be read back")
+        );
+    }
+    match budget {
+        Some(b) => slim::check_budget(&f, b),
+        None => Ok(()),
+    }
 }
 
 /// Gets the qcow2 for a `FROM`, downloading it when needed.
@@ -792,9 +1017,15 @@ fn stage_ops(
     if let Some(h) = &stage.hostname {
         ops.push(CustomizeOp::RunCommand(format!("echo {h} > /etc/hostname")));
     }
+    // Before every step: the parser already refused a SLIM after one.
+    if let Some(s) = &stage.slim {
+        ops.extend(slim::slim_ops(s));
+    }
     for (i, step) in stage.steps.iter().enumerate() {
         match step {
             Step::Run(cmd) => ops.push(CustomizeOp::RunCommand(cmd.clone())),
+            Step::Install(pkgs) => ops.push(slim::install_op(pkgs)),
+            Step::Remove(r) => ops.extend(slim::remove_ops(r)),
             Step::Copy { src, dst } => {
                 // Confined to the context, like the container build's `COPY`.
                 // Without this a recipe could read `../../.ssh` off the machine
@@ -875,6 +1106,13 @@ fn stage_ops(
             }
         }
     }
+    // What INSTALL downloaded, once, after the stage's last step could still
+    // have used it.
+    if stage.steps.iter().any(|s| matches!(s, Step::Install(_))) {
+        ops.push(slim::package_cache_op());
+    }
+    // Last: only now is the set of enabled units the final one.
+    ops.extend(slim::autostart_ops(&stage.autostart));
     Ok(ops)
 }
 
@@ -1162,5 +1400,270 @@ mod tests {
         assert!(parse("FROM ubuntu:24.04\nPASSWORD semdoispontos\n").is_err());
         assert!(parse("FROM ubuntu:24.04\nLABEL semigual\n").is_err());
         assert!(parse("FROM ubuntu:24.04\nVCPUS muitos\n").is_err());
+    }
+
+    fn run_cmds(ops: &[CustomizeOp]) -> Vec<String> {
+        ops.iter()
+            .filter_map(|o| match o {
+                CustomizeOp::RunCommand(c) => Some(c.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn ops_of(text: &str) -> Vec<String> {
+        let vf = parse(text).unwrap();
+        let work = tempfile::tempdir().unwrap();
+        run_cmds(
+            &stage_ops(
+                vf.final_stage(),
+                std::path::Path::new("."),
+                &Default::default(),
+                work.path(),
+                "s0",
+            )
+            .unwrap(),
+        )
+    }
+
+    /// The samba recipe from the design discussion, minus the directives that
+    /// are not implemented yet: everything here must parse into the stage.
+    #[test]
+    fn the_slim_directives_parse_into_the_stage() {
+        let vf = parse(
+            "FROM debian:trixie\n\
+             SIZE 4G\n\
+             HOSTNAME samba\n\
+             SLIM --docs=off --locales=pt,en --recommends=off\n\
+             INSTALL samba \\\n  openssh-server\n\
+             REMOVE --services=nmbd,samba-ad-dc --paths=/usr/share/samba/setup\n\
+             AUTOSTART --only smbd ssh\n\
+             AUTOSTART fstrim.timer\n\
+             BUDGET 450M\n",
+        )
+        .unwrap();
+        let st = vf.final_stage();
+        assert_eq!(st.slim.as_ref().unwrap().docs, Some(false));
+        assert_eq!(
+            st.steps[0],
+            Step::Install(vec!["samba".into(), "openssh-server".into()])
+        );
+        assert!(matches!(&st.steps[1], Step::Remove(r) if r.services == ["nmbd", "samba-ad-dc"]));
+        assert!(st.autostart.only);
+        assert_eq!(
+            st.autostart.units,
+            vec!["smbd.service", "ssh.service", "fstrim.timer"]
+        );
+        assert_eq!(vf.budget, Some(450 << 20));
+    }
+
+    #[test]
+    fn slim_after_a_step_or_twice_is_refused() {
+        let e = parse("FROM debian:trixie\nRUN true\nSLIM --docs=off\n").unwrap_err();
+        assert!(e.to_string().contains("VMfile:3"), "{e}");
+        assert!(parse("FROM debian:trixie\nSLIM --docs=off\nSLIM --recommends=off\n").is_err());
+        // SIZE/HOSTNAME are stage properties, not steps: SLIM after them is fine.
+        assert!(parse("FROM debian:trixie\nSIZE 4G\nHOSTNAME h\nSLIM --docs=off\n").is_ok());
+        // Each stage has its own SLIM.
+        assert!(
+            parse("FROM debian:trixie AS a\nSLIM --docs=off\nFROM a\nSLIM --docs=off\n").is_ok()
+        );
+    }
+
+    #[test]
+    fn autostart_and_remove_services_contradiction_is_refused_in_either_order() {
+        let a = parse("FROM debian:trixie\nAUTOSTART nmbd\nREMOVE --services=nmbd\n").unwrap_err();
+        assert!(a.to_string().contains("VMfile:3"), "{a}");
+        let b = parse("FROM debian:trixie\nREMOVE --services=nmbd\nAUTOSTART nmbd.service\n")
+            .unwrap_err();
+        assert!(b.to_string().contains("VMfile:3"), "{b}");
+        // Different stages do not see each other.
+        assert!(
+            parse("FROM debian:trixie AS a\nREMOVE --services=nmbd\nFROM a\nAUTOSTART nmbd\n")
+                .is_ok()
+        );
+    }
+
+    /// The order the guest sees: SLIM before every step, steps in place, the
+    /// package cache after the last step, AUTOSTART last.
+    #[test]
+    fn stage_ops_order_slim_steps_cache_autostart() {
+        let c = ops_of(
+            "FROM debian:trixie\n\
+             HOSTNAME samba\n\
+             SLIM --recommends=off\n\
+             INSTALL samba\n\
+             RUN echo between\n\
+             REMOVE --packages=samba-ad-provision\n\
+             AUTOSTART --only smbd\n",
+        );
+        let at = |needle: &str| {
+            c.iter()
+                .position(|x| x.contains(needle))
+                .unwrap_or_else(|| panic!("no op with {needle}: {c:#?}"))
+        };
+        assert!(at("/etc/hostname") < at("Install-Recommends"));
+        assert!(at("Install-Recommends") < at("apt-get install -y -q samba"));
+        assert!(at("apt-get install -y -q samba") < at("echo between"));
+        assert!(at("echo between") < at("apt-get purge -y samba-ad-provision"));
+        assert!(at("apt-get purge -y samba-ad-provision") < at("rm -rf /var/lib/apt/lists/*"));
+        assert!(at("rm -rf /var/lib/apt/lists/*") < at("systemctl enable smbd.service"));
+        assert!(at("systemctl enable smbd.service") < at("--state=enabled"));
+        assert_eq!(at("--state=enabled"), c.len() - 1);
+    }
+
+    /// The final stage of a parsed Vmfile resets its identity, then measures;
+    /// a vm.yaml-built VmFile (reset off — its own cleanup: decides) only
+    /// measures; an untouched stage gets nothing unless a BUDGET needs it.
+    #[test]
+    fn the_final_stage_resets_identity_then_measures() {
+        let vf = parse("FROM debian:trixie\nRUN true\n").unwrap();
+        assert!(vf.reset_identity);
+        let mut ops = vec![CustomizeOp::RunCommand("true".into())];
+        assert!(final_stage_tail(&vf, &mut ops));
+        let c = run_cmds(&ops);
+        let at = |n: &str| {
+            c.iter()
+                .position(|x| x.contains(n))
+                .unwrap_or_else(|| panic!("{n}: {c:#?}"))
+        };
+        assert!(at("truncate -s 0 /etc/machine-id") < at(slim::FOOTPRINT_PATH));
+        assert!(at("rm -f /etc/ssh/ssh_host_*") < at(slim::FOOTPRINT_PATH));
+
+        let from_yaml = VmFile {
+            reset_identity: false,
+            ..vf.clone()
+        };
+        let mut ops = vec![CustomizeOp::RunCommand("true".into())];
+        final_stage_tail(&from_yaml, &mut ops);
+        assert!(!run_cmds(&ops).iter().any(|x| x.contains("machine-id")));
+
+        let mut none = Vec::new();
+        assert!(
+            !final_stage_tail(&vf, &mut none),
+            "nothing to customize, no budget"
+        );
+        assert!(none.is_empty());
+        let budgeted = VmFile {
+            budget: Some(1 << 30),
+            ..vf
+        };
+        let mut only_measure = Vec::new();
+        assert!(final_stage_tail(&budgeted, &mut only_measure));
+        assert_eq!(
+            only_measure.len(),
+            1,
+            "a budget measures, but resets nothing it did not touch"
+        );
+    }
+
+    #[test]
+    fn no_install_means_no_cache_cleanup() {
+        let c = ops_of("FROM debian:trixie\nRUN true\n");
+        assert_eq!(c, vec!["true".to_string()]);
+    }
+
+    #[test]
+    fn install_without_network_is_refused_before_any_disk_work() {
+        let vf = parse("FROM debian:trixie\nINSTALL samba\n").unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let store = VmImageStore::open(root.path()).unwrap();
+        let e = build_parsed(&store, &vf, root.path(), "t:1", false, false, false)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("INSTALL needs the network"), "{e}");
+        assert!(
+            store.get("t:1").is_err(),
+            "nothing may be registered by a refused build"
+        );
+    }
+
+    #[test]
+    fn both_spellings_are_found_and_both_at_once_is_ambiguous() {
+        let d = tempfile::tempdir().unwrap();
+        assert!(find_vmfile(d.path()).unwrap().is_none());
+
+        std::fs::write(d.path().join("VMfile"), "FROM x\n").unwrap();
+        assert_eq!(
+            find_vmfile(d.path()).unwrap(),
+            Some(d.path().join("VMfile"))
+        );
+
+        std::fs::write(d.path().join("Vmfile"), "FROM y\n").unwrap();
+        let e = find_vmfile(d.path()).unwrap_err().to_string();
+        assert!(e.contains("Vmfile") && e.contains("VMfile"), "{e}");
+
+        std::fs::remove_file(d.path().join("VMfile")).unwrap();
+        assert_eq!(
+            find_vmfile(d.path()).unwrap(),
+            Some(d.path().join("Vmfile"))
+        );
+
+        // A directory with the name is not a recipe.
+        let e2 = tempfile::tempdir().unwrap();
+        std::fs::create_dir(e2.path().join("Vmfile")).unwrap();
+        assert!(find_vmfile(e2.path()).unwrap().is_none());
+    }
+
+    /// The editor grammars highlight exactly what the parser accepts: the
+    /// instructions other than FROM/RUN (which each have a rule of their own,
+    /// FROM for the stage, RUN for its embedded shell) appear in each grammar
+    /// as ONE alternation, in `INSTRUCTIONS` order — so a word added to the
+    /// parser and not to a grammar, or the other way round, fails here.
+    #[test]
+    fn editor_grammars_know_exactly_the_instructions() {
+        // Every instruction must reach the parser's match arm…
+        for i in INSTRUCTIONS {
+            let probe = format!("FROM debian:trixie\n{i}\n");
+            if let Err(e) = parse(&probe) {
+                assert!(
+                    !e.to_string().contains("unknown instruction"),
+                    "{i} is listed but the parser refuses it: {e}"
+                );
+            }
+        }
+        let rest: Vec<String> = INSTRUCTIONS
+            .iter()
+            .filter(|i| !matches!(**i, "FROM" | "RUN"))
+            .map(|i| i.to_ascii_lowercase())
+            .collect();
+        let editors = concat!(env!("CARGO_MANIFEST_DIR"), "/../../editors");
+        let tm =
+            std::fs::read_to_string(format!("{editors}/vscode/syntaxes/vmfile.tmLanguage.json"))
+                .unwrap();
+        let tm_alt = format!("(?i:({}))", rest.join("|"));
+        assert!(
+            tm.contains(&tm_alt),
+            "the VS Code grammar must carry {tm_alt}"
+        );
+        let vim = std::fs::read_to_string(format!("{editors}/vim/syntax/vmfile.vim")).unwrap();
+        let vim_alt = format!("\\%({}\\)", rest.join("\\|"));
+        assert!(
+            vim.contains(&vim_alt),
+            "the vim syntax must carry {vim_alt}"
+        );
+        // …and both editors recognise the file under both spellings.
+        let pkg = std::fs::read_to_string(format!("{editors}/vscode/package.json")).unwrap();
+        let ftd = std::fs::read_to_string(format!("{editors}/vim/ftdetect/vmfile.vim")).unwrap();
+        for name in VMFILE_NAMES {
+            assert!(
+                pkg.contains(&format!("\"{name}\"")),
+                "package.json misses {name}"
+            );
+            assert!(ftd.contains(name), "ftdetect misses {name}");
+        }
+    }
+
+    /// A hard link is the same file under two names — what a case-insensitive
+    /// filesystem does to `Vmfile`/`VMfile`. That is one recipe, not two.
+    #[test]
+    fn two_names_for_the_same_file_are_not_ambiguous() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("Vmfile"), "FROM x\n").unwrap();
+        std::fs::hard_link(d.path().join("Vmfile"), d.path().join("VMfile")).unwrap();
+        assert_eq!(
+            find_vmfile(d.path()).unwrap(),
+            Some(d.path().join("Vmfile"))
+        );
     }
 }

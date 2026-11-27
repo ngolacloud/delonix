@@ -1,8 +1,9 @@
 # images/ — one folder per VM image
 
-Every folder holds a `vm.yaml` (the recipe), a `README.md` (end to end: what you
-need, the command, what to check) and whatever the recipe ships. Build any of
-them from a clone of this repository:
+Every folder holds a recipe — a `vm.yaml`, or a `Vmfile` for the ones written
+in the Dockerfile-shaped format — a `README.md` (end to end: what you need, the
+command, what to check) and whatever the recipe ships. Build any of them from a
+clone of this repository:
 
 ```bash
 delonix vm image build -f images/<folder>/vm.yaml -t <version>
@@ -12,6 +13,7 @@ delonix vm image build -f images/<folder>/vm.yaml -t <version>
 |---|---|---|
 | [`ubuntu`](ubuntu/README.md) · [`debian`](debian/README.md) · [`rocky`](rocky/README.md) · [`fedora`](fedora/README.md) | a cloud image with a user, a file, an env var, removals and cleanup | custom recipe, builds **offline** |
 | [`opnsense`](opnsense/README.md) · [`proxmox`](proxmox/README.md) · [`truenas`](truenas/README.md) | vendor appliances (no cloud-init) | runs a builder from `scripts/appliances/` |
+| [`samba`](samba/README.md) | a minimal Samba file server: `SLIM`, `INSTALL`, `REMOVE`, `AUTOSTART --only` and a `BUDGET` | `Vmfile`, needs `--network` |
 | [`openstack`](openstack/README.md) · [`monitoring`](monitoring/README.md) · [`carbonio`](carbonio/README.md) · [`glpi`](glpi/README.md) · [`wazuh`](wazuh/README.md) · [`freepbx`](freepbx/README.md) | a cloud image with software installed | runs a builder from `scripts/appliances/` |
 
 `vm.yaml` is to `vm image build` what a `compose.yaml` is to `docker compose`; a

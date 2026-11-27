@@ -187,10 +187,10 @@ fn scan_quoted(line: &str, names: &mut Vec<String>) {
 /// `package.json` — the broader rule must not win just because it was checked earlier.
 pub(crate) fn detect(has: &dyn Fn(&str) -> bool, m: &Manifests) -> Detection {
     // A VMfile is unambiguous and belongs to the other generator entirely.
-    if has("VMfile") {
+    if let Some(name) = super::vmfile::VMFILE_NAMES.iter().find(|n| has(n)) {
         return Detection {
             vm: true,
-            ..Detection::generic("VMfile")
+            ..Detection::generic(name)
         };
     }
     // Compose already runs natively (`delonix compose up`), so generating a parallel
@@ -509,6 +509,9 @@ mod tests {
     fn a_vmfile_and_compose_do_not_fall_into_the_generic_scaffold() {
         let vm = det(&["VMfile", "go.mod"], Manifests::default());
         assert!(vm.vm, "the VMfile must win even with a go.mod next to it");
+        let vm = det(&["Vmfile", "go.mod"], Manifests::default());
+        assert!(vm.vm, "the Vmfile spelling is the same recipe");
+        assert_eq!(vm.evidence, "Vmfile");
         let compose = det(&["docker-compose.yml", "package.json"], pkg("{}"));
         assert_eq!(compose.already_served, Some("delonix compose up"));
         assert!(
