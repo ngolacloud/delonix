@@ -304,10 +304,12 @@ aurait publié une release appelée « main ». Ensuite seulement, en un seul 
    publique embarquée).</li>
 <li>Publie la GitHub Release, avec <code>docs/releases/&lt;tag&gt;.md</code> comme notes quand ce fichier existe,
    ou <code>--generate-notes</code> sinon.</li>
-<li>Fait un checkout de <code>main</code> et régénère <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/docs/RELEASES.md" target="_blank" rel="noopener"><code>docs/RELEASES.md</code></a> (<a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/gen-releases.sh" target="_blank" rel="noopener"><code>scripts/gen-releases.sh</code></a>) et les
+<li>Part de <code>main</code> et régénère <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/docs/RELEASES.md" target="_blank" rel="noopener"><code>docs/RELEASES.md</code></a> (<a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/gen-releases.sh" target="_blank" rel="noopener"><code>scripts/gen-releases.sh</code></a>) et les
    faits générés du manuel (<a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/dev_docs.py" target="_blank" rel="noopener"><code>scripts/dev_docs.py</code></a>) et, séparément, le <strong>site</strong> du manuel
-   (<a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/dev_docs_site.py" target="_blank" rel="noopener"><code>scripts/dev_docs_site.py</code></a>) — en commitant ce qui a changé, <code>[skip ci]</code>, pour que la
-   documentation ne soit jamais en retard de plus d'un commit sur une release. Un échec du
+   (<a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/dev_docs_site.py" target="_blank" rel="noopener"><code>scripts/dev_docs_site.py</code></a>) — en poussant ce qui a changé sur une branche
+   <code>release-docs/&lt;tag&gt;</code>. <code>main</code> est protégée (PR et checks obligatoires) : un mainteneur ouvre la
+   PR vers laquelle pointe le résumé du job et la fusionne une fois la CI au vert ; la
+   documentation a une PR de retard sur la release. Un échec du
    générateur ici est un avertissement fort, pas une release échouée : la release elle-même
    n'en dépend pas.</li>
 </ol>

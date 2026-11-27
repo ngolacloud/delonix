@@ -295,10 +295,11 @@ gh workflow run release.yml -f tag=v4.5.0                 # publishes it
    项目</em>）。</li>
 <li>发布 GitHub Release：当 <code>docs/releases/&lt;tag&gt;.md</code> 存在时，用它作为发布说明；否则用
    <code>--generate-notes</code>。</li>
-<li>检出 <code>main</code>，重新生成 <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/docs/RELEASES.md" target="_blank" rel="noopener"><code>docs/RELEASES.md</code></a>（<a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/gen-releases.sh" target="_blank" rel="noopener"><code>scripts/gen-releases.sh</code></a>）以及手册生成的
+<li>从 <code>main</code> 出发，重新生成 <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/docs/RELEASES.md" target="_blank" rel="noopener"><code>docs/RELEASES.md</code></a>（<a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/gen-releases.sh" target="_blank" rel="noopener"><code>scripts/gen-releases.sh</code></a>）以及手册生成的
    事实部分（<a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/dev_docs.py" target="_blank" rel="noopener"><code>scripts/dev_docs.py</code></a>），并单独重新生成手册的<strong>站点</strong>
-   （<a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/dev_docs_site.py" target="_blank" rel="noopener"><code>scripts/dev_docs_site.py</code></a>）——把有变化的部分提交上去，带 <code>[skip ci]</code>，这样文档就
-   永远不会比一次发布落后超过这一次提交。生成器在这一步失败只是一个响亮的警告，而不是一次
+   （<a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/dev_docs_site.py" target="_blank" rel="noopener"><code>scripts/dev_docs_site.py</code></a>）——把有变化的部分推送到 <code>release-docs/&lt;tag&gt;</code> 分支。
+   <code>main</code> 受保护（需要 PR 和必需的检查），所以由维护者打开 job 摘要里链接的 PR，等 CI
+   变绿后合并：文档比发布晚的就是这一个 PR。生成器在这一步失败只是一个响亮的警告，而不是一次
    失败的发布：发布本身并不依赖它。</li>
 </ol>
 <p>手册的<strong>叙述</strong>半边——这些页面上的文字——不会由 CI 重新生成。在一次发布发布出去之后，会有一位

@@ -126,9 +126,11 @@ a documentação, ele:
 1. regenera o site do utilizador contra a build de release e **falha** se `docs/` diferir;
 2. publica a GitHub Release com `docs/releases/<tag>.md` como notas (ou notas geradas quando esse
    ficheiro não existe);
-3. faz checkout da `main`, corre `scripts/gen-releases.sh` (o apêndice `docs/RELEASES.md`),
+3. parte da `main`, corre `scripts/gen-releases.sh` (o apêndice `docs/RELEASES.md`),
    `scripts/dev_docs.py` (os factos do manual) e `scripts/dev_docs_site.py` (o site do manual,
-   com `markdown` num virtualenv), e faz commit do que mudou na `main` com `[skip ci]`. Os
+   com `markdown` num virtualenv), e empurra o que mudou para uma branch `release-docs/<tag>`.
+   A `main` está protegida (PR e checks obrigatórios), por isso um mantenedor abre o PR para
+   que o resumo do job aponta e faz o merge quando o CI estiver verde. Os
    geradores correm em Python 3.12 (`actions/setup-python`, só a partir desse passo), porque o
    próprio runner do job traz um Python sem `tomllib`. Se um gerador falha, o passo faz commit na
    mesma do que foi regenerado e depois **falha**, a nomear o gerador — uma corrida de release

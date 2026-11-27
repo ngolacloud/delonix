@@ -349,9 +349,11 @@ it:</p>
 <li>regenerates the user site against the release build and <strong>fails</strong> if <code>docs/</code> differs;</li>
 <li>publishes the GitHub Release with <code>docs/releases/&lt;tag&gt;.md</code> as its notes (or generated notes when
    that file does not exist);</li>
-<li>checks out <code>main</code>, runs <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/gen-releases.sh" target="_blank" rel="noopener"><code>scripts/gen-releases.sh</code></a> (the <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/docs/RELEASES.md" target="_blank" rel="noopener"><code>docs/RELEASES.md</code></a> appendix),
+<li>starts from <code>main</code>, runs <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/gen-releases.sh" target="_blank" rel="noopener"><code>scripts/gen-releases.sh</code></a> (the <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/docs/RELEASES.md" target="_blank" rel="noopener"><code>docs/RELEASES.md</code></a> appendix),
    <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/dev_docs.py" target="_blank" rel="noopener"><code>scripts/dev_docs.py</code></a> (the handbook facts) and <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/dev_docs_site.py" target="_blank" rel="noopener"><code>scripts/dev_docs_site.py</code></a> (the handbook site,
-   with <code>markdown</code> in a virtualenv), and commits what changed to <code>main</code> with <code>[skip ci]</code>. The
+   with <code>markdown</code> in a virtualenv), and pushes what changed to a <code>release-docs/&lt;tag&gt;</code> branch.
+   <code>main</code> is protected (PR and required checks), so a maintainer opens the PR the job summary
+   links to and merges it once CI is green. The
    generators run on Python 3.12 (<code>actions/setup-python</code>, from that step on only), because the
    job's own runner ships a Python without <code>tomllib</code>. If a generator fails, the step still commits
    what did regenerate and then <strong>fails</strong>, naming the generator — a green release run no longer
