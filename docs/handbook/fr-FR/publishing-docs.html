@@ -356,9 +356,11 @@ documentation, il :</p>
 <li>régénère le site utilisateur contre le build de release et <strong>échoue</strong> si <code>docs/</code> diffère ;</li>
 <li>publie la GitHub Release avec <code>docs/releases/&lt;tag&gt;.md</code> comme notes (ou des notes générées lorsque
    ce fichier n'existe pas) ;</li>
-<li>fait un checkout de <code>main</code>, exécute <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/gen-releases.sh" target="_blank" rel="noopener"><code>scripts/gen-releases.sh</code></a> (l'annexe <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/docs/RELEASES.md" target="_blank" rel="noopener"><code>docs/RELEASES.md</code></a>),
+<li>part de <code>main</code>, exécute <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/gen-releases.sh" target="_blank" rel="noopener"><code>scripts/gen-releases.sh</code></a> (l'annexe <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/docs/RELEASES.md" target="_blank" rel="noopener"><code>docs/RELEASES.md</code></a>),
    <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/dev_docs.py" target="_blank" rel="noopener"><code>scripts/dev_docs.py</code></a> (les faits du manuel) et <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/dev_docs_site.py" target="_blank" rel="noopener"><code>scripts/dev_docs_site.py</code></a> (le site du manuel,
-   avec <code>markdown</code> dans un virtualenv), puis commite ce qui a changé sur <code>main</code> avec <code>[skip ci]</code>.
+   avec <code>markdown</code> dans un virtualenv), puis pousse ce qui a changé sur une branche
+   <code>release-docs/&lt;tag&gt;</code>. <code>main</code> est protégée (PR et checks obligatoires) : un mainteneur ouvre la
+   PR vers laquelle pointe le résumé du job et la fusionne une fois la CI au vert.
    Les générateurs tournent sous Python 3.12 (<code>actions/setup-python</code>, seulement à partir de cette
    étape), parce que le runner du job lui-même fournit un Python sans <code>tomllib</code>. Si un générateur
    échoue, l'étape commite quand même ce qui a été régénéré puis <strong>échoue</strong>, en nommant le

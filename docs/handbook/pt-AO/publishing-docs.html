@@ -355,9 +355,11 @@ a documentação, ele:</p>
 <li>regenera o site do utilizador contra a build de release e <strong>falha</strong> se <code>docs/</code> diferir;</li>
 <li>publica a GitHub Release com <code>docs/releases/&lt;tag&gt;.md</code> como notas (ou notas geradas quando esse
    ficheiro não existe);</li>
-<li>faz checkout da <code>main</code>, corre <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/gen-releases.sh" target="_blank" rel="noopener"><code>scripts/gen-releases.sh</code></a> (o apêndice <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/docs/RELEASES.md" target="_blank" rel="noopener"><code>docs/RELEASES.md</code></a>),
+<li>parte da <code>main</code>, corre <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/gen-releases.sh" target="_blank" rel="noopener"><code>scripts/gen-releases.sh</code></a> (o apêndice <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/docs/RELEASES.md" target="_blank" rel="noopener"><code>docs/RELEASES.md</code></a>),
    <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/dev_docs.py" target="_blank" rel="noopener"><code>scripts/dev_docs.py</code></a> (os factos do manual) e <a class="src" href="https://github.com/ngolacloud/delonix/blob/main/scripts/dev_docs_site.py" target="_blank" rel="noopener"><code>scripts/dev_docs_site.py</code></a> (o site do manual,
-   com <code>markdown</code> num virtualenv), e faz commit do que mudou na <code>main</code> com <code>[skip ci]</code>. Os
+   com <code>markdown</code> num virtualenv), e empurra o que mudou para uma branch <code>release-docs/&lt;tag&gt;</code>.
+   A <code>main</code> está protegida (PR e checks obrigatórios), por isso um mantenedor abre o PR para
+   que o resumo do job aponta e faz o merge quando o CI estiver verde. Os
    geradores correm em Python 3.12 (<code>actions/setup-python</code>, só a partir desse passo), porque o
    próprio runner do job traz um Python sem <code>tomllib</code>. Se um gerador falha, o passo faz commit na
    mesma do que foi regenerado e depois <strong>falha</strong>, a nomear o gerador — uma corrida de release

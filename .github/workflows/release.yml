@@ -394,9 +394,19 @@ jobs:
           fi
           python3 scripts/verify_release_assets.py --tag "$TAG" --repo "$GITHUB_REPOSITORY"
       # DYNAMIC documentation per release: the docs/RELEASES.md appendix
-      # (features per release) is regenerated from the notes and committed on
-      # main — the docs never lag the release. [skip ci] avoids re-triggering CI
-      # for this.
+      # (features per release) and the handbook's generated facts are regenerated
+      # from the notes and pushed to a `release-docs/<tag>` BRANCH, for a
+      # maintainer to merge into main through a PR.
+      #
+      # Not a direct push to main any more: main is protected (ruleset
+      # `ngolacloud-protected`: PR + required checks), and GitHub refuses the
+      # GitHub Actions app as a bypass actor of a repository ruleset. A PR also
+      # puts CI on this commit, which the old `[skip ci]` push never did:
+      # 5d0d5947 (v0.2.0's appendix) turned `lang ratchet` red on main and no run
+      # saw it. The step does not open the PR itself: this repository does not let
+      # GITHUB_TOKEN create PRs, and a PR opened with that token would not trigger
+      # CI anyway, so the required checks would never report. The link goes to the
+      # job summary instead; a PR a person opens runs CI as usual.
       #
       # A Python of its own ONLY from here on: this job runs on ubuntu-22.04 for the
       # binaries' glibc 2.35, and that runner's python3 is 3.10 — no `tomllib`
@@ -408,14 +418,15 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
-      - name: Update the releases appendix on main
+      - name: Update the releases appendix (branch for a PR into main)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "Walter Angolar"
           git config user.email "angolar.devops@gmail.com"
+          DOCS_BRANCH="release-docs/${TAG}"
           git fetch origin main
-          git checkout -B main origin/main
+          git checkout -B "$DOCS_BRANCH" origin/main
           bash scripts/gen-releases.sh
           # The generated facts of the contributor handbook follow the release too;
           # the narrative is reviewed by a person after the release is validated.
@@ -434,8 +445,16 @@ jobs:
           # file, which `git diff --quiet` does not see.
           if [ -n "$(git status --porcelain -- docs/RELEASES.md docs/dev docs/handbook)" ]; then
             git add docs/RELEASES.md docs/dev docs/handbook
-            git commit -m "docs(releases): appendix and handbook facts updated for ${TAG} [skip ci]"
-            git push origin main
+            git commit -m "docs(releases): appendix and handbook facts updated for ${TAG}"
+            git push origin "HEAD:refs/heads/${DOCS_BRANCH}"
+            PR_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/main...${DOCS_BRANCH}?expand=1"
+            echo "::notice::Release docs for ${TAG} pushed to ${DOCS_BRANCH} — open the PR into main: ${PR_URL}"
+            {
+              echo "### Release docs for ${TAG}"
+              echo
+              echo "Regenerated on \`${DOCS_BRANCH}\`. main is protected, so they reach it through a PR:"
+              echo "**[open the PR into main](${PR_URL})** — CI runs on it like on any other."
+            } >> "$GITHUB_STEP_SUMMARY"
           elif [ -z "$FAILED" ]; then
             echo "docs/RELEASES.md and docs/dev already up to date — nothing to commit"
           else

@@ -119,9 +119,11 @@ it:
 1. regenerates the user site against the release build and **fails** if `docs/` differs;
 2. publishes the GitHub Release with `docs/releases/<tag>.md` as its notes (or generated notes when
    that file does not exist);
-3. checks out `main`, runs `scripts/gen-releases.sh` (the `docs/RELEASES.md` appendix),
+3. starts from `main`, runs `scripts/gen-releases.sh` (the `docs/RELEASES.md` appendix),
    `scripts/dev_docs.py` (the handbook facts) and `scripts/dev_docs_site.py` (the handbook site,
-   with `markdown` in a virtualenv), and commits what changed to `main` with `[skip ci]`. The
+   with `markdown` in a virtualenv), and pushes what changed to a `release-docs/<tag>` branch.
+   `main` is protected (PR and required checks), so a maintainer opens the PR the job summary
+   links to and merges it once CI is green. The
    generators run on Python 3.12 (`actions/setup-python`, from that step on only), because the
    job's own runner ships a Python without `tomllib`. If a generator fails, the step still commits
    what did regenerate and then **fails**, naming the generator — a green release run no longer
