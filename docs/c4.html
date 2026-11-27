@@ -464,7 +464,7 @@ socket.</p>
         end
 
         subgraph PERCONT[&quot;Por container — quando aplicavel&quot;]
-            SUP[&quot;supervisor&lt;br&gt;fork da CLI em run -d&lt;br&gt;pai do container: waitpid, codigo real, --restart&quot;]
+            SUP[&quot;supervisor&lt;br&gt;fork da CLI em run -d&lt;br&gt;pai do container: waitpid, codigo real, --restart, --rm&quot;]
             CONT[&quot;processo do container&lt;br&gt;PID 1 proprio apos clone + exec&quot;]
             SLIRPN[&quot;slirp4netns por container&lt;br&gt;default (--net private) e com -p&quot;]
             SHIM[&quot;log shim&lt;br&gt;fork no spawn; escreve o log com rotacao&lt;br&gt;formato cru ou CRI&quot;]
@@ -513,7 +513,7 @@ socket.</p>
 <tr>
 <td>supervisor (<code>run -d</code>)</td>
 <td><code>run_supervised</code> (<code>crates/adapters/delonix-linux/src/supervise.rs</code>): a <code>fork</code> of the CLI that does the <code>clone</code> itself, so it is the container's parent; chosen by <code>should_supervise</code> (<code>crates/contexts/delonix-compute/src/domain/launch.rs</code>) for every detached start whose caller can fork</td>
-<td>lifetime of the container, restarts included: it reaps each exit, records the real status, applies <code>--restart</code> with capped backoff, and exits when the policy says stop</td>
+<td>lifetime of the container, restarts included: it reaps each exit, records the real status, applies <code>--restart</code> with capped backoff, and exits when the policy says stop — first removing the container as <code>rm -f</code> does when it was started with <code>--rm</code> (<code>Supervision::remove</code>, from <code>Launch::auto_remove</code>)</td>
 </tr>
 <tr>
 <td><code>netns pin</code></td>
@@ -542,8 +542,8 @@ socket.</p>
 </tr>
 <tr>
 <td><code>--rm</code> watcher</td>
-<td><code>spawn_rm_watcher</code> (<code>bins/delonix/src/cmd/container.rs</code>) — only on a detached start that is NOT supervised (<code>RunOpts.no_supervisor</code>, which no CLI flag sets)</td>
-<td>until the container exits; performs the same cleanup as <code>rm -f</code></td>
+<td><code>spawn_rm_watcher</code> (<code>bins/delonix/src/cmd/container.rs</code>) — only on a detached start that is NOT supervised (<code>RunOpts.no_supervisor</code>, which no CLI flag sets); a supervised <code>-d --rm</code> is removed by its supervisor instead</td>
+<td>until the container exits; performs the same cleanup as <code>rm -f</code> (<code>destroy_container</code>, shared with <code>rm</code> and the supervisor)</td>
 </tr>
 <tr>
 <td>microVM</td>
@@ -1087,22 +1087,22 @@ for (a, b), n in sorted(c.items()): print(f&quot;{a} -&gt; {b}: {n}&quot;)'
 <tr>
 <td>A</td>
 <td>delonix CLI, ephemeral (<code>container run</code>)</td>
-<td><a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/main.rs#L2228"><code>bins/delonix/src/main.rs:2228</code></a>; <code>cmd_run</code> in <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L3622"><code>bins/delonix/src/cmd/container.rs:3622</code></a></td>
+<td><a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/main.rs#L2228"><code>bins/delonix/src/main.rs:2228</code></a>; <code>cmd_run</code> in <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L3627"><code>bins/delonix/src/cmd/container.rs:3627</code></a></td>
 </tr>
 <tr>
 <td>A</td>
 <td>Arrow CLI → container (foreground)</td>
-<td><code>launch::start</code> at <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L4374"><code>container.rs:4374</code></a> → <a href="https://github.com/ngolacloud/delonix/blob/main/crates/contexts/delonix-compute/src/domain/launch.rs#L193"><code>delonix-compute/src/domain/launch.rs:193</code></a> → <code>HostWorkload::create</code> in <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/workload.rs#L52"><code>delonix-linux/src/workload.rs:52</code></a></td>
+<td><code>launch::start</code> at <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L4380"><code>container.rs:4380</code></a> → <a href="https://github.com/ngolacloud/delonix/blob/main/crates/contexts/delonix-compute/src/domain/launch.rs#L211"><code>delonix-compute/src/domain/launch.rs:211</code></a> → <code>HostWorkload::create</code> in <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/workload.rs#L57"><code>delonix-linux/src/workload.rs:57</code></a></td>
 </tr>
 <tr>
 <td>A</td>
 <td>Arrows CLI → supervisor ("fork") → container ("clone"), for <code>-d</code></td>
-<td><code>should_supervise</code> (detach) <a href="https://github.com/ngolacloud/delonix/blob/main/crates/contexts/delonix-compute/src/domain/launch.rs#L165"><code>launch.rs:165</code></a>; <code>fork</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/supervise.rs#L103"><code>supervise.rs:103</code></a>; <code>create_with</code> inside the fork <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/supervise.rs#L132"><code>supervise.rs:132</code></a></td>
+<td><code>should_supervise</code> (detach) <a href="https://github.com/ngolacloud/delonix/blob/main/crates/contexts/delonix-compute/src/domain/launch.rs#L183"><code>launch.rs:183</code></a>; <code>fork</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/supervise.rs#L152"><code>supervise.rs:152</code></a>; <code>create_with</code> inside the fork <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/supervise.rs#L181"><code>supervise.rs:181</code></a></td>
 </tr>
 <tr>
 <td>A</td>
 <td>Arrow CLI → per-container group</td>
-<td>log shim forked by the in-process spawn <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/lib.rs#L8966"><code>delonix-linux/src/lib.rs:8966</code></a>; slirp hook <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L3563"><code>container.rs:3563</code></a>; watcher <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L4802"><code>container.rs:4802</code></a></td>
+<td>log shim forked by the in-process spawn <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/lib.rs#L8966"><code>delonix-linux/src/lib.rs:8966</code></a>; slirp hook <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L3563"><code>container.rs:3563</code></a>; watcher <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L4800"><code>container.rs:4800</code></a></td>
 </tr>
 <tr>
 <td>A</td>
@@ -1132,7 +1132,7 @@ for (a, b), n in sorted(c.items()): print(f&quot;{a} -&gt; {b}: {n}&quot;)'
 <tr>
 <td>A</td>
 <td>Supervisor (<code>-d</code>, one per detached container)</td>
-<td><code>run_supervised</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/supervise.rs#L81"><code>delonix-linux/src/supervise.rs:81</code></a>; module doc <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/supervise.rs#L1"><code>supervise.rs:1</code></a></td>
+<td><code>run_supervised</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/supervise.rs#L130"><code>delonix-linux/src/supervise.rs:130</code></a>; module doc <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/supervise.rs#L1"><code>supervise.rs:1</code></a></td>
 </tr>
 <tr>
 <td>A</td>
@@ -1142,7 +1142,12 @@ for (a, b), n in sorted(c.items()): print(f&quot;{a} -&gt; {b}: {n}&quot;)'
 <tr>
 <td>A</td>
 <td><code>--rm</code> watcher (only without a supervisor: <code>RunOpts.no_supervisor</code>, no CLI flag)</td>
-<td><code>spawn_rm_watcher</code> <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L4802"><code>container.rs:4802</code></a>, reached only on the unsupervised detached path <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L4388"><code>container.rs:4388</code></a></td>
+<td><code>spawn_rm_watcher</code> <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L4800"><code>container.rs:4800</code></a>, reached only on the unsupervised detached path <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L4396"><code>container.rs:4396</code></a></td>
+</tr>
+<tr>
+<td>A</td>
+<td><code>--rm</code> on a supervised <code>-d</code>: the supervisor removes the container after its last exit</td>
+<td><code>auto_remove: rm</code> in <code>cmd_run</code> <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L4360"><code>container.rs:4360</code></a> → <code>remove: l.auto_remove.then_some(..)</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/workload.rs#L93"><code>workload.rs:93</code></a> → <code>leave</code>/<code>honour_rm</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/supervise.rs#L95"><code>supervise.rs:95</code></a>, called where the policy stops <a href="https://github.com/ngolacloud/delonix/blob/main/crates/adapters/delonix-linux/src/supervise.rs#L293"><code>supervise.rs:293</code></a>; the cleanup is <code>rm</code>'s own <code>destroy_container</code> <a href="https://github.com/ngolacloud/delonix/blob/main/bins/delonix/src/cmd/container.rs#L6760"><code>container.rs:6760</code></a>; <code>--rm</code> with a restart policy is refused by <code>check_auto_remove</code> <a href="https://github.com/ngolacloud/delonix/blob/main/crates/contexts/delonix-compute/src/domain/launch.rs#L172"><code>launch.rs:172</code></a></td>
 </tr>
 <tr>
 <td>A</td>
@@ -1233,8 +1238,9 @@ rootless ingress (the holder split into <code>netns pin</code> + <code>netns con
 detached supervisor (limitations 4 and 6, ADR-1) and the CRI's delegation (limitation 7,
 flow c). All four are now fixed in place in the sections above. Checking them also
 showed that limitation 1 (rootless <code>--net &lt;network&gt;</code>) had been closed by the re-exec
-path, and turned up one real gap, now limitation 9: <code>run -d --rm</code> does not remove the
-container on the supervised path.</p>
+path, and turned up one real gap: <code>run -d --rm</code> did not remove the container on the
+supervised path. That is fixed — the supervisor removes it after the last exit (rows
+above) — and <code>--rm</code> with a restart policy other than <code>no</code> is refused, as in Docker.</p>
 <hr />
 <h2>System design — main flows</h2>
 <h3>(a) rootless <code>container run</code> — default <code>--net private</code></h3>
@@ -1471,14 +1477,6 @@ annotated in the diagrams above.</p>
    is already dedicated cgroup2 delegation logic for Kind nodes (<code>setup_node_cgroup_ns</code>,
    enabled by <code>--privileged</code> + the <code>io.x-k8s.kind.*</code> label), but it is not enough.
    Investigation detail in <code>AGENTS.md</code> (section "Kind-mode cluster without Docker").</li>
-<li><strong><code>run -d --rm</code> does not remove the container on the supervised path.</strong> The <code>--rm</code>
-   cleanup is armed only in the unsupervised branch of <code>cmd_run</code> (<code>spawn_rm_watcher</code>,
-   <code>bins/delonix/src/cmd/container.rs</code>); when <code>launch::start</code> returns
-   <code>Started::Supervised</code> — every detached start from the CLI — <code>cmd_run</code> returns before
-   reaching it, and the supervisor's exit path (<code>run_supervised</code>) does not remove the
-   record. <code>container run -d --rm --net none python:3.11-slim
-   python3 -c 'import sys; sys.exit(3)'</code> leaves the container listed as <code>Exited (3)</code> (measured 2026-11-24 on <code>develop</code> at <code>6b8d18f3</code>).
-   The real exit code is kept (limitation 6), the auto-removal is not.</li>
 </ol>
 <hr />
 <h2>Architecture decisions (mini-ADRs)</h2>
