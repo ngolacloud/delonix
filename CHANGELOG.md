@@ -16,6 +16,55 @@ The prose notes for each historical release live in `docs/releases/v<tag>.md`
 
 ---
 
+## [0.2.1] - 2026-11-27 — a `depends_on` that names nothing is an error, not a panic
+
+Patch on top of `0.2.0`, cut from `main` (the released line) over the **9
+commits** that landed there since the tag: five user-facing fixes, and the rest
+test isolation and release tooling. Nothing from `develop` that is not already a
+fix of the released line comes here. Prose notes:
+[docs/releases/v0.2.1.md](docs/releases/v0.2.1.md).
+
+### Fixed
+
+- **A compose `depends_on` that names an undeclared service is a clear error,
+  not a panic** (#1060). `compose config`/`up` died with `no entry found for
+  key` (exit 101) whenever the missing name sorted before the service naming it
+  (`db` < `web`). `load_compose` now validates every edge after `extends:`, so
+  `config`, `up`, `down`, `ps` and `logs` all refuse the file with the same
+  message: `service 'web' depends_on undefined service 'db'`,
+  `service 'a' depends_on itself`, or `depends_on cycle: a -> b -> a` (the path,
+  where it used to say `circular depends_on involving: a, b`). Same for the
+  short and the long (`condition:`) forms.
+- **A cluster's node network never lands on the pod or service subnet** (#1054).
+  The `dlx-<name>` network (kind mode, and `cluster kubeadm` without
+  `--network`) was picked by name hash in 10.201–10.254, which contains
+  kubeadm's default podSubnet 10.244.0.0/16: about one name in 55 fell there,
+  and the API then hung from the host. The allocator now avoids the cluster's
+  ranges; an existing network on top of one is refused with DX-1704 before
+  anything is created, and kind mode checks its CIDRs against the engine's
+  other networks, as `cluster kubeadm` already did.
+- **`run -d --rm` removes the container when it exits** (#1051). The supervised
+  path returned before the `--rm` branch, so the container stayed listed as
+  `Exited` with its record and directory. `stop`/`kill` of a `-d --rm`
+  container now succeed instead of exiting 4, and `--rm` with a `--restart`
+  policy other than `no` is refused, as in Docker.
+- **`stack init -t django --up` becomes healthy** (#1050). The launcher puts
+  `/app` on `sys.path` before the in-process migrate; `os.chdir` alone did not,
+  and the container restarted on `ModuleNotFoundError: No module named 'config'`.
+- **The docs stop teaching `vm build`** (#1043), retired in #772: 32 files now
+  say `vm image build`, and `docs_cli_gate` covers those folders.
+
+### Internal
+
+- `delonix-sdn` tests that resolved the ambient root without the test lock
+  wrote into another test's temporary root; resolving it unpinned now fails
+  every run (#1046).
+- The scaffold unit tests no longer run the host's package manager against the
+  network (#1055).
+- The release gate ignores the check-runs of the run that is asking, which
+  read as red when the dispatch sat on the tag's commit (`e126a878`), and the
+  generated `docs/RELEASES.md` header is in English (#1043).
+
 ## [0.2.0] - 2026-11-22 — the container network is isolated by default, and the node is operable from outside
 
 First **minor** of the Delonix line: 102 commits since `0.1.2`. Under the
