@@ -1,0 +1,72 @@
+%% Docker vs Delonix — text twin of delonix-vs-docker.svg (source: gen_diagrams.py).
+%% Every element is confirmed in ARCHITECTURE.md, section "Diagrams".
+%% Faded (dashed-border) nodes are optional: born on demand, die with the resource.
+flowchart TB
+  subgraph DOCKER["Docker — 5 saltos · 2 daemons residentes"]
+    direction TB
+    dcli["Docker CLI<br/><code>docker run nginx</code><br/><small>cliente do socket do dockerd</small>"]
+    subgraph DHOST["Host"]
+      direction TB
+      dockerd["dockerd<br/><small>daemon residente</small>"]
+      containerd["containerd<br/><small>daemon residente</small>"]
+      shim["containerd-shim<br/><small>um por container</small>"]
+      runc["runc<br/><small>OCI runtime</small>"]
+      dctr["Container"]
+      dockerd -.-> containerd -.-> shim -.-> runc -.-> dctr
+    end
+    dk["Linux kernel"]
+    dcli -.-> dockerd
+    dctr ~~~ dk
+  end
+
+  subgraph DELONIX["Delonix — sem daemon: nenhum processo residente obrigatório"]
+    direction TB
+    subgraph LHOST["Host"]
+      direction TB
+      cli["delonix CLI<br/><code>delonix container run …</code><br/><small>efémera: termina após cada comando</small>"]
+      subgraph STATE["Estado: $DELONIX_ROOT (JSON)"]
+        json["um JSON por registo<br/><code>containers/ images/ cri/</code><br/><small>escrita atómica + flock</small>"]
+      end
+      sup["supervisor<br/><small>fork da CLI · um por container -d</small>"]
+      ctr["Container"]
+      subgraph PERC["Por container (opcional)"]
+        shimd["log shim<br/><small>fork; escreve o log</small>"]
+        slirp["slirp4netns<br/><small>um por container · --net private</small>"]
+        rmw["watcher --rm<br/><small>só sem supervisor (RunOpts)</small>"]
+      end
+      subgraph NET["Rede rootless (sob procura)"]
+        pin["netns pin<br/><small>userns + netns</small>"]
+        slirp1["slirp4netns<br/><small>único, partilhado</small>"]
+        ctl["netns control<br/><small>bridge delonix0 · nft · DHCP · DNS</small>"]
+      end
+      vm["microVM<br/><small>VmBackend: Cloud Hypervisor ou libvirt · vive com a VM</small>"]
+    end
+    k2["Linux kernel<br/><small>namespaces · cgroups v2 · nftables · seccomp</small>"]
+
+    cli == "primeiro plano: clone + namespaces + pivot_root + cgroups v2 (delonix-linux)" ==> ctr
+    cli -. "em -d: fork" .-> sup
+    sup -. "clone" .-> ctr
+    json <-. "lê e escreve" .-> cli
+    cli -.-> PERC
+    cli -.-> NET
+    cli -.-> vm
+    LHOST ~~~ k2
+  end
+
+  classDef docker fill:#fff,stroke:#0f766e,color:#0f172a
+  classDef delonix fill:#fff,stroke:#6d28d9,color:#0f172a
+  classDef optional fill:#fbfaff,stroke:#6d28d9,stroke-dasharray:3 3,color:#475569
+  classDef data fill:#fff,stroke:#15803d,color:#0f172a
+  classDef kernel fill:#e2e8f0,stroke:#94a3b8,color:#334155
+  class dcli,dockerd,containerd,shim,runc,dctr docker
+  class cli,ctr,sup delonix
+  class shimd,slirp,rmw,pin,slirp1,ctl,vm optional
+  class json data
+  class dk,k2 kernel
+  style DOCKER fill:#f0fdfa,stroke:#0f766e
+  style DELONIX fill:#faf7ff,stroke:#6d28d9
+  style DHOST fill:none,stroke:#0f766e,stroke-dasharray:5 4
+  style LHOST fill:none,stroke:#6d28d9,stroke-dasharray:5 4
+  style STATE fill:none,stroke:#15803d,stroke-dasharray:5 4
+  style PERC fill:none,stroke:#6d28d9,stroke-dasharray:5 4
+  style NET fill:none,stroke:#6d28d9,stroke-dasharray:5 4

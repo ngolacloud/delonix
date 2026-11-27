@@ -21,7 +21,11 @@
 # não é excepção — é o bug que este gate existe para apanhar.
 
 # --- PROSA ---------------------------------------------------------------
-docs/c4.html	delonix netns	rótulo mermaid do re-exec interno `delonix netns holder`, não um comando público
+docs/c4.html	delonix netns	hidden entry point intercepted in main.rs before clap (network pin/control/run of the rootless infra) — named on purpose to explain the processes
+docs/c4.html	delonix netns pin	hidden entry point intercepted in main.rs before clap (network pin/control/run of the rootless infra) — named on purpose to explain the processes
+docs/c4.html	delonix netns control	hidden entry point intercepted in main.rs before clap (network pin/control/run of the rootless infra) — named on purpose to explain the processes
+docs/c4.html	delonix netns run	hidden entry point intercepted in main.rs before clap (network pin/control/run of the rootless infra) — named on purpose to explain the processes
+docs/c4.html	delonix netns run spec	hidden entry point intercepted in main.rs before clap (network pin/control/run of the rootless infra) — named on purpose to explain the processes (the argument of the re-exec, in a Mermaid label)
 docs/kinds.html	delonix extension	comentário YAML bilingue: «extensão delonix» (um campo do motor), não uma invocação
 docs/kinds.html	delonix spellings also	comentário YAML sobre as grafias de valores aceites, não uma invocação
 docs/kinds.html	delonix does not provision the	comentário YAML: contraste (o delonix não provisiona o LB do control-plane), não uma invocação
