@@ -108,7 +108,7 @@ catalogue has to cite the evidence that exists, or it stays ``partial``
 ``reports/`` carries dated measurements with what failed written out in full,
 rather than a summary of what went well.
 
-**And the honest verdict.** This is a ``0.1.x`` line, with one maintainer. The
+**And the honest verdict.** This is a ``0.2.x`` line, with one maintainer. The
 ``delonix-runtime`` line (v1.0.0 … v5.1.1) is frozen history and the Delonix line
 opens at ``0.1.0`` — a new line, not a regression (see
 `VERSIONING.md <VERSIONING.md>`_). **GO** for a single node without failover:
@@ -221,7 +221,7 @@ The differentiator is **architecture, measured** — not a benchmark win:
   *secure* path is the slower one, and it is the first item on the optimization
   list. See `docs/measured-comparison.md <docs/measured-comparison.md>`_.
 
-What it is **not**: a young line (``0.1.x``), without Docker's or Podman's
+What it is **not**: a young line (``0.2.x``), without Docker's or Podman's
 ecosystem, registry reach, or years of production hardening. The pitch is not
 "faster than Docker" or "better at everything" — it is the **integrated,
 daemonless, rootless path from a container to a production Kubernetes node with
@@ -489,7 +489,7 @@ The honest verdict, from a measured GO/NO-GO review against Docker and Podman:
   guarantees below are not proven yet. Said plainly so nobody is surprised in an
   outage.
 
-This is a ``0.1.x`` line. The gaps are tracked, each with the way out:
+This is a ``0.2.x`` line. The gaps are tracked, each with the way out:
 
 .. list-table::
    :header-rows: 1
