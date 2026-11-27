@@ -3285,6 +3285,18 @@ pub fn apply(docs: &[ManifestDoc], base_dir: &std::path::Path) -> Result<()> {
             spec.backend.clone(),
             image_meta.as_ref(),
         );
+        // The image's own kernel (BOOT direct), through the same function as
+        // the CLI `vm create`.
+        let (boot_kernel, boot_initrd, boot_cmdline) = image_boot_defaults(
+            (
+                spec.kernel.clone(),
+                spec.initrd.clone(),
+                spec.cmdline.clone(),
+            ),
+            spec.firmware.as_deref(),
+            image_meta.as_ref(),
+            &images,
+        )?;
 
         let (vcpus_max, memory_max_mib) = manifest_ceilings(
             name,
@@ -3397,10 +3409,10 @@ pub fn apply(docs: &[ManifestDoc], base_dir: &std::path::Path) -> Result<()> {
             // `metadata.namespace`, the same source every other Kind reads it
             // from — a VM does not get a namespace field of its own in `spec`.
             namespace: doc.metadata.namespace.clone(),
-            kernel: spec.kernel,
-            initrd: spec.initrd,
+            kernel: boot_kernel,
+            initrd: boot_initrd,
             firmware: spec.firmware,
-            cmdline: spec.cmdline,
+            cmdline: boot_cmdline,
             seed,
             hostname: spec.hostname,
             ci_user: None,
@@ -3508,6 +3520,54 @@ fn resolve_vm_defaults(
         .unwrap_or_else(default_memory);
     let backend = backend.or_else(|| image_meta.and_then(|m| m.default_backend.clone()));
     (vcpus, memory, backend)
+}
+
+/// The boot a VM gets from its image (ADR-0103, `BOOT direct`): when the
+/// caller chose neither `--kernel` nor `--firmware` and the image carries its
+/// own kernel, that kernel and initrd boot it — after their sha256 is checked
+/// against what the build recorded, so a file swapped under the image is a
+/// refusal, not a VM booting someone else's kernel. A caller's `--cmdline`
+/// still wins over the image's. Anything the caller chose is left alone, and
+/// an image without `boot` changes nothing.
+type BootFields = (Option<String>, Option<String>, Option<String>);
+
+fn image_boot_defaults(
+    (kernel, initrd, cmdline): BootFields,
+    firmware: Option<&str>,
+    image: Option<&super::vmimage::VmImage>,
+    store: &super::vmimage::VmImageStore,
+) -> Result<BootFields> {
+    let (Some(img), None, None) = (image, kernel.as_ref(), firmware) else {
+        return Ok((kernel, initrd, cmdline));
+    };
+    let Some(b) = &img.boot else {
+        return Ok((kernel, initrd, cmdline));
+    };
+    let check = |path: std::path::PathBuf, want: &str, what: &str| -> Result<String> {
+        let got = super::vmimage::hex_sha256_file(&path).map_err(|e| {
+            Error::Invalid(super::po::tf(
+                "image '{name}' boots directly, but its {what} {path} cannot be read ({err}) — rebuild the image, or pass --firmware to boot through its bootloader",
+                &[("name", &img.name), ("what", what), ("path", &path.display().to_string()), ("err", &e.to_string())],
+            ))
+        })?;
+        if got != want {
+            return Err(Error::Invalid(super::po::tf(
+                "image '{name}': its {what} {path} is not the one the build recorded (sha256 {got}, expected {want}) — refusing to boot it",
+                &[("name", &img.name), ("what", what), ("path", &path.display().to_string()), ("got", &got), ("want", want)],
+            )));
+        }
+        Ok(path.to_string_lossy().into_owned())
+    };
+    let k = check(store.kernel_path(&img.name), &b.kernel_sha256, "kernel")?;
+    let i = match initrd {
+        Some(i) => i,
+        None => check(store.initrd_path(&img.name), &b.initrd_sha256, "initrd")?,
+    };
+    Ok((
+        Some(k),
+        Some(i),
+        cmdline.or_else(|| Some(b.cmdline.clone())),
+    ))
 }
 
 pub fn run(action: VmCmd) -> Result<()> {
@@ -3684,6 +3744,12 @@ pub fn run(action: VmCmd) -> Result<()> {
             };
             let (vcpus, memory, backend) =
                 resolve_vm_defaults(vcpus, memory, backend, image_meta.as_ref());
+            let (kernel, initrd, cmdline) = image_boot_defaults(
+                (kernel, initrd, cmdline),
+                firmware.as_deref(),
+                image_meta.as_ref(),
+                &super::vmimage::VmImageStore::open(super::util::state_root())?,
+            )?;
             // ADR-0068 D3: the ceiling is declared at create, cold, and never
             // below the boot size — a hotplug region narrower than the VM
             // already is would be nonsensical, not a fixed-up number.
@@ -7072,6 +7138,69 @@ mod tests {
             assert!(!looks_like_address(n), "'{n}' is a VM name");
         }
     }
+    /// ADR-0103 P2: a direct-boot image boots its own kernel when the caller
+    /// chose none; the caller's choice wins; a swapped kernel is refused.
+    #[test]
+    fn a_direct_boot_image_brings_its_kernel_unless_the_caller_chose() {
+        let (_tmp, store) = test_store();
+        std::fs::write(store.kernel_path("img:1"), b"kernel").unwrap();
+        std::fs::write(store.initrd_path("img:1"), b"initrd").unwrap();
+        let sha = |p: std::path::PathBuf| super::super::vmimage::hex_sha256_file(&p).unwrap();
+        let mut img = test_image("img:1");
+        img.boot = Some(super::super::vmimage::ImageBoot {
+            kernel_version: "6.12".into(),
+            kernel_sha256: sha(store.kernel_path("img:1")),
+            initrd_sha256: sha(store.initrd_path("img:1")),
+            cmdline: "root=UUID=abcd ro console=ttyS0".into(),
+        });
+        let none = (None, None, None);
+
+        let (k, i, c) = super::image_boot_defaults(none.clone(), None, Some(&img), &store).unwrap();
+        assert_eq!(
+            k.as_deref(),
+            Some(store.kernel_path("img:1").to_str().unwrap())
+        );
+        assert_eq!(
+            i.as_deref(),
+            Some(store.initrd_path("img:1").to_str().unwrap())
+        );
+        assert_eq!(c.as_deref(), Some("root=UUID=abcd ro console=ttyS0"));
+
+        // The caller's --cmdline wins; --kernel or --firmware leave it all alone.
+        let (_, _, c) =
+            super::image_boot_defaults((None, None, Some("x".into())), None, Some(&img), &store)
+                .unwrap();
+        assert_eq!(c.as_deref(), Some("x"));
+        let mine = (Some("/k".into()), None, None);
+        assert_eq!(
+            super::image_boot_defaults(mine.clone(), None, Some(&img), &store).unwrap(),
+            mine
+        );
+        assert_eq!(
+            super::image_boot_defaults(none.clone(), Some("/fw"), Some(&img), &store).unwrap(),
+            none
+        );
+
+        // An image without boot changes nothing.
+        let plain = test_image("plain:1");
+        assert_eq!(
+            super::image_boot_defaults(none.clone(), None, Some(&plain), &store).unwrap(),
+            none
+        );
+
+        // A kernel swapped under the image is refused, and so is a missing one.
+        std::fs::write(store.kernel_path("img:1"), b"someone else's").unwrap();
+        let e = super::image_boot_defaults(none.clone(), None, Some(&img), &store)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("not the one the build recorded"), "{e}");
+        std::fs::remove_file(store.kernel_path("img:1")).unwrap();
+        let e = super::image_boot_defaults(none, None, Some(&img), &store)
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("cannot be read"), "{e}");
+    }
+
     #[test]
     fn resolve_vm_defaults_explicit_cli_wins_over_the_image() {
         let img = image_with_defaults(Some(4), Some("4G".into()), Some("cloud-hypervisor".into()));

@@ -326,7 +326,7 @@ fn write_lines(path: &str, lines: &[String]) -> String {
 /// Sets `key=value` under `[main]` in `/etc/dnf/dnf.conf`, replacing it when
 /// present. dnf has no drop-in directory for `[main]`, and the file shipped by
 /// every cloud image holds only that section.
-fn dnf_conf(key: &str, value: &str) -> String {
+pub(crate) fn dnf_conf(key: &str, value: &str) -> String {
     format!(
         "if grep -q '^{key}=' /etc/dnf/dnf.conf; then sed -i 's/^{key}=.*/{key}={value}/' /etc/dnf/dnf.conf; \
          else printf '%s\\n' '{key}={value}' >> /etc/dnf/dnf.conf; fi"

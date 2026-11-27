@@ -104,6 +104,29 @@ pub struct VmImage {
     pub built_by: Option<String>,
     #[serde(default)]
     pub base_sha256: Option<String>,
+    /// Direct kernel boot (ADR-0103, `BOOT direct` in a Vmfile): the image
+    /// carries its kernel and initrd beside the qcow2
+    /// ([`VmImageStore::kernel_path`]/[`VmImageStore::initrd_path`]) and
+    /// `vm create` boots them unless told `--kernel`/`--firmware`. `None` —
+    /// every image built before this field, and every `BOOT firmware` one —
+    /// boots through firmware and the bootloader inside the disk, as always.
+    #[serde(default)]
+    pub boot: Option<ImageBoot>,
+}
+
+/// What a direct-boot image records about the kernel it carries.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImageBoot {
+    /// `uname -r` shape, read from inside the image at build time.
+    pub kernel_version: String,
+    /// sha256 of `<name>.vmlinuz` / `<name>.initrd` in the store, so a file
+    /// swapped under the image is detectable.
+    pub kernel_sha256: String,
+    pub initrd_sha256: String,
+    /// The full kernel command line, `root=UUID=<uuid>` included — read from
+    /// the disk at build time, never guessed (`/dev/vda1` is a different name
+    /// under virtio-scsi).
+    pub cmdline: String,
 }
 
 impl VmImage {
@@ -317,6 +340,16 @@ impl VmImageStore {
             .join(format!("{}.packages.tsv", Self::sanitize(name)))
     }
 
+    /// The kernel a direct-boot image carries (`VmImage::boot`).
+    pub fn kernel_path(&self, name: &str) -> PathBuf {
+        self.root.join(format!("{}.vmlinuz", Self::sanitize(name)))
+    }
+
+    /// The initrd a direct-boot image carries (`VmImage::boot`).
+    pub fn initrd_path(&self, name: &str) -> PathBuf {
+        self.root.join(format!("{}.initrd", Self::sanitize(name)))
+    }
+
     pub fn base_cache_path(&self, distro: Distro, release: &str) -> PathBuf {
         // `sanitize` (not applied here before — security-audit finding, see
         // AGENTS.md) strips `/` from `release`, preventing
@@ -501,6 +534,22 @@ pub(crate) fn cmd_rm(store: &VmImageStore, names: &[String], force: bool) -> Res
                 ));
                 failed = true;
                 continue;
+            }
+        }
+        // A direct-boot image's kernel and initrd go with it (the same VMs
+        // that back onto the disk boot them, so the refusal above covers them).
+        for side in [store.kernel_path(&img.name), store.initrd_path(&img.name)] {
+            if let Err(e) = std::fs::remove_file(&side) {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    super::output::warn(&super::po::tf(
+                        "VM image '{name}': could not remove {path} ({err})",
+                        &[
+                            ("name", name),
+                            ("path", &side.display().to_string()),
+                            ("err", &e.to_string()),
+                        ],
+                    ));
+                }
             }
         }
         // Bookkeeping last: until this line the image is still listed, which is
@@ -1289,6 +1338,17 @@ fn describe_one(store: &VmImageStore, img: &VmImage) {
         img.kernel_version.as_deref().unwrap_or("<unknown>"),
     );
     d.field("K8s", img.k8s_version.as_deref().unwrap_or("<unknown>"));
+    // How it boots decides what `vm create` passes the hypervisor, and why
+    // `vm push` refuses it (ADR-0103) — so it is shown, not inferred.
+    match &img.boot {
+        Some(b) => {
+            d.field("Boot", format!("direct (kernel {})", b.kernel_version));
+            d.field("Cmdline", &b.cmdline);
+        }
+        None => {
+            d.field("Boot", "firmware");
+        }
+    }
     // Worth a line of its own: this is what makes `vm create` skip the seed
     // and refuse `--hostname`/`--ssh-key`, and without it that refusal reads
     // as arbitrary.
@@ -1765,6 +1825,7 @@ pub(crate) fn official_distro_base(
         packages_sha256: None,
         built_by: None,
         base_sha256: None,
+        boot: None,
     };
     // Same metadata path a plain `vm pull` takes, so the base lands in the
     // store indistinguishable from one pulled by hand — including showing up
@@ -1827,6 +1888,7 @@ pub(crate) fn official_tag_for(img: &VmImage, local_name: &str) -> String {
 
 pub(crate) fn cmd_push(store: &VmImageStore, name: &str, target: Option<&str>) -> Result<()> {
     let img = store.get(name)?;
+    refuse_push_of_direct_boot(&img)?;
     // With no destination, publish where this image belongs — decided from the
     // image's own metadata, not from a flag the caller has to remember. A tag
     // that is not a valid OCI reference is rewritten the way the appliances
@@ -2006,6 +2068,7 @@ pub(crate) fn cmd_import(store: &VmImageStore, args: ImportArgs) -> Result<()> {
         packages_sha256: None,
         built_by: None,
         base_sha256: None,
+        boot: None,
     };
     store.save(&img)?;
     println!("{tag}");
@@ -2219,6 +2282,7 @@ pub(crate) fn cmd_pull(store: &VmImageStore, source: &str, name: Option<String>)
         packages_sha256: None,
         built_by: None,
         base_sha256: None,
+        boot: None,
     };
     let img = apply_pulled_annotations(img, &annotations);
     store.save(&img)?;
@@ -2346,6 +2410,21 @@ fn detect_kernel_version(qcow2: &std::path::Path) -> Option<String> {
         .filter(|v| !v.is_empty())
         .map(str::to_string)
         .max()
+}
+
+/// A direct-boot image is refused by `vm push` until the OCI artifact carries
+/// its kernel and initrd (ADR-0103 P3): the artifact would hold only the qcow2,
+/// and an image whose recipe removed the bootloader would arrive unbootable —
+/// published, pulled and created without a word, the failure this repo names
+/// as its worst.
+pub(crate) fn refuse_push_of_direct_boot(img: &VmImage) -> Result<()> {
+    if img.boot.is_some() {
+        return Err(Error::Invalid(super::po::tf(
+            "{name} boots its own kernel directly (BOOT direct), and a pushed VM image carries only the qcow2 — the kernel and initrd would be left behind. Pushing direct-boot images arrives with ADR-0103 phase P3; rebuild with BOOT firmware to publish this one",
+            &[("name", &img.name)],
+        )));
+    }
+    Ok(())
 }
 
 /// `2cpu/2G` — what `vm create` will use when `--vcpus`/`--memory` are absent.
@@ -3065,6 +3144,7 @@ platform cannot learn a VM's address and a backup is not quiesced",
         packages_sha256,
         built_by: Some(format!("delonix {}", env!("CARGO_PKG_VERSION"))),
         base_sha256,
+        boot: None,
     };
     store.save(&img)?;
     println!("{tag}");
@@ -6398,6 +6478,44 @@ mod tests {
     }
 
     use super::*;
+
+    /// ADR-0103 P2: `vm push` refuses a direct-boot image (the artifact would
+    /// leave its kernel behind) and `vm image rm` takes the kernel and initrd
+    /// with it.
+    #[test]
+    fn a_direct_boot_image_is_not_pushed_and_is_removed_whole() {
+        let d = tempfile::tempdir().unwrap();
+        let store = VmImageStore::open(d.path()).unwrap();
+        let mut img = VmImage {
+            name: "db:1".into(),
+            tag: "db:1".into(),
+            ..Default::default()
+        };
+        assert!(refuse_push_of_direct_boot(&img).is_ok());
+        img.boot = Some(ImageBoot::default());
+        let e = refuse_push_of_direct_boot(&img).unwrap_err().to_string();
+        assert!(e.contains("P3") && e.contains("BOOT direct"), "{e}");
+
+        store.save(&img).unwrap();
+        for p in [
+            store.qcow2_path("db:1"),
+            store.kernel_path("db:1"),
+            store.initrd_path("db:1"),
+        ] {
+            std::fs::write(p, b"x").unwrap();
+        }
+        // cmd_rm only READS the state root (VMs backed by this disk); none of
+        // them can point into a fresh temporary store.
+        cmd_rm(&store, &["db:1".to_string()], false).unwrap();
+        for p in [
+            store.qcow2_path("db:1"),
+            store.kernel_path("db:1"),
+            store.initrd_path("db:1"),
+        ] {
+            assert!(!p.exists(), "{} survived the rm", p.display());
+        }
+        assert!(store.get("db:1").is_err());
+    }
 
     /// `vm image init` writes a `Vmfile`; over an existing recipe it refuses,
     /// and `--force` overwrites that recipe under ITS spelling instead of

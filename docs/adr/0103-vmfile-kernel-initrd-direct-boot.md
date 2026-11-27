@@ -1,8 +1,8 @@
 # ADR-0103: The kernel is declared in the Vmfile, and an image can boot it directly (`KERNEL`, `INITRD`, `BOOT`)
 
 - **Status:** Accepted (2026-11-27, by the owner). Spike S0 is **GO**. **P1 built** (`KERNEL`,
-  `INITRD`, `kernel_version` always recorded) on `feat/vmfile-kernel` — see
-  the addendum. P2 and P3 to build.
+  `INITRD`, `kernel_version` always recorded) and **P2 built** (`BOOT direct`) — see the
+  addenda. P3 (push/pull) to build.
 - **Date:** 2026-11-27
 - **Deciders:** Walter Angolar
 - **Relates to:** the first phase of small images (PR #1056: `SLIM`, `INSTALL`, `REMOVE`,
@@ -180,4 +180,29 @@ Debian trixie, `images/samba`, built with the network and booted directly in Clo
   promise otherwise.
 - Two bugs in the generated shell were caught by the real build: a `; ;` and a loop exiting 1.
   Both now have tests that execute or parse every generated command.
+
+
+
+## Addendum — what building P2 measured (2026-11-27)
+
+- `BOOT direct` on `images/samba`: the kernel (11.2 MiB) and initrd (10.7 MiB) were extracted
+  beside the qcow2 with their sha256. The command line was recorded with the root filesystem's
+  UUID, read through libguestfs' `inspect-os` + `vfs-uuid`.
+- `vm create` from that image, with no `--kernel`, on both backends:
+  - **libvirt** (`qemu:///system`, NAT): `<kernel>`, `<initrd>` and `<cmdline>` were in the
+    domain;
+  - **Cloud Hypervisor** (rootless): `--kernel`, `--initramfs` and `--cmdline` were on the
+    process.
+
+  In both, ssh logged in, `/proc/cmdline` was the image's own (not grub's), `smbd` and `ssh` were
+  active, the kernel packages were held, and the machine-id was the VM's own.
+- **Not needed after all:** the engine already gives every Cloud Hypervisor disk an explicit
+  `image_type` (the boot disk is a qcow2 overlay), so the `image_type=raw` finding of S0 needed no
+  change.
+- **`KERNEL --file=` is not built.** P1 measured that a distro kernel cannot boot without an
+  initrd, so a kernel from outside the image needs its own decision about where its initrd comes
+  from. The parser refuses it and says so.
+- **A trap in the proof, not in the code:** several sessions on one machine share `target/`.
+  Mid-proof another session's build replaced `target/debug/delonix`, and three `vm create`s ran
+  without this code. The proof was re-run with a pinned copy of the binary.
 

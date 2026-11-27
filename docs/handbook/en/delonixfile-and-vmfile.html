@@ -749,6 +749,11 @@ may come first. <code>\</code> continuations are joined; a <code>#</code> starts
 <td>Rebuilds the image kernel's initrd with exactly those drivers: initramfs-tools <code>MODULES=list</code>, or dracut <code>--no-hostonly --drivers</code>. Never host-only (the host is the appliance). After <code>KERNEL</code> when the stage has one; at most one per stage. List the root filesystem's module too (<code>ext4</code>, <code>xfs</code>, <code>btrfs</code>). Measured on Debian trixie's cloud kernel 6.12.118: 18.6 MiB (<code>MODULES=most</code>) → 10.7 MiB, same boot; what remains is mostly initramfs-tools' userspace (udev's <code>hwdb.bin</code> alone is 12.4 MiB uncompressed), not modules. That kernel cannot drop the initrd: <code>virtio_blk</code> is a module, and without one the kernel waits for its root forever.</td>
 </tr>
 <tr>
+<td><code>BOOT firmware|direct [--cmdline=&lt;…&gt;]</code></td>
+<td>image</td>
+<td><code>firmware</code> (the default) boots through the bootloader inside the disk. <code>direct</code> copies the image's kernel and initrd out of the final disk into the store, beside the qcow2 (<code>&lt;name&gt;.vmlinuz</code>, <code>&lt;name&gt;.initrd</code>, each with its sha256 in <code>VmImage.boot</code>), holds the kernel packages in the guest (a kernel upgraded inside the VM would never be booted), and records the command line: <code>root=UUID=&lt;uuid&gt; ro</code> read from the disk, then <code>--cmdline</code> (default <code>console=ttyS0</code>; a <code>root=</code> there is refused). <code>vm create</code> and a <code>VirtualMachine</code> manifest boot them when given neither <code>--kernel</code> nor <code>--firmware</code>, after checking both sha256; <code>vm push</code> refuses the image until ADR-0103 P3. grub stays in the disk. Once per file.</td>
+</tr>
+<tr>
 <td><code>BUDGET &lt;n&gt;K|M\|G</code></td>
 <td>image</td>
 <td>Fails the build when the final root filesystem uses more than that (binary units). See <em>Declaring a small image</em>.</td>

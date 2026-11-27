@@ -1148,6 +1148,8 @@ pub(crate) fn plan(name: &str, img: &Image, dir: &Path, cli_network: bool) -> Re
         budget: None,
         // `cleanup:` above already resets identity, and honours `machine_id: false`.
         reset_identity: false,
+        // vm.yaml has no `boot:` yet (the front-end parity follow-up of ADR-0103).
+        boot: None,
     };
     Ok(base(Route::Custom(Box::new(vf))))
 }

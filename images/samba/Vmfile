@@ -18,6 +18,10 @@ SLIM --docs=off --recommends=off --locales=pt,en
 # the kernel's modules).
 KERNEL linux-image-cloud-amd64 --purge-others
 INITRD --modules=virtio_pci,virtio_blk,virtio_scsi,ext4
+# The kernel and initrd travel beside the qcow2 and `vm create` boots them
+# directly — no firmware, no bootloader on the boot path. grub stays in the disk
+# (BOOT direct removes nothing), so the image also boots through firmware.
+BOOT direct
 
 # ── what goes in ──────────────────────────────────────────────────────────
 INSTALL samba
