@@ -3,8 +3,10 @@
 //! `KERNEL <package> [--purge-others]` installs the kernel the image boots and,
 //! with `--purge-others`, removes every other kernel with its modules.
 //! `INITRD --modules=<list>` rebuilds that kernel's initrd with exactly those
-//! drivers. `BOOT direct` (P2) and `KERNEL --file=` (which implies it) are not
-//! here yet, and the parser says so rather than accepting them.
+//! drivers. `BOOT direct` (P2) extracts that kernel and initrd beside the qcow2
+//! so `vm create` boots them with no firmware and no bootloader. `KERNEL
+//! --file=` (a kernel from outside the image) is not here yet, and the parser
+//! says so rather than accepting it.
 //!
 //! **Never `uname -r`.** Inside `virt-customize` the running kernel is the
 //! libguestfs appliance's, not the guest's: an initrd built for it would not
@@ -35,8 +37,8 @@ pub(crate) fn parse_kernel(rest: &str) -> std::result::Result<KernelSpec, String
             "--purge-others" => purge_others = true,
             f if f.starts_with("--file") => {
                 return Err(
-                    "KERNEL --file= arrives with BOOT direct (ADR-0103 phase P2): a kernel from \
-                     outside the image is only bootable directly"
+                    "KERNEL --file= is not built yet (ADR-0103): a kernel from outside the image \
+                     needs its own initrd story — a distro kernel cannot boot without one"
                         .into(),
                 )
             }
@@ -118,6 +120,109 @@ pub(crate) fn kver_fn() -> String {
          ls -d /lib/modules/*/vmlinuz 2>/dev/null | sed 's#^/lib/modules/##; s#/vmlinuz$##'; }} | sort -uV | tail -1); fi; \
          printf '%s' \"$v\"; }}"
     )
+}
+
+/// `BOOT firmware|direct [--cmdline=<…>]`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BootSpec {
+    /// `direct`: the kernel and initrd are extracted beside the qcow2 and
+    /// booted with no firmware. `firmware`: today's path, stated explicitly.
+    pub(crate) direct: bool,
+    /// What goes after `root=UUID=<uuid> ro` (default `console=ttyS0`).
+    pub(crate) cmdline: Option<String>,
+}
+
+/// The kernel command line `BOOT direct` uses when the recipe gives none:
+/// `vm console` is a serial console.
+pub(crate) const DEFAULT_CMDLINE: &str = "console=ttyS0";
+
+/// `BOOT direct --cmdline="console=ttyS0 quiet"`.
+pub(crate) fn parse_boot(rest: &str) -> std::result::Result<BootSpec, String> {
+    let rest = rest.trim();
+    let (mode, tail) = match rest.split_once(char::is_whitespace) {
+        Some((m, t)) => (m, t.trim()),
+        None => (rest, ""),
+    };
+    let direct = match mode {
+        "direct" => true,
+        "firmware" => false,
+        "" => return Err("BOOT needs a mode: firmware or direct".into()),
+        other => {
+            return Err(format!(
+                "BOOT: '{other}' is not a mode — firmware or direct"
+            ))
+        }
+    };
+    let cmdline = if tail.is_empty() {
+        None
+    } else {
+        let v = tail
+            .strip_prefix("--cmdline=")
+            .ok_or_else(|| format!("BOOT takes only --cmdline=<…> after the mode, got '{tail}'"))?;
+        // The value is the rest of the line; one pair of surrounding quotes is
+        // the recipe's, not the kernel's.
+        let v = v
+            .strip_prefix('"')
+            .and_then(|x| x.strip_suffix('"'))
+            .or_else(|| v.strip_prefix('\'').and_then(|x| x.strip_suffix('\'')))
+            .unwrap_or(v)
+            .trim();
+        if !direct {
+            return Err(
+                "BOOT firmware --cmdline: with firmware boot the bootloader inside the disk owns \
+                 the command line — use BOOT direct, or set it in the image (grub)"
+                    .into(),
+            );
+        }
+        if v.is_empty() {
+            return Err("BOOT --cmdline= is empty — drop it to get console=ttyS0".into());
+        }
+        if !v.chars().all(|c| c.is_ascii_graphic() || c == ' ') || v.contains(['"', '\'', '\\']) {
+            return Err("BOOT --cmdline: printable ASCII only, no quotes or backslashes".into());
+        }
+        if v.split_whitespace().any(|w| w.starts_with("root=")) {
+            return Err(
+                "BOOT --cmdline must not set root= — the build reads the root filesystem's UUID \
+                 from the disk and adds it"
+                    .into(),
+            );
+        }
+        Some(v.to_string())
+    };
+    Ok(BootSpec { direct, cmdline })
+}
+
+/// The full command line of a direct-boot image: the root the build read from
+/// the disk, mounted read-only as a distro's bootloader does (systemd remounts
+/// it as `/etc/fstab` says), then the recipe's own arguments.
+pub(crate) fn boot_cmdline(root_uuid: &str, extra: Option<&str>) -> String {
+    format!(
+        "root=UUID={root_uuid} ro {}",
+        extra.unwrap_or(DEFAULT_CMDLINE)
+    )
+}
+
+/// The root filesystem's UUID as `guestfish vfs-uuid` prints it. Strict, since
+/// it becomes part of every VM's kernel command line.
+pub(crate) fn valid_uuid(u: &str) -> bool {
+    (8..=64).contains(&u.len()) && u.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+}
+
+/// `BOOT direct` holds the kernel packages: with direct boot the kernel the VM
+/// runs is the one extracted at build time, so a kernel upgraded inside the
+/// guest is never booted — and its modules would replace the running kernel's
+/// on the next autoremove, leaving the VM without drivers after a reboot.
+/// Changing the kernel is rebuilding the image (ADR-0103).
+///
+/// apt: `apt-mark hold` on every installed `linux-image-*`/`linux-modules-*`
+/// (the metapackage included). dnf: `exclude=kernel*` in `dnf.conf` — the
+/// versionlock plugin is not in every cloud image, `exclude` is core dnf.
+pub(crate) fn hold_op() -> CustomizeOp {
+    let apt = "pkgs=$(dpkg-query -W -f='${binary:Package} ${db:Status-Abbrev}\\n' 'linux-image-*' 'linux-modules-*' 2>/dev/null \
+               | while read -r p s; do if [ \"$s\" = ii ]; then printf '%s ' \"$p\"; fi; done); \
+               if [ -n \"$pkgs\" ]; then apt-mark hold $pkgs >/dev/null; fi";
+    let dnf = super::vmfile_slim::dnf_conf("exclude", "kernel*");
+    CustomizeOp::RunCommand(super::vmfile_slim::pm_switch("BOOT", apt, &dnf))
 }
 
 /// What `KERNEL` becomes inside the guest. One command, so a failure at any
@@ -251,7 +356,10 @@ mod tests {
         assert!(parse_kernel("k;reboot").is_err());
         assert!(parse_kernel("k --keep").is_err(), "unknown flag");
         let e = parse_kernel("--file=./vmlinux").unwrap_err();
-        assert!(e.contains("P2"), "says when it arrives: {e}");
+        assert!(
+            e.contains("not built yet"),
+            "says it is not built, not that it is ignored: {e}"
+        );
     }
 
     #[test]
@@ -339,6 +447,7 @@ mod tests {
             cmd(kernel_op(&parse_kernel("kernel-core").unwrap())),
             cmd(initrd_op(&["virtio_blk".into(), "ext4".into()])),
             format!("{}; true", footprint_lines()),
+            cmd(hold_op()),
         ];
         cmds.extend(super::super::vmfile_slim::tests::all_generated_commands());
         for c in cmds {
@@ -379,6 +488,67 @@ mod tests {
                 "{l}"
             );
         }
+    }
+
+    #[test]
+    fn boot_parses_mode_and_cmdline_and_refuses_root() {
+        assert_eq!(
+            parse_boot("direct").unwrap(),
+            BootSpec {
+                direct: true,
+                cmdline: None
+            }
+        );
+        assert_eq!(
+            parse_boot("direct --cmdline=\"console=ttyS0 quiet\"")
+                .unwrap()
+                .cmdline
+                .as_deref(),
+            Some("console=ttyS0 quiet")
+        );
+        assert_eq!(
+            parse_boot("direct --cmdline=console=ttyS0")
+                .unwrap()
+                .cmdline
+                .as_deref(),
+            Some("console=ttyS0")
+        );
+        assert!(!parse_boot("firmware").unwrap().direct);
+        assert!(parse_boot("").is_err());
+        assert!(parse_boot("uki").is_err(), "not a mode (yet)");
+        assert!(
+            parse_boot("firmware --cmdline=quiet").is_err(),
+            "the bootloader owns it"
+        );
+        assert!(parse_boot("direct --cmdline=\"root=/dev/vda1\"").is_err());
+        assert!(parse_boot("direct --cmdline=\"a\\nb\"").is_err());
+        assert!(parse_boot("direct --cmdline=").is_err());
+        assert!(parse_boot("direct quiet").is_err(), "only --cmdline=");
+    }
+
+    #[test]
+    fn the_direct_cmdline_puts_the_disk_root_first() {
+        assert_eq!(
+            boot_cmdline("8cef17d9-1ddd-49fb-86ee-3870a67b9b3d", None),
+            "root=UUID=8cef17d9-1ddd-49fb-86ee-3870a67b9b3d ro console=ttyS0"
+        );
+        assert_eq!(
+            boot_cmdline("abcd-1234", Some("console=ttyS0 quiet")),
+            "root=UUID=abcd-1234 ro console=ttyS0 quiet"
+        );
+        assert!(valid_uuid("8cef17d9-1ddd-49fb-86ee-3870a67b9b3d"));
+        assert!(valid_uuid("A5A2-2102"));
+        for bad in ["", "abc", "8cef17d9 rm", "../../x", "zzzzzzzz"] {
+            assert!(!valid_uuid(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn hold_keeps_the_kernel_the_image_boots() {
+        let c = cmd(hold_op());
+        assert!(c.contains("apt-mark hold $pkgs"), "{c}");
+        assert!(c.contains("'linux-image-*' 'linux-modules-*'"), "{c}");
+        assert!(c.contains("exclude=kernel*"), "{c}");
     }
 
     #[test]

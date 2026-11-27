@@ -66,6 +66,7 @@ NetBIOS (`nmbd`) is masked.
 |---|---|
 | `KERNEL linux-image-cloud-amd64 --purge-others` | Debian's virtio-only cloud kernel, the newest in the archive, and no other kernel |
 | `INITRD --modules=virtio_pci,virtio_blk,virtio_scsi,ext4` | an initrd with just the drivers to reach the root disk |
+| `BOOT direct` | the kernel and initrd travel beside the qcow2 and `vm create` boots them with no firmware; `vm push` refuses the image until ADR-0103 P3 |
 | `SLIM --docs=off --recommends=off --locales=pt,en` | apt never installs docs, man pages, Recommends/Suggests or other languages' catalogs; what the base already had is removed |
 | `INSTALL samba` | through those rules |
 | `REMOVE --services=nmbd,samba-ad-dc` | NetBIOS and the AD DC masked: this server is neither |
@@ -110,6 +111,14 @@ On the development host (2026-11-27), against the real `debian:trixie` cloud ima
   Cloud Hypervisor with that initrd and a NoCloud seed: `ssh` and `smbd` started, cloud-init
   finished. A/B against the default initrd (same kernel and image, two boots each): no
   difference in boot time — both varied with the host's load.
+
+- **with `BOOT direct`** (ADR-0103 P2): the build extracted `samba_p2.vmlinuz` (11.2 MiB) and
+  `samba_p2.initrd` (10.7 MiB) beside the qcow2 and recorded
+  `root=UUID=8cef17d9-… ro console=ttyS0`. `delonix vm create` from it, with no `--kernel`,
+  on **libvirt** (`qemu:///system`, NAT) and on **Cloud Hypervisor** (rootless): the domain/process
+  booted the image's kernel directly, `ssh` logged in as `delonix`, `/proc/cmdline` was the
+  image's (not grub's), `smbd` and `ssh` were active, the kernel was held, and each VM had its
+  own machine-id. `vm push` of the image was refused, naming why.
 
 **Not run:** a client connecting over the network (the boots had no network card). The next
 candidates the measurement points at are `vim-runtime` (37.5 MiB, from the base image) and what

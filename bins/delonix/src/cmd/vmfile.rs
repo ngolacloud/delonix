@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 
 use delonix_model::{Error, Result};
 
-use super::vmfile_kernel::{self as kernel, KernelSpec};
+use super::vmfile_kernel::{self as kernel, BootSpec, KernelSpec};
 use super::vmfile_slim::{self as slim, Autostart, Removal, Slim};
 
 /// The file names a build looks for in a context, in the order `vm image
@@ -68,6 +68,7 @@ pub(crate) const INSTRUCTIONS: &[&str] = &[
     "BUDGET",
     "KERNEL",
     "INITRD",
+    "BOOT",
 ];
 
 /// Finds the recipe in `dir` under either spelling.
@@ -198,6 +199,8 @@ pub(crate) struct VmFile {
     /// its `cleanup:` already does this — and honours `machine_id: false`, which
     /// an unconditional reset here would silently override.
     pub(crate) reset_identity: bool,
+    /// `BOOT firmware|direct` (ADR-0103). `None` is firmware, as always.
+    pub(crate) boot: Option<BootSpec>,
 }
 
 impl VmFile {
@@ -335,6 +338,12 @@ pub(crate) fn parse(text: &str) -> Result<VmFile> {
                 slim::check_stage(&st.autostart, &removals).map_err(|m| err(ln, &m))?;
             }
             "BUDGET" => vf.budget = Some(slim::parse_budget(&rest).map_err(|m| err(ln, &m))?),
+            "BOOT" => {
+                if vf.boot.is_some() {
+                    return Err(err(ln, "BOOT given twice — an image boots one way"));
+                }
+                vf.boot = Some(kernel::parse_boot(&rest).map_err(|m| err(ln, &m))?);
+            }
             "KERNEL" => {
                 let k = kernel::parse_kernel(&rest).map_err(|m| err(ln, &m))?;
                 let st = cur.as_mut().unwrap();
@@ -790,6 +799,17 @@ pub(crate) fn build_parsed(
     }
 
     let final_disk = last.expect("parse guarantees >= 1 stage");
+    // BOOT direct: out of the disk BEFORE compression (the flattened disk is
+    // what virt-copy-out reads fastest), into the store AFTER the qcow2.
+    let direct = match &vf.boot {
+        Some(b) if b.direct => {
+            prog.step(super::po::t("extracting the kernel and initrd"), "🐧");
+            let d = extract_boot(&final_disk, &work_dir, measured.as_ref(), b)?;
+            prog.ok();
+            Some(d)
+        }
+        _ => None,
+    };
     if compress {
         prog.step(super::po::t("compacting the image"), "🗜");
     }
@@ -803,6 +823,14 @@ pub(crate) fn build_parsed(
     let size = data.len() as u64;
     std::fs::rename(&out, store.qcow2_path(tag))
         .or_else(|_| std::fs::copy(&out, store.qcow2_path(tag)).map(|_| ()))?;
+    if let Some(d) = &direct {
+        for (from, to) in [
+            (&d.kernel, store.kernel_path(tag)),
+            (&d.initrd, store.initrd_path(tag)),
+        ] {
+            std::fs::rename(from, &to).or_else(|_| std::fs::copy(from, &to).map(|_| ()))?;
+        }
+    }
     let _ = std::fs::remove_dir_all(&work_dir);
 
     let img = VmImage {
@@ -870,6 +898,7 @@ pub(crate) fn build_parsed(
         packages_sha256: None,
         built_by: Some(format!("delonix {}", env!("CARGO_PKG_VERSION"))),
         base_sha256: None,
+        boot: direct.map(|d| d.boot),
     };
     store.save(&img)?;
     println!("{tag}");
@@ -893,6 +922,10 @@ pub(crate) fn build_parsed(
 ///   when there is a BUDGET to hold it to. A recipe that touches nothing is
 ///   not made to pay for a run it did not need.
 fn final_stage_tail(vf: &VmFile, ops: &mut Vec<CustomizeOp>) -> bool {
+    // Before the identity reset: a held kernel is part of what the image is.
+    if vf.boot.as_ref().is_some_and(|b| b.direct) {
+        ops.push(kernel::hold_op());
+    }
     let customized = !ops.is_empty();
     if customized && vf.reset_identity {
         ops.extend(slim::identity_reset_ops());
@@ -902,6 +935,126 @@ fn final_stage_tail(vf: &VmFile, ops: &mut Vec<CustomizeOp>) -> bool {
         ops.push(slim::footprint_op());
     }
     measure
+}
+
+/// A direct-boot image's kernel and initrd, out of the disk and ready to move
+/// into the store.
+struct ExtractedBoot {
+    kernel: PathBuf,
+    initrd: PathBuf,
+    boot: super::vmimage::ImageBoot,
+}
+
+/// Copies the image's kernel and initrd out of the final disk and builds its
+/// command line (ADR-0103 P2).
+///
+/// - The kernel version is the one the final stage measured inside the image
+///   (`KERNEL` recorded it, or the one installed) — never `uname -r`.
+/// - The kernel is `/boot/vmlinuz-<v>` (Debian/Ubuntu, and Fedora's copy) or
+///   `/lib/modules/<v>/vmlinuz`; the initrd is `/boot/initrd.img-<v>`
+///   (initramfs-tools) or `/boot/initramfs-<v>.img` (dracut). No initrd is an
+///   error: a distro kernel cannot boot without one (measured on Debian's
+///   cloud kernel — `virtio_blk` is a module).
+/// - `root=UUID=` is read from the disk ([`root_uuid`]), never guessed.
+fn extract_boot(
+    disk: &Path,
+    work_dir: &Path,
+    measured: Option<&slim::Footprint>,
+    spec: &BootSpec,
+) -> Result<ExtractedBoot> {
+    let v = measured
+        .and_then(|f| f.kernel.clone())
+        .ok_or_else(|| {
+            Error::Invalid(
+                super::po::t("BOOT direct: could not tell which kernel the image boots — it has no /boot/vmlinuz-<version>")
+                    .to_string(),
+            )
+        })?;
+    let out = work_dir.join("boot");
+    std::fs::create_dir_all(&out)?;
+    let disk_s = disk.to_string_lossy();
+    let copy_first = |candidates: &[String]| -> Option<PathBuf> {
+        candidates.iter().find_map(|c| {
+            let ok = std::process::Command::new("virt-copy-out")
+                .args(["-a", &disk_s, c, &out.to_string_lossy()])
+                .output()
+                .ok()
+                .is_some_and(|o| o.status.success());
+            let name = Path::new(c).file_name()?;
+            ok.then(|| out.join(name)).filter(|p| p.is_file())
+        })
+    };
+    let kernel = copy_first(&[
+        format!("/boot/vmlinuz-{v}"),
+        format!("/lib/modules/{v}/vmlinuz"),
+    ])
+    .ok_or_else(|| {
+        Error::Invalid(super::po::tf(
+            "BOOT direct: kernel {v} has no vmlinuz in /boot or /lib/modules/{v}",
+            &[("v", &v)],
+        ))
+    })?;
+    let initrd = copy_first(&[format!("/boot/initrd.img-{v}"), format!("/boot/initramfs-{v}.img")])
+        .ok_or_else(|| {
+            Error::Invalid(super::po::tf(
+                "BOOT direct: kernel {v} has no initrd in /boot — a distro kernel cannot reach its root disk without one (add INITRD --modules=…)",
+                &[("v", &v)],
+            ))
+        })?;
+    // Fixed names, so the same-named file of two kernels never collides.
+    let (k, i) = (out.join("vmlinuz"), out.join("initrd"));
+    std::fs::rename(&kernel, &k)?;
+    std::fs::rename(&initrd, &i)?;
+    let uuid = root_uuid(disk)?;
+    Ok(ExtractedBoot {
+        boot: super::vmimage::ImageBoot {
+            kernel_version: v,
+            kernel_sha256: super::vmimage::hex_sha256_file(&k)?,
+            initrd_sha256: super::vmimage::hex_sha256_file(&i)?,
+            cmdline: kernel::boot_cmdline(&uuid, spec.cmdline.as_deref()),
+        },
+        kernel: k,
+        initrd: i,
+    })
+}
+
+/// The UUID of the image's root filesystem, read from the disk with
+/// libguestfs' own inspection (the same one virt-customize uses to find the
+/// guest): `inspect-os` names the root device, `vfs-uuid` reads its UUID.
+fn root_uuid(disk: &Path) -> Result<String> {
+    let gf = |args: &[&str]| -> Result<String> {
+        let o = std::process::Command::new("guestfish")
+            .args(["--ro", "-a", &disk.to_string_lossy(), "run", ":"])
+            .args(args)
+            .output()
+            .map_err(|e| Error::Invalid(format!("guestfish: {e}")))?;
+        if !o.status.success() {
+            return Err(Error::Invalid(format!(
+                "guestfish {}: {}",
+                args.join(" "),
+                String::from_utf8_lossy(&o.stderr).trim()
+            )));
+        }
+        Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
+    };
+    let roots = gf(&["inspect-os"])?;
+    let root = match roots.lines().collect::<Vec<_>>().as_slice() {
+        [one] => one.trim().to_string(),
+        other => {
+            return Err(Error::Invalid(super::po::tf(
+                "BOOT direct: expected one operating system on the disk, found {n}",
+                &[("n", &other.len().to_string())],
+            )))
+        }
+    };
+    let uuid = gf(&["vfs-uuid", &root])?;
+    if !kernel::valid_uuid(&uuid) {
+        return Err(Error::Invalid(super::po::tf(
+            "BOOT direct: the root filesystem {root} has no usable UUID ('{uuid}')",
+            &[("root", &root), ("uuid", &uuid)],
+        )));
+    }
+    Ok(uuid)
 }
 
 /// Reads back what [`slim::footprint_op`] measured inside the final disk,
@@ -1650,6 +1803,29 @@ mod tests {
         };
         assert!(at("apt-get install -y -q linux-image-cloud-amd64") < at("update-initramfs"));
         assert!(at("update-initramfs") < at("rm -rf /var/lib/apt/lists/*"));
+    }
+
+    #[test]
+    fn boot_is_an_image_property_given_once_and_holds_the_kernel() {
+        let vf =
+            parse("FROM debian:trixie\nRUN true\nBOOT direct --cmdline=\"console=ttyS0 quiet\"\n")
+                .unwrap();
+        assert!(vf.boot.as_ref().unwrap().direct);
+        assert!(parse("FROM debian:trixie\nBOOT direct\nBOOT firmware\n").is_err());
+        let mut ops = vec![CustomizeOp::RunCommand("true".into())];
+        final_stage_tail(&vf, &mut ops);
+        let c = run_cmds(&ops);
+        let at = |n: &str| {
+            c.iter()
+                .position(|x| x.contains(n))
+                .unwrap_or_else(|| panic!("{n}: {c:#?}"))
+        };
+        assert!(at("apt-mark hold") < at("truncate -s 0 /etc/machine-id"));
+        // BOOT firmware holds nothing.
+        let fw = parse("FROM debian:trixie\nRUN true\nBOOT firmware\n").unwrap();
+        let mut ops = vec![CustomizeOp::RunCommand("true".into())];
+        final_stage_tail(&fw, &mut ops);
+        assert!(!run_cmds(&ops).iter().any(|x| x.contains("apt-mark hold")));
     }
 
     #[test]

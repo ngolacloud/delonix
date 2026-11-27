@@ -13,8 +13,8 @@
 | provider | 10 | 55,077 | 13.9% |
 | interface | 4 | 40,470 | 10.2% |
 | assembly | 1 | 1,132 | 0.3% |
-| bin | 6 | 170,185 | 42.9% |
-| **total** | **41** | **396,425** | 100% |
+| bin | 6 | 170,780 | 43.0% |
+| **total** | **41** | **397,020** | 100% |
 
 ## Lines per crate
 
@@ -87,7 +87,7 @@
 
 | Crate | Lines |
 | --- | ---: |
-| delonix-bin ⚠️ >20k | 166,784 |
+| delonix-bin ⚠️ >20k | 167,379 |
 | delonix-node-api-bin | 1,465 |
 | delonix-cri-bin | 838 |
 | delonix-storage-helper | 645 |
@@ -101,10 +101,10 @@ Context destinations (the `cli_context_lines` ratchet) come first.
 
 | Destination | Lines | Modules | Context? |
 | --- | ---: | ---: | :---: |
-| delonix-compute | 27,130 | 9 | ✓ |
+| delonix-compute | 27,261 | 9 | ✓ |
 | delonix-stack | 23,944 | 10 | ✓ |
 | delonix-networking | 20,070 | 26 | ✓ |
-| delonix-artifact | 19,296 | 9 | ✓ |
+| delonix-artifact | 19,760 | 9 | ✓ |
 | delonix-cluster | 13,751 | 10 | ✓ |
 | delonix-storage | 10,108 | 9 | ✓ |
 | delonix-node | 7,449 | 4 | ✓ |
@@ -121,7 +121,7 @@ Context destinations (the `cli_context_lines` ratchet) come first.
 | delonix-ssh | 274 | 1 |  |
 | tests | 256 | 1 |  |
 | delonix-mcp | 36 | 1 |  |
-| **context total** | **130,315** | | |
+| **context total** | **130,910** | | |
 
 ## Ratchets
 
@@ -136,7 +136,7 @@ falls without the baseline lowered in the same commit.
 | shared_error_imports | 3 | 3 | 0 |
 | raw_error_variant_matches | 0 | 0 | 0 |
 | context_spawns | 0 | 0 | 0 |
-| cli_context_lines | 130,315 | 130,315 | 0 (R4) |
+| cli_context_lines | 130,910 | 130,910 | 0 (R4) |
 | interface_mechanism_deps | 0 | 0 | 0 (R3) |
 | provider_namers | 17 | 17 | 0 (R3/R4) |
 | bin_crates | 6 | 6 | 1 (R1) |
