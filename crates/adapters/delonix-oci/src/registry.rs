@@ -2966,6 +2966,28 @@ enum ArtifactLayer<'a> {
     File(&'a std::path::Path, Option<PushProgress>),
 }
 
+/// A VM image with its kernel and initrd (ADR-0103, `BOOT direct`), or any
+/// artifact of several files: each file is one layer, in order, with its own
+/// media type, under ONE manifest — so a pull reads them all from the same
+/// manifest and can never pair a qcow2 with another version's kernel. The FIRST
+/// file is the artifact's main blob (what single-layer pullers read), and the
+/// only one reported through `progress`.
+pub fn push_oci_artifact_files(
+    root: &std::path::Path,
+    target: &str,
+    artifact_type: &str,
+    files: &[(&str, &std::path::Path)],
+    annotations: &BTreeMap<String, String>,
+    progress: Option<PushProgress>,
+) -> Result<String> {
+    let mut progress = progress;
+    let layers = files
+        .iter()
+        .map(|(media, path)| (*media, ArtifactLayer::File(path, progress.take())))
+        .collect();
+    push_artifact_layers(root, target, artifact_type, layers, annotations)
+}
+
 fn push_artifact(
     root: &std::path::Path,
     target: &str,
@@ -2973,6 +2995,27 @@ fn push_artifact(
     layer: ArtifactLayer<'_>,
     annotations: &BTreeMap<String, String>,
 ) -> Result<String> {
+    push_artifact_layers(
+        root,
+        target,
+        layer_media_type,
+        vec![(layer_media_type, layer)],
+        annotations,
+    )
+}
+
+fn push_artifact_layers(
+    root: &std::path::Path,
+    target: &str,
+    artifact_type: &str,
+    layers: Vec<(&str, ArtifactLayer<'_>)>,
+    annotations: &BTreeMap<String, String>,
+) -> Result<String> {
+    if layers.is_empty() {
+        return Err(Error::Registry(
+            "an artifact needs at least one layer".into(),
+        ));
+    }
     let (host, repo, refr) = parse_reference(target);
     let http = transfer_client()?;
     let creds = crate::auth::lookup(root, &host);
@@ -2994,27 +3037,36 @@ fn push_artifact(
     let config_digest = with_prefix(&sha256_hex(EMPTY_CONFIG_BYTES));
     c.push_blob(&config_digest, EMPTY_CONFIG_BYTES)?;
 
-    let (layer_digest, layer_size) = match &layer {
-        ArtifactLayer::Bytes(data) => (with_prefix(&sha256_hex(data)), data.len() as u64),
-        ArtifactLayer::File(path, _) => (
-            with_prefix(&crate::cas::sha256_file(path)?),
-            std::fs::metadata(path)?.len(),
-        ),
-    };
-    tracing::debug!(
-        digest = %&layer_digest[..19.min(layer_digest.len())],
-        bytes = layer_size,
-        "pushing blob"
-    );
-    match layer {
-        ArtifactLayer::Bytes(data) => c.push_blob(&layer_digest, data)?,
-        ArtifactLayer::File(path, progress) => {
-            let slot = progress.map(|cb| MeterSlot {
-                meter: PushMeter::new(1, layer_size, cb),
-                slot: 0,
-            });
-            c.push_blob_file(&layer_digest, path, layer_size, slot.as_ref())?
+    let mut descriptors = Vec::with_capacity(layers.len());
+    for (layer_media_type, layer) in layers {
+        let (layer_digest, layer_size) = match &layer {
+            ArtifactLayer::Bytes(data) => (with_prefix(&sha256_hex(data)), data.len() as u64),
+            ArtifactLayer::File(path, _) => (
+                with_prefix(&crate::cas::sha256_file(path)?),
+                std::fs::metadata(path)?.len(),
+            ),
+        };
+        tracing::debug!(
+            digest = %&layer_digest[..19.min(layer_digest.len())],
+            bytes = layer_size,
+            media = layer_media_type,
+            "pushing blob"
+        );
+        match layer {
+            ArtifactLayer::Bytes(data) => c.push_blob(&layer_digest, data)?,
+            ArtifactLayer::File(path, progress) => {
+                let slot = progress.map(|cb| MeterSlot {
+                    meter: PushMeter::new(1, layer_size, cb),
+                    slot: 0,
+                });
+                c.push_blob_file(&layer_digest, path, layer_size, slot.as_ref())?
+            }
         }
+        descriptors.push(descriptor(
+            layer_media_type,
+            layer_size as usize,
+            &layer_digest,
+        )?);
     }
 
     // OCI 1.1 artifact manifest (`oci_spec::image::ImageManifest` with
@@ -3022,17 +3074,13 @@ fn push_artifact(
     let manifest = ImageManifestBuilder::default()
         .schema_version(2u32)
         .media_type(MediaType::ImageManifest)
-        .artifact_type(MediaType::from(layer_media_type))
+        .artifact_type(MediaType::from(artifact_type))
         .config(descriptor(
             EMPTY_CONFIG_MEDIA_TYPE,
             EMPTY_CONFIG_BYTES.len(),
             &config_digest,
         )?)
-        .layers(vec![descriptor(
-            layer_media_type,
-            layer_size as usize,
-            &layer_digest,
-        )?])
+        .layers(descriptors)
         .annotations(
             annotations
                 .iter()
@@ -3344,6 +3392,30 @@ pub fn pull_oci_artifact_to_file(
     dest: &std::path::Path,
     progress: Option<&dyn Fn(u64, Option<u64>)>,
 ) -> Result<PulledArtifact> {
+    pull_oci_artifact_layers_to_files(root, source, dest, &[], progress).map(|(main, _)| main)
+}
+
+/// One extra layer of a multi-layer artifact, as pulled.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PulledLayer {
+    /// `sha256:<hex>` — verified against the manifest.
+    pub digest: String,
+    pub size: u64,
+}
+
+/// Like [`pull_oci_artifact_to_file`] for the main (first) layer, plus the
+/// layers named in `extras` by media type, each into its own file — all read
+/// from ONE manifest, so they belong to the same push (a tag moved between
+/// two fetches could otherwise pair this qcow2 with another version's kernel).
+/// An extra layer the manifest does not carry comes back `None`; deciding
+/// whether that is an error is the caller's (it knows what it expected).
+pub fn pull_oci_artifact_layers_to_files(
+    root: &std::path::Path,
+    source: &str,
+    dest: &std::path::Path,
+    extras: &[(&str, &std::path::Path)],
+    progress: Option<&dyn Fn(u64, Option<u64>)>,
+) -> Result<(PulledArtifact, Vec<Option<PulledLayer>>)> {
     let (host, repo, refr) = parse_reference(source);
     let http = transfer_client()?;
     let creds = crate::auth::lookup(root, &host);
@@ -3373,14 +3445,6 @@ pub fn pull_oci_artifact_to_file(
         .layers()
         .first()
         .ok_or_else(|| Error::Registry("artifact manifest has no layers".into()))?;
-    let layer_digest = layer.digest().to_string();
-    let hex = crate::cas::strip(&layer_digest).to_string();
-    if hex.len() != 64 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(Error::Registry(format!(
-            "artifact layer is not a sha256 blob: {layer_digest}"
-        )));
-    }
-    let size = layer.size();
     // Read after the manifest checks, like the in-memory path; they are only
     // returned once the blob itself has been verified.
     let annotations: BTreeMap<String, String> = manifest
@@ -3389,18 +3453,66 @@ pub fn pull_oci_artifact_to_file(
         .unwrap_or_default()
         .into_iter()
         .collect();
+    let (digest, size, downloaded) = pull_layer_to_file(
+        &mut c,
+        source,
+        layer.digest().as_ref(),
+        layer.size(),
+        dest,
+        progress,
+    )?;
+    let mut pulled_extras = Vec::with_capacity(extras.len());
+    for (media, path) in extras {
+        let found = manifest
+            .layers()
+            .iter()
+            .skip(1)
+            .find(|l| l.media_type().to_string() == *media);
+        pulled_extras.push(match found {
+            Some(l) => {
+                let (digest, size, _) =
+                    pull_layer_to_file(&mut c, source, l.digest().as_ref(), l.size(), path, None)?;
+                Some(PulledLayer { digest, size })
+            }
+            None => None,
+        });
+    }
+    Ok((
+        PulledArtifact {
+            digest,
+            size,
+            annotations,
+            downloaded,
+        },
+        pulled_extras,
+    ))
+}
+
+/// One layer of an already-read manifest, streamed into `dest` with the
+/// resume/verify/rename discipline described on [`pull_oci_artifact_to_file`].
+/// Returns `(digest, size, downloaded)`.
+fn pull_layer_to_file(
+    c: &mut Client,
+    source: &str,
+    layer_digest: &str,
+    size: u64,
+    dest: &std::path::Path,
+    progress: Option<&dyn Fn(u64, Option<u64>)>,
+) -> Result<(String, u64, bool)> {
+    let layer_digest = layer_digest.to_string();
+    let hex = crate::cas::strip(&layer_digest).to_string();
+    if hex.len() != 64 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(Error::Registry(format!(
+            "artifact layer is not a sha256 blob: {layer_digest}"
+        )));
+    }
 
     if std::fs::metadata(dest)
         .map(|m| m.len() == size)
         .unwrap_or(false)
         && crate::cas::sha256_file(dest)? == hex
     {
-        return Ok(PulledArtifact {
-            digest: layer_digest,
-            size,
-            annotations,
-            downloaded: false,
-        });
+        return Ok((layer_digest, size, false));
     }
 
     let dir = dest.parent().unwrap_or(std::path::Path::new("."));
@@ -3452,12 +3564,7 @@ pub fn pull_oci_artifact_to_file(
         )));
     }
     std::fs::rename(&partial, dest)?;
-    Ok(PulledArtifact {
-        digest: layer_digest,
-        size,
-        annotations,
-        downloaded: true,
-    })
+    Ok((layer_digest, size, true))
 }
 
 /// Minimal mock of an ANONYMOUS OCI registry (no 401 challenge — like a
@@ -4865,6 +4972,88 @@ mod tests {
         let pulled = crate::registry::pull_oci_artifact_to_file(dir, &target, &dest, None).unwrap();
         assert_eq!(pulled.size, payload.len() as u64);
         assert_eq!(std::fs::read(&dest).unwrap(), payload);
+    }
+
+    /// ADR-0103 P3: a VM image with its kernel and initrd travels as ONE
+    /// manifest of three layers. A single-layer puller still gets the qcow2
+    /// (the first layer); the multi-layer pull brings each extra by media type,
+    /// byte for byte, and answers `None` for one the manifest does not carry.
+    #[test]
+    fn a_vm_artifact_with_kernel_and_initrd_round_trips_in_one_manifest() {
+        let (port, _gets, _h) = serve_anon_registry();
+        let tmp = scratch();
+        let dir = tmp.path();
+        let qcow2 = dir.join("img.qcow2");
+        let kernel = dir.join("img.vmlinuz");
+        let initrd = dir.join("img.initrd");
+        std::fs::write(&qcow2, vec![7u8; 200_000]).unwrap();
+        std::fs::write(&kernel, b"kernel-bytes").unwrap();
+        std::fs::write(&initrd, b"initrd-bytes").unwrap();
+        let target = format!("127.0.0.1:{port}/vm:direct");
+        let (q, k, i) = (
+            "application/vnd.delonix.vmimage.v1.qcow2",
+            "application/vnd.delonix.vmimage.v1.kernel",
+            "application/vnd.delonix.vmimage.v1.initrd",
+        );
+        let mut ann = std::collections::BTreeMap::new();
+        ann.insert(
+            "io.delonix.vmimage.boot.cmdline".to_string(),
+            "root=UUID=x ro".to_string(),
+        );
+        crate::registry::push_oci_artifact_files(
+            dir,
+            &target,
+            q,
+            &[
+                (q, qcow2.as_path()),
+                (k, kernel.as_path()),
+                (i, initrd.as_path()),
+            ],
+            &ann,
+            None,
+        )
+        .expect("multi-layer push");
+
+        // An older, single-layer puller still gets the disk.
+        let only = dir.join("only.qcow2");
+        let p = crate::registry::pull_oci_artifact_to_file(dir, &target, &only, None).unwrap();
+        assert_eq!(std::fs::read(&only).unwrap(), vec![7u8; 200_000]);
+        assert_eq!(
+            p.annotations
+                .get("io.delonix.vmimage.boot.cmdline")
+                .map(String::as_str),
+            Some("root=UUID=x ro")
+        );
+
+        // The multi-layer pull brings the kernel and initrd from the same manifest.
+        let (bq, bk, bi) = (
+            dir.join("b.qcow2"),
+            dir.join("b.vmlinuz"),
+            dir.join("b.initrd"),
+        );
+        let missing = dir.join("b.missing");
+        let (main, extras) = crate::registry::pull_oci_artifact_layers_to_files(
+            dir,
+            &target,
+            &bq,
+            &[
+                (k, bk.as_path()),
+                (i, bi.as_path()),
+                ("application/x-not-there", missing.as_path()),
+            ],
+            None,
+        )
+        .unwrap();
+        assert_eq!(main.size, 200_000);
+        assert_eq!(std::fs::read(&bk).unwrap(), b"kernel-bytes");
+        assert_eq!(std::fs::read(&bi).unwrap(), b"initrd-bytes");
+        assert_eq!(extras[0].as_ref().unwrap().size, 12);
+        assert!(extras[1].is_some());
+        assert!(
+            extras[2].is_none(),
+            "a layer the manifest lacks is None, not an error here"
+        );
+        assert!(!missing.exists());
     }
 
     /// A registry that answers the first blob PUT with 401 makes the push

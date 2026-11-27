@@ -24,6 +24,10 @@ use super::output::{self, fmt_local, fmt_size};
 use super::util::state_root;
 
 const VM_IMAGE_MEDIA_TYPE: &str = "application/vnd.delonix.vmimage.v1.qcow2";
+/// The kernel and initrd of a direct-boot image (ADR-0103 P3): two more layers
+/// of the same artifact, after the qcow2.
+const VM_IMAGE_KERNEL_MEDIA_TYPE: &str = "application/vnd.delonix.vmimage.v1.kernel";
+const VM_IMAGE_INITRD_MEDIA_TYPE: &str = "application/vnd.delonix.vmimage.v1.initrd";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct VmImage {
@@ -1888,7 +1892,9 @@ pub(crate) fn official_tag_for(img: &VmImage, local_name: &str) -> String {
 
 pub(crate) fn cmd_push(store: &VmImageStore, name: &str, target: Option<&str>) -> Result<()> {
     let img = store.get(name)?;
-    refuse_push_of_direct_boot(&img)?;
+    // A direct-boot image's kernel and initrd travel with it — checked first
+    // against what the build recorded, so a swapped file is never published.
+    let boot_files = direct_boot_files(store, &img)?;
     // With no destination, publish where this image belongs — decided from the
     // image's own metadata, not from a flag the caller has to remember. A tag
     // that is not a valid OCI reference is rewritten the way the appliances
@@ -1926,16 +1932,33 @@ pub(crate) fn cmd_push(store: &VmImageStore, name: &str, target: Option<&str>) -
             super::po::t("could not read the qcow2 of")
         ))
     })?;
-    let digest = delonix_oci::registry::push_oci_artifact_file(
-        &state_root(),
-        target,
-        VM_IMAGE_MEDIA_TYPE,
-        &qcow2,
-        &annotations_of(&img),
-        Some(super::image::push_progress_bar(format!(
-            "[vm push] {target}"
-        ))),
-    )?;
+    let progress = Some(super::image::push_progress_bar(format!(
+        "[vm push] {target}"
+    )));
+    let digest = match &boot_files {
+        // One manifest, three layers: the qcow2 first (what a single-layer
+        // puller reads), then the kernel and initrd.
+        Some((kernel, initrd)) => delonix_oci::registry::push_oci_artifact_files(
+            &state_root(),
+            target,
+            VM_IMAGE_MEDIA_TYPE,
+            &[
+                (VM_IMAGE_MEDIA_TYPE, qcow2.as_path()),
+                (VM_IMAGE_KERNEL_MEDIA_TYPE, kernel.as_path()),
+                (VM_IMAGE_INITRD_MEDIA_TYPE, initrd.as_path()),
+            ],
+            &annotations_of(&img),
+            progress,
+        )?,
+        None => delonix_oci::registry::push_oci_artifact_file(
+            &state_root(),
+            target,
+            VM_IMAGE_MEDIA_TYPE,
+            &qcow2,
+            &annotations_of(&img),
+            progress,
+        )?,
+    };
     super::output::progress_done();
     println!("{digest}");
     Ok(())
@@ -2113,6 +2136,12 @@ pub(crate) fn annotations_of(img: &VmImage) -> std::collections::BTreeMap<String
     if let Some(v) = img.cloud_init {
         put("cloud-init", v.to_string());
     }
+    if let Some(b) = &img.boot {
+        put("boot.kernel-version", b.kernel_version.clone());
+        put("boot.kernel-sha256", b.kernel_sha256.clone());
+        put("boot.initrd-sha256", b.initrd_sha256.clone());
+        put("boot.cmdline", b.cmdline.clone());
+    }
     a
 }
 
@@ -2249,14 +2278,35 @@ pub(crate) fn cmd_pull(store: &VmImageStore, source: &str, name: Option<String>)
     // Straight to the image's final path through a verified, resumable
     // partial: the blob used to be held whole in memory, hashed twice, and
     // written in place — a crash mid-write left a truncated qcow2 behind.
-    let pulled = delonix_oci::registry::pull_oci_artifact_to_file(
+    let (kernel, initrd) = (store.kernel_path(&name), store.initrd_path(&name));
+    // The kernel and initrd come from the SAME manifest as the qcow2.
+    let (pulled, extras) = delonix_oci::registry::pull_oci_artifact_layers_to_files(
         &state_root(),
         source,
         &store.qcow2_path(&name),
+        &[
+            (VM_IMAGE_KERNEL_MEDIA_TYPE, kernel.as_path()),
+            (VM_IMAGE_INITRD_MEDIA_TYPE, initrd.as_path()),
+        ],
         Some(&on_progress),
     )?;
     super::output::progress_done();
     let annotations = pulled.annotations;
+    let boot = match pulled_boot(&annotations, &extras) {
+        Ok(b) => b,
+        Err(e) => {
+            // Nothing half-pulled stays behind under the image's name.
+            for p in [store.qcow2_path(&name), kernel.clone(), initrd.clone()] {
+                let _ = std::fs::remove_file(p);
+            }
+            return Err(e);
+        }
+    };
+    if boot.is_none() {
+        // Layers nobody declared how to boot are not kept.
+        let _ = std::fs::remove_file(&kernel);
+        let _ = std::fs::remove_file(&initrd);
+    }
     let img = VmImage {
         name: name.clone(),
         tag: source.to_string(),
@@ -2284,7 +2334,8 @@ pub(crate) fn cmd_pull(store: &VmImageStore, source: &str, name: Option<String>)
         base_sha256: None,
         boot: None,
     };
-    let img = apply_pulled_annotations(img, &annotations);
+    let mut img = apply_pulled_annotations(img, &annotations);
+    img.boot = boot;
     store.save(&img)?;
     println!("{name}");
     Ok(())
@@ -2293,6 +2344,48 @@ pub(crate) fn cmd_pull(store: &VmImageStore, source: &str, name: Option<String>)
 /// `ls-remote` with no argument: every official repository, one after the
 /// other. Listing only one of them (and not saying which) is what made a user
 /// who had just published to another conclude the push had failed.
+/// The `boot` of a pulled image: what its annotations declare, held to the
+/// layers that actually arrived — both must be there, each with the sha256 the
+/// annotations name (the registry already verified each layer against the
+/// manifest; this ties the manifest's layers to the boot it declares).
+fn pulled_boot(
+    annotations: &std::collections::BTreeMap<String, String>,
+    extras: &[Option<delonix_oci::registry::PulledLayer>],
+) -> Result<Option<ImageBoot>> {
+    let Some(b) = boot_from_annotations(annotations)? else {
+        return Ok(None);
+    };
+    for (layer, want, what) in [
+        (
+            extras.first().and_then(|l| l.as_ref()),
+            &b.kernel_sha256,
+            "kernel",
+        ),
+        (
+            extras.get(1).and_then(|l| l.as_ref()),
+            &b.initrd_sha256,
+            "initrd",
+        ),
+    ] {
+        match layer {
+            None => {
+                return Err(Error::Invalid(super::po::tf(
+                    "the artifact declares a direct boot but carries no {what} layer — refusing an image that cannot boot as it says",
+                    &[("what", what)],
+                )))
+            }
+            Some(l) if l.digest != format!("sha256:{want}") => {
+                return Err(Error::Invalid(super::po::tf(
+                    "the artifact's {what} layer ({got}) is not the one its boot annotations name (sha256:{want})",
+                    &[("what", what), ("got", &l.digest), ("want", want)],
+                )))
+            }
+            Some(_) => {}
+        }
+    }
+    Ok(Some(b))
+}
+
 pub(crate) fn cmd_ls_remote_official() -> Result<()> {
     let mut failed = false;
     for (i, r) in OFFICIAL_REPOS.iter().enumerate() {
@@ -2412,19 +2505,74 @@ fn detect_kernel_version(qcow2: &std::path::Path) -> Option<String> {
         .max()
 }
 
-/// A direct-boot image is refused by `vm push` until the OCI artifact carries
-/// its kernel and initrd (ADR-0103 P3): the artifact would hold only the qcow2,
-/// and an image whose recipe removed the bootloader would arrive unbootable —
-/// published, pulled and created without a word, the failure this repo names
-/// as its worst.
-pub(crate) fn refuse_push_of_direct_boot(img: &VmImage) -> Result<()> {
-    if img.boot.is_some() {
-        return Err(Error::Invalid(super::po::tf(
-            "{name} boots its own kernel directly (BOOT direct), and a pushed VM image carries only the qcow2 — the kernel and initrd would be left behind. Pushing direct-boot images arrives with ADR-0103 phase P3; rebuild with BOOT firmware to publish this one",
-            &[("name", &img.name)],
-        )));
+/// The kernel and initrd a direct-boot image publishes beside its qcow2
+/// (ADR-0103 P3), after checking each against the sha256 the build recorded:
+/// `vm push` must never publish a kernel that is not the one the image was
+/// built with. `None` for an image that boots through firmware.
+pub(crate) fn direct_boot_files(
+    store: &VmImageStore,
+    img: &VmImage,
+) -> Result<Option<(PathBuf, PathBuf)>> {
+    let Some(b) = &img.boot else {
+        return Ok(None);
+    };
+    let check = |path: PathBuf, want: &str, what: &str| -> Result<PathBuf> {
+        let got = hex_sha256_file(&path).map_err(|e| {
+            Error::Invalid(super::po::tf(
+                "{name} boots directly, but its {what} {path} cannot be read ({err}) — rebuild the image",
+                &[("name", &img.name), ("what", what), ("path", &path.display().to_string()), ("err", &e.to_string())],
+            ))
+        })?;
+        if got != want {
+            return Err(Error::Invalid(super::po::tf(
+                "{name}: its {what} {path} is not the one the build recorded (sha256 {got}, expected {want}) — refusing to publish it",
+                &[("name", &img.name), ("what", what), ("path", &path.display().to_string()), ("got", &got), ("want", want)],
+            )));
+        }
+        Ok(path)
+    };
+    Ok(Some((
+        check(store.kernel_path(&img.name), &b.kernel_sha256, "kernel")?,
+        check(store.initrd_path(&img.name), &b.initrd_sha256, "initrd")?,
+    )))
+}
+
+/// The `boot` a pulled artifact declares in its annotations. All four keys or
+/// none: a partial set is an error, not a guess — an image that says it boots
+/// directly but cannot say with what is not one `vm create` can boot.
+pub(crate) fn boot_from_annotations(
+    a: &std::collections::BTreeMap<String, String>,
+) -> Result<Option<ImageBoot>> {
+    let keys = [
+        "kernel-version",
+        "kernel-sha256",
+        "initrd-sha256",
+        "cmdline",
+    ];
+    let vals: Vec<Option<&String>> = keys
+        .iter()
+        .map(|k| a.get(&format!("io.delonix.vmimage.boot.{k}")))
+        .collect();
+    match vals.as_slice() {
+        [None, None, None, None] => Ok(None),
+        [Some(v), Some(k), Some(i), Some(c)] => {
+            let hex = |h: &str| h.len() == 64 && h.bytes().all(|b| b.is_ascii_hexdigit());
+            if !hex(k) || !hex(i) {
+                return Err(Error::Invalid(
+                    super::po::t("the artifact's boot annotations carry a sha256 that is not one").to_string(),
+                ));
+            }
+            Ok(Some(ImageBoot {
+                kernel_version: v.to_string(),
+                kernel_sha256: k.to_string(),
+                initrd_sha256: i.to_string(),
+                cmdline: c.to_string(),
+            }))
+        }
+        _ => Err(Error::Invalid(
+            super::po::t("the artifact declares a direct boot, but only part of it (io.delonix.vmimage.boot.*) — refusing an image that cannot say what it boots").to_string(),
+        )),
     }
-    Ok(())
 }
 
 /// `2cpu/2G` — what `vm create` will use when `--vcpus`/`--memory` are absent.
@@ -6479,11 +6627,10 @@ mod tests {
 
     use super::*;
 
-    /// ADR-0103 P2: `vm push` refuses a direct-boot image (the artifact would
-    /// leave its kernel behind) and `vm image rm` takes the kernel and initrd
-    /// with it.
+    /// ADR-0103 P3: a direct-boot image publishes its kernel and initrd —
+    /// only the ones the build recorded — and `vm image rm` takes them with it.
     #[test]
-    fn a_direct_boot_image_is_not_pushed_and_is_removed_whole() {
+    fn a_direct_boot_image_publishes_its_kernel_and_is_removed_whole() {
         let d = tempfile::tempdir().unwrap();
         let store = VmImageStore::open(d.path()).unwrap();
         let mut img = VmImage {
@@ -6491,19 +6638,30 @@ mod tests {
             tag: "db:1".into(),
             ..Default::default()
         };
-        assert!(refuse_push_of_direct_boot(&img).is_ok());
-        img.boot = Some(ImageBoot::default());
-        let e = refuse_push_of_direct_boot(&img).unwrap_err().to_string();
-        assert!(e.contains("P3") && e.contains("BOOT direct"), "{e}");
+        assert!(
+            direct_boot_files(&store, &img).unwrap().is_none(),
+            "firmware boot publishes no kernel"
+        );
+        std::fs::write(store.kernel_path("db:1"), b"k").unwrap();
+        std::fs::write(store.initrd_path("db:1"), b"i").unwrap();
+        img.boot = Some(ImageBoot {
+            kernel_version: "6.12".into(),
+            kernel_sha256: hex_sha256_file(&store.kernel_path("db:1")).unwrap(),
+            initrd_sha256: hex_sha256_file(&store.initrd_path("db:1")).unwrap(),
+            cmdline: "root=UUID=x ro".into(),
+        });
+        let (k, i) = direct_boot_files(&store, &img).unwrap().unwrap();
+        assert_eq!(
+            (k, i),
+            (store.kernel_path("db:1"), store.initrd_path("db:1"))
+        );
+        std::fs::write(store.kernel_path("db:1"), b"swapped").unwrap();
+        let e = direct_boot_files(&store, &img).unwrap_err().to_string();
+        assert!(e.contains("refusing to publish"), "{e}");
+        std::fs::write(store.kernel_path("db:1"), b"k").unwrap();
 
         store.save(&img).unwrap();
-        for p in [
-            store.qcow2_path("db:1"),
-            store.kernel_path("db:1"),
-            store.initrd_path("db:1"),
-        ] {
-            std::fs::write(p, b"x").unwrap();
-        }
+        std::fs::write(store.qcow2_path("db:1"), b"x").unwrap();
         // cmd_rm only READS the state root (VMs backed by this disk); none of
         // them can point into a fresh temporary store.
         cmd_rm(&store, &["db:1".to_string()], false).unwrap();
@@ -6514,7 +6672,62 @@ mod tests {
         ] {
             assert!(!p.exists(), "{} survived the rm", p.display());
         }
-        assert!(store.get("db:1").is_err());
+    }
+
+    /// The boot travels as four annotations, and comes back only whole and
+    /// tied to the layers that arrived.
+    #[test]
+    fn boot_annotations_round_trip_and_bind_to_the_layers() {
+        let sha = |c: char| c.to_string().repeat(64);
+        let img = VmImage {
+            boot: Some(ImageBoot {
+                kernel_version: "6.12.118+deb13-cloud-amd64".into(),
+                kernel_sha256: sha('a'),
+                initrd_sha256: sha('b'),
+                cmdline: "root=UUID=x ro console=ttyS0".into(),
+            }),
+            ..Default::default()
+        };
+        let a = annotations_of(&img);
+        assert_eq!(boot_from_annotations(&a).unwrap(), img.boot);
+        assert_eq!(boot_from_annotations(&Default::default()).unwrap(), None);
+
+        let mut partial = a.clone();
+        partial.remove("io.delonix.vmimage.boot.cmdline");
+        assert!(
+            boot_from_annotations(&partial).is_err(),
+            "half a boot is refused"
+        );
+        let mut bad = a.clone();
+        bad.insert(
+            "io.delonix.vmimage.boot.kernel-sha256".into(),
+            "nothex".into(),
+        );
+        assert!(boot_from_annotations(&bad).is_err());
+
+        let layer = |c: char| {
+            Some(delonix_oci::registry::PulledLayer {
+                digest: format!("sha256:{}", sha(c)),
+                size: 1,
+            })
+        };
+        assert_eq!(
+            pulled_boot(&a, &[layer('a'), layer('b')]).unwrap(),
+            img.boot
+        );
+        let e = pulled_boot(&a, &[layer('a'), None])
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("no initrd layer"), "{e}");
+        let e = pulled_boot(&a, &[layer('c'), layer('b')])
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("not the one its boot annotations name"), "{e}");
+        // No boot declared: whatever layers came are irrelevant.
+        assert_eq!(
+            pulled_boot(&Default::default(), &[layer('a'), layer('b')]).unwrap(),
+            None
+        );
     }
 
     /// `vm image init` writes a `Vmfile`; over an existing recipe it refuses,

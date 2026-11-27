@@ -66,7 +66,7 @@ NetBIOS (`nmbd`) is masked.
 |---|---|
 | `KERNEL linux-image-cloud-amd64 --purge-others` | Debian's virtio-only cloud kernel, the newest in the archive, and no other kernel |
 | `INITRD --modules=virtio_pci,virtio_blk,virtio_scsi,ext4` | an initrd with just the drivers to reach the root disk |
-| `BOOT direct` | the kernel and initrd travel beside the qcow2 and `vm create` boots them with no firmware; `vm push` refuses the image until ADR-0103 P3 |
+| `BOOT direct` | the kernel and initrd travel beside the qcow2 and `vm create` boots them with no firmware; `vm push`/`vm pull` carry them as two more layers of the artifact |
 | `SLIM --docs=off --recommends=off --locales=pt,en` | apt never installs docs, man pages, Recommends/Suggests or other languages' catalogs; what the base already had is removed |
 | `INSTALL samba` | through those rules |
 | `REMOVE --services=nmbd,samba-ad-dc` | NetBIOS and the AD DC masked: this server is neither |
