@@ -1,7 +1,8 @@
 # ADR-0103: The kernel is declared in the Vmfile, and an image can boot it directly (`KERNEL`, `INITRD`, `BOOT`)
 
-- **Status:** Accepted (2026-11-27, by the owner). Spike S0 (does Cloud Hypervisor boot a distro
-  kernel directly, with no firmware?) was run and is **GO**; phases P1–P3 are to build.
+- **Status:** Accepted (2026-11-27, by the owner). Spike S0 is **GO**. **P1 built** (`KERNEL`,
+  `INITRD`, `kernel_version` always recorded) on `feat/vmfile-kernel` — see
+  the addendum. P2 and P3 to build.
 - **Date:** 2026-11-27
 - **Deciders:** Walter Angolar
 - **Relates to:** the first phase of small images (PR #1056: `SLIM`, `INSTALL`, `REMOVE`,
@@ -156,3 +157,27 @@ would be the silent failure this repo names as its worst. That is phase P3.
 - `vm push` refuses direct-boot images until P3, and says so.
 - libvirt also supports direct kernel boot, but it has not been measured with these artefacts.
   P2 measures it before claiming it.
+
+## Addendum — what building P1 measured (2026-11-27)
+
+Debian trixie, `images/samba`, built with the network and booted directly in Cloud Hypervisor v53:
+
+- `KERNEL linux-image-cloud-amd64 --purge-others` followed the metapackage to the archive's
+  current `linux-image-6.12.118+deb13-cloud-amd64`, purged the base's 6.12.41, and recorded
+  `6.12.118+deb13-cloud-amd64`. `KERNEL linux-image-amd64 --purge-others` swapped in the generic
+  kernel: 106.4 MiB installed, against 34.1 MiB for the cloud one. That measurement is the reason
+  the example recipe declares the cloud kernel.
+- `INITRD --modules=virtio_pci,virtio_blk,virtio_scsi,ext4`: **18.6 MiB → 10.7 MiB** for the
+  same kernel (`MODULES=most` → `MODULES=list`). Six modules remain. The rest is
+  initramfs-tools' userspace; udev's `hwdb.bin` alone is 12.4 MiB uncompressed. That is the next
+  lever, not the module list.
+- A/B boot test, with the same kernel and image, comparing the `list` and `most` initrds, two
+  boots each: there is no difference attributable to the initrd. Both varied with the host's load.
+- **A distro kernel cannot drop the initrd.** Debian's cloud kernel builds in `ext4` and
+  `virtio_pci`, but `virtio_blk` is a module. Booted with no initrd, it waits for its root
+  forever, with or without `rootwait`. So `BOOT direct` (P2) keeps an initrd for distro kernels,
+  and only `KERNEL --file=` (a kernel with virtio built in) may go without one. P2 must not
+  promise otherwise.
+- Two bugs in the generated shell were caught by the real build: a `; ;` and a loop exiting 1.
+  Both now have tests that execute or parse every generated command.
+

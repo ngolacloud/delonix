@@ -48,7 +48,7 @@
     },
     "instruction": {
       "comment": "Every other instruction cmd/vmfile.rs accepts (FROM and RUN have rules of their own). The alternation is checked against vmfile::INSTRUCTIONS.",
-      "begin": "^\\s*(?i:(copy|env|user|password|rootpassword|cloudinit|sshkey|size|hostname|vcpus|memory|hypervisor|label|slim|install|remove|autostart|budget))\\b",
+      "begin": "^\\s*(?i:(copy|env|user|password|rootpassword|cloudinit|sshkey|size|hostname|vcpus|memory|hypervisor|label|slim|install|remove|autostart|budget|kernel|initrd))\\b",
       "beginCaptures": { "1": { "name": "keyword.control.vmfile" } },
       "end": "(?<![\\\\\\n])$",
       "patterns": [

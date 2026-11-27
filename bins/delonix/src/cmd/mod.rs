@@ -113,6 +113,7 @@ pub mod vm_expose;
 pub mod vmbackends;
 pub mod vmbridge;
 pub mod vmfile;
+pub mod vmfile_kernel;
 pub mod vmfile_slim;
 pub mod vmimage;
 pub mod vmspec;
