@@ -12,7 +12,8 @@
 //!
 //! **`depends_on` conditions** (`service_started`/`service_healthy`/
 //! `service_completed_successfully`) are resolved by a topological sort of the
-//! `services:` graph (cycle → hard error, never an arbitrary order) plus a
+//! `services:` graph (an undeclared dependency, a self-dependency or a cycle
+//! → hard error when the file loads, never an arbitrary order) plus a
 //! wait loop that polls `runtime::exec`'s own healthcheck test (or the image's
 //! own `HEALTHCHECK` when a service doesn't declare one inline) — no engine/
 //! store schema change needed.
@@ -1517,6 +1518,72 @@ fn parse_go_duration(s: &str) -> Result<Duration> {
     Ok(total)
 }
 
+/// The `depends_on` graph of the whole file is sound: every edge names
+/// another DECLARED service and there is no cycle. Checked over every service,
+/// whatever the profiles, because a broken edge is a broken file — not
+/// something a profile switches on or off.
+///
+/// `load_compose` runs it, so `config`, `up`, `down`, `ps` and `logs` all
+/// refuse the file with the same message before anything else happens.
+/// The sort below runs it again because it indexes the services map with names
+/// `active_services` took from `depends_on`: an undeclared one used to PANIC
+/// there (`no entry found for key`, delonix 0.2.0) whenever it sorted before
+/// the service naming it.
+fn validate_depends_on(services: &BTreeMap<String, ComposeService>) -> Result<()> {
+    for (name, svc) in services {
+        for dep in svc.depends_on.names() {
+            if &dep == name {
+                return Err(Error::Invalid(format!(
+                    "compose: service '{name}' depends_on itself"
+                )));
+            }
+            if !services.contains_key(&dep) {
+                return Err(Error::Invalid(format!(
+                    "compose: service '{name}' depends_on undefined service '{dep}'"
+                )));
+            }
+        }
+    }
+    let mut done = BTreeSet::new();
+    for name in services.keys() {
+        find_depends_on_cycle(services, name, &mut Vec::new(), &mut done)?;
+    }
+    Ok(())
+}
+
+/// Depth-first walk from `name`; `path` is the way here, and a service already
+/// on it closes a cycle, reported as just the cycle (`b -> c -> b`), not the
+/// way into it — the same shape as `compose: extends cycle:`.
+fn find_depends_on_cycle<'a>(
+    services: &'a BTreeMap<String, ComposeService>,
+    name: &'a str,
+    path: &mut Vec<&'a str>,
+    done: &mut BTreeSet<&'a str>,
+) -> Result<()> {
+    if done.contains(name) {
+        return Ok(());
+    }
+    if let Some(start) = path.iter().position(|&n| n == name) {
+        let mut cycle = path[start..].to_vec();
+        cycle.push(name);
+        return Err(Error::Invalid(format!(
+            "compose: depends_on cycle: {}",
+            cycle.join(" -> ")
+        )));
+    }
+    path.push(name);
+    if let Some(svc) = services.get(name) {
+        for dep in svc.depends_on.names() {
+            if let Some((dep, _)) = services.get_key_value(&dep) {
+                find_depends_on_cycle(services, dep, path, done)?;
+            }
+        }
+    }
+    path.pop();
+    done.insert(name);
+    Ok(())
+}
+
 /// Kahn's-algorithm topological sort over `depends_on` edges. A `depends_on`
 /// naming an undeclared service, or a cycle, is a HARD error (never an
 /// arbitrary order) — ties broken alphabetically for determinism.
@@ -1525,23 +1592,21 @@ fn parse_go_duration(s: &str) -> Result<Duration> {
 /// this run — everything outside it (an inactive profile, never requested and
 /// not needed by anything that IS active) is left out of the graph entirely,
 /// not just out of the final order. `active` is trusted to already be closed
-/// under `depends_on` (see `active_services`'s doc-comment); this function
-/// still checks that every name a service names is DECLARED, because that
-/// error has nothing to do with profiles.
+/// under `depends_on` (see `active_services`'s doc-comment); every name in it
+/// is declared once `validate_depends_on` has passed, because that error has
+/// nothing to do with profiles.
 fn topo_sort(
     services: &BTreeMap<String, ComposeService>,
     active: &BTreeSet<String>,
 ) -> Result<Vec<String>> {
+    validate_depends_on(services)?;
     let mut deps: BTreeMap<&str, Vec<String>> = BTreeMap::new();
     for name in active {
-        let svc = &services[name];
-        for dep in svc.depends_on.names() {
-            if !services.contains_key(&dep) {
-                return Err(Error::Invalid(format!(
-                    "compose: service '{name}' depends_on undefined service '{dep}'"
-                )));
-            }
-        }
+        let Some(svc) = services.get(name) else {
+            return Err(Error::Invalid(format!(
+                "compose: undefined service '{name}'"
+            )));
+        };
         deps.insert(name.as_str(), svc.depends_on.names());
     }
     let mut remaining: BTreeMap<&str, usize> = deps.iter().map(|(&n, d)| (n, d.len())).collect();
@@ -3833,6 +3898,8 @@ fn load_compose(files: Vec<PathBuf>) -> Result<(ComposeFile, String, PathBuf, St
     // extend a base declared in another `-f`. Resolving per-file would refuse
     // that with "undefined service", which reads as a typo and is not one.
     resolve_extends(&mut compose.services)?;
+    // After `extends:` too: the graph to check is the resolved one.
+    validate_depends_on(&compose.services)?;
     let first = &paths[0];
     // `base_dir`/`cwd` were already computed above (for the `.env` lookup).
     let default_project = compose
@@ -4506,6 +4573,112 @@ mod tests {
         let services: BTreeMap<String, ComposeService> = serde_yaml::from_str(missing).unwrap();
         let all: BTreeSet<String> = services.keys().cloned().collect();
         assert!(topo_sort(&services, &all).is_err());
+    }
+
+    fn depends_on_err(services_yaml: &str) -> String {
+        let services: BTreeMap<String, ComposeService> =
+            serde_yaml::from_str(services_yaml).unwrap();
+        validate_depends_on(&services)
+            .expect_err("this depends_on graph must be refused")
+            .to_string()
+    }
+
+    fn indent(yaml: &str) -> String {
+        yaml.lines().map(|l| format!("  {l}\n")).collect()
+    }
+
+    /// BUG FOUND (delonix 0.2.0, writing a course against it): a `depends_on`
+    /// naming an undeclared service PANICKED (`no entry found for key`) instead
+    /// of failing. `active_services` pulls every name an active service depends
+    /// on into the active set, declared or not, and the topological sort
+    /// indexed the services map with each one — so the missing name crashed the sort
+    /// whenever it sorted before the service naming it (`db` < `web`). Both
+    /// shapes of `depends_on` name the same dependencies and get the same error.
+    #[test]
+    fn depends_on_an_undeclared_service_names_both_and_never_panics() {
+        for yaml in [
+            "web:\n  image: x\n  depends_on: [db]\n",
+            "web:\n  image: x\n  depends_on:\n    db:\n      condition: service_healthy\n",
+        ] {
+            assert_eq!(
+                depends_on_err(yaml),
+                "invalid argument: compose: service 'web' depends_on undefined service 'db'",
+                "{yaml}"
+            );
+            let compose: ComposeFile =
+                serde_yaml::from_str(&format!("services:\n{}", indent(yaml))).unwrap();
+            let err = translate_err(&compose);
+            assert!(err.contains("'web'") && err.contains("'db'"), "{err}");
+        }
+    }
+
+    #[test]
+    fn a_depends_on_cycle_is_refused_with_its_path() {
+        for yaml in [
+            "a:\n  image: x\n  depends_on: [b]\nb:\n  image: y\n  depends_on: [a]\n",
+            "a:\n  image: x\n  depends_on:\n    b:\n      condition: service_started\n\
+             b:\n  image: y\n  depends_on:\n    a:\n      condition: service_healthy\n",
+        ] {
+            assert_eq!(
+                depends_on_err(yaml),
+                "invalid argument: compose: depends_on cycle: a -> b -> a",
+                "{yaml}"
+            );
+        }
+        let longer = "a:\n  image: x\n  depends_on: [b]\nb:\n  image: y\n  depends_on: [c]\n\
+                      c:\n  image: z\n  depends_on: [b]\nd:\n  image: w\n  depends_on: [a]\n";
+        assert_eq!(
+            depends_on_err(longer),
+            "invalid argument: compose: depends_on cycle: b -> c -> b",
+            "the path is the cycle itself, not the way into it"
+        );
+    }
+
+    #[test]
+    fn a_service_depending_on_itself_is_refused() {
+        for yaml in [
+            "a:\n  image: x\n  depends_on: [a]\n",
+            "a:\n  image: x\n  depends_on:\n    a:\n      condition: service_started\n",
+        ] {
+            assert_eq!(
+                depends_on_err(yaml),
+                "invalid argument: compose: service 'a' depends_on itself",
+                "{yaml}"
+            );
+        }
+    }
+
+    /// The control: a valid graph (a diamond, both shapes) passes, so the tests
+    /// above would not also pass with a check that refuses everything.
+    #[test]
+    fn a_valid_depends_on_graph_passes() {
+        let yaml = "web:\n  image: a\n  depends_on: [api, cache]\n\
+                    api:\n  image: b\n  depends_on:\n    db:\n      condition: service_healthy\n\
+                    cache:\n  image: c\n  depends_on: [db]\ndb:\n  image: d\n";
+        let services: BTreeMap<String, ComposeService> = serde_yaml::from_str(yaml).unwrap();
+        validate_depends_on(&services).unwrap();
+    }
+
+    /// `load_compose` is what `config`, `up`, `down`, `ps` and `logs` all go
+    /// through, so the check there is the one every entry point shares.
+    #[test]
+    fn load_compose_refuses_a_broken_depends_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("compose.yaml");
+        for (yaml, want) in [
+            (
+                "services:\n  web:\n    image: x\n    depends_on: [db]\n",
+                "service 'web' depends_on undefined service 'db'",
+            ),
+            (
+                "services:\n  a:\n    image: x\n    depends_on: [b]\n  b:\n    image: y\n    depends_on: [a]\n",
+                "depends_on cycle: a -> b -> a",
+            ),
+        ] {
+            std::fs::write(&f, yaml).unwrap();
+            let err = load_compose(vec![f.clone()]).expect_err("must be refused");
+            assert!(err.to_string().contains(want), "{err}");
+        }
     }
 
     #[test]
