@@ -353,6 +353,8 @@ may come first. `\` continuations are joined; a `#` starts a comment only at the
 | `INSTALL <pkg>…` | step | `apt-get install` or `dnf install`, chosen **inside the guest** by what it has (neither → the step fails). Needs `--network`, refused before any disk work otherwise. The package cache and indexes are removed at the end of a stage that installed anything. |
 | `REMOVE --packages=<a,b> --paths=</x> --services=<u>` | step | Positional. Packages: `apt-get purge` + `autoremove --purge`, or `dnf remove`. Services: disabled **and masked**. Paths: `rm -rf`, with the same protected list as `vm.yaml`'s `remove.paths`. Flags may repeat. |
 | `AUTOSTART [--only] <unit>…` | stage property | `systemctl enable` (fail-closed: a unit the image does not have fails the build). A name without a type is a `.service`; `.socket`/`.timer`/`.path` are accepted, other types are refused. Lines accumulate; applied **at the end of the stage**. With `--only`, every other enabled unit is disabled, except the engine's plumbing. A unit in both `AUTOSTART` and `REMOVE --services` of a stage is a parse error. |
+| `KERNEL <package> [--purge-others]` | step | The kernel the image boots ([ADR-0103](../adr/0103-vmfile-kernel-initrd-direct-boot.md)). Installed like `INSTALL` (needs `--network`); its version is read from the files the package owns — a metapackage is followed to the `linux-image-<version>` it depends on — never from `uname -r`, which inside `virt-customize` is the appliance's. `--purge-others` removes every other kernel image and module package and checks the chosen one survived. Recorded in `/etc/delonix-kernel-version`. At most one per stage. `KERNEL --file=` is refused until `BOOT direct` (P2). |
+| `INITRD --modules=<a,b>` | step | Rebuilds the image kernel's initrd with exactly those drivers: initramfs-tools `MODULES=list`, or dracut `--no-hostonly --drivers`. Never host-only (the host is the appliance). After `KERNEL` when the stage has one; at most one per stage. List the root filesystem's module too (`ext4`, `xfs`, `btrfs`). Measured on Debian trixie's cloud kernel 6.12.118: 18.6 MiB (`MODULES=most`) → 10.7 MiB, same boot; what remains is mostly initramfs-tools' userspace (udev's `hwdb.bin` alone is 12.4 MiB uncompressed), not modules. That kernel cannot drop the initrd: `virtio_blk` is a module, and without one the kernel waits for its root forever. |
 | `BUDGET <n>K\|M\|G` | image | Fails the build when the final root filesystem uses more than that (binary units). See *Declaring a small image*. |
 
 There is no `CMD`/`ENTRYPOINT`: a VM boots an init. `CLOUDINIT` is the closest equivalent.
@@ -403,7 +405,11 @@ after the fact is the expensive way to shrink it; these directives make the imag
    number fails the build and names the 15 largest packages; a measurement that cannot be read
    also fails it, because an unmeasured image did not meet its budget.
 
-5. **The final stage resets the image's identity** — `/etc/machine-id` emptied, SSH host keys
+5. **The kernel is recorded.** The measurement also writes the kernel the image boots and its
+   initrd's size (`kernel 6.12.118+deb13-cloud-amd64, initrd 10.7 MiB` in the build log), and
+   `kernel_version` in the image's metadata now comes from the image itself for every Vmfile build —
+   before, only a build whose final `FROM` was a local image had one.
+6. **The final stage resets the image's identity** — `/etc/machine-id` emptied, SSH host keys
    removed — whenever it was customized, as `vm.yaml`'s `cleanup:` does (a `vm.yaml` keeps its
    own `cleanup:`, so `machine_id: false` still means false). Found on the first real build: a
    postinst of `INSTALL` had generated a machine-id, which every clone would have shared. Empty

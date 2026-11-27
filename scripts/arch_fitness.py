@@ -352,6 +352,7 @@ CLI_DESTINATION = {
     # delonix-artifact (created in R4; vmimage's guestfs half goes to delonix-guestfs)
     "image": "delonix-artifact", "build": "delonix-artifact", "scan": "delonix-artifact",
     "app": "delonix-artifact", "vmfile": "delonix-artifact", "vmfile_slim": "delonix-artifact",
+    "vmfile_kernel": "delonix-artifact",
     "vmimage": "delonix-artifact",
     # `distroless` straddles two consumers — `scaffold` (delonix-cli) reads the
     # registry and the token it substitutes, `util` (delonix-engine) reads the

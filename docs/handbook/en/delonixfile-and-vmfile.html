@@ -739,6 +739,16 @@ may come first. <code>\</code> continuations are joined; a <code>#</code> starts
 <td><code>systemctl enable</code> (fail-closed: a unit the image does not have fails the build). A name without a type is a <code>.service</code>; <code>.socket</code>/<code>.timer</code>/<code>.path</code> are accepted, other types are refused. Lines accumulate; applied <strong>at the end of the stage</strong>. With <code>--only</code>, every other enabled unit is disabled, except the engine's plumbing. A unit in both <code>AUTOSTART</code> and <code>REMOVE --services</code> of a stage is a parse error.</td>
 </tr>
 <tr>
+<td><code>KERNEL &lt;package&gt; [--purge-others]</code></td>
+<td>step</td>
+<td>The kernel the image boots (<a href="https://github.com/ngolacloud/delonix/blob/main/docs/adr/0103-vmfile-kernel-initrd-direct-boot.md" target="_blank" rel="noopener">ADR-0103</a>). Installed like <code>INSTALL</code> (needs <code>--network</code>); its version is read from the files the package owns — a metapackage is followed to the <code>linux-image-&lt;version&gt;</code> it depends on — never from <code>uname -r</code>, which inside <code>virt-customize</code> is the appliance's. <code>--purge-others</code> removes every other kernel image and module package and checks the chosen one survived. Recorded in <code>/<wbr>etc/<wbr>delonix-kernel-version</code>. At most one per stage. <code>KERNEL --file=</code> is refused until <code>BOOT direct</code> (P2).</td>
+</tr>
+<tr>
+<td><code>INITRD --modules=&lt;a,b&gt;</code></td>
+<td>step</td>
+<td>Rebuilds the image kernel's initrd with exactly those drivers: initramfs-tools <code>MODULES=list</code>, or dracut <code>--no-hostonly --drivers</code>. Never host-only (the host is the appliance). After <code>KERNEL</code> when the stage has one; at most one per stage. List the root filesystem's module too (<code>ext4</code>, <code>xfs</code>, <code>btrfs</code>). Measured on Debian trixie's cloud kernel 6.12.118: 18.6 MiB (<code>MODULES=most</code>) → 10.7 MiB, same boot; what remains is mostly initramfs-tools' userspace (udev's <code>hwdb.bin</code> alone is 12.4 MiB uncompressed), not modules. That kernel cannot drop the initrd: <code>virtio_blk</code> is a module, and without one the kernel waits for its root forever.</td>
+</tr>
+<tr>
 <td><code>BUDGET &lt;n&gt;K|M\|G</code></td>
 <td>image</td>
 <td>Fails the build when the final root filesystem uses more than that (binary units). See <em>Declaring a small image</em>.</td>
@@ -788,6 +798,10 @@ after the fact is the expensive way to shrink it; these directives make the imag
    number fails the build and names the 15 largest packages; a measurement that cannot be read
    also fails it, because an unmeasured image did not meet its budget.</p>
 <ol start="5">
+<li><strong>The kernel is recorded.</strong> The measurement also writes the kernel the image boots and its
+   initrd's size (<code>kernel 6.12.118+deb13-cloud-amd64, initrd 10.7 MiB</code> in the build log), and
+   <code>kernel_version</code> in the image's metadata now comes from the image itself for every Vmfile build —
+   before, only a build whose final <code>FROM</code> was a local image had one.</li>
 <li><strong>The final stage resets the image's identity</strong> — <code>/etc/machine-id</code> emptied, SSH host keys
    removed — whenever it was customized, as <code>vm.yaml</code>'s <code>cleanup:</code> does (a <code>vm.yaml</code> keeps its
    own <code>cleanup:</code>, so <code>machine_id: false</code> still means false). Found on the first real build: a
