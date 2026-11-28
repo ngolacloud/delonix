@@ -1,8 +1,7 @@
 # ADR-0103: The kernel is declared in the Vmfile, and an image can boot it directly (`KERNEL`, `INITRD`, `BOOT`)
 
-- **Status:** Accepted (2026-11-27, by the owner). Spike S0 is **GO**. **P1 built** (`KERNEL`,
-  `INITRD`, `kernel_version` always recorded) and **P2 built** (`BOOT direct`) — see the
-  addenda. P3 (push/pull) to build.
+- **Status:** Accepted (2026-11-27, by the owner). Spike S0 is **GO**. **P1, P2 and P3 built**
+  (`KERNEL`/`INITRD`, `BOOT direct`, push/pull of the kernel and initrd) — see the addenda.
 - **Date:** 2026-11-27
 - **Deciders:** Walter Angolar
 - **Relates to:** the first phase of small images (PR #1056: `SLIM`, `INSTALL`, `REMOVE`,
@@ -154,7 +153,7 @@ would be the silent failure this repo names as its worst. That is phase P3.
   kernel (`kernel_version`, `packages.tsv`).
 - The image store gains two files per direct-boot image, and `VmImage` gains one optional field
   (`#[serde(default)]`, so older records still load).
-- `vm push` refuses direct-boot images until P3, and says so.
+- `vm push` refused direct-boot images until P3; it now carries their kernel and initrd (see the P3 addendum).
 - libvirt also supports direct kernel boot, but it has not been measured with these artefacts.
   P2 measures it before claiming it.
 
@@ -205,4 +204,31 @@ Debian trixie, `images/samba`, built with the network and booted directly in Clo
 - **A trap in the proof, not in the code:** several sessions on one machine share `target/`.
   Mid-proof another session's build replaced `target/debug/delonix`, and three `vm create`s ran
   without this code. The proof was re-run with a pinned copy of the binary.
+
+## Addendum — P3, push and pull (2026-11-27)
+
+- A direct-boot image is pushed as **one manifest of three layers**: the qcow2 first
+  (`application/vnd.delonix.vmimage.v1.qcow2`, what a single-layer puller reads), then
+  `application/vnd.delonix.vmimage.v1.kernel` and `….initrd`. The boot is recorded in the
+  annotations `io.delonix.vmimage.boot.{kernel-version,kernel-sha256,initrd-sha256,cmdline}`.
+  `vm push` checks the local kernel and initrd against the sha256 the build recorded before
+  sending them.
+- `vm pull` reads the three layers from **one** manifest. Otherwise a tag that moved between two
+  fetches could pair this qcow2 with another version's kernel. An artifact that declares only
+  part of a boot, or whose kernel or initrd layer is missing or does not match the sha256 its
+  annotations name, is refused, and nothing it pulled stays in the store. Kernel layers that no
+  boot annotation explains are discarded.
+- Compatibility: an older client still pulls the qcow2, which keeps its bootloader (`BOOT direct`
+  removes nothing), so the image boots through firmware there.
+- Proof: a round trip through `delonix-oci`'s in-process registry, using the real push and pull
+  code (`a_vm_artifact_with_kernel_and_initrd_round_trips_in_one_manifest`). It covers byte-for-byte
+  kernel and initrd, a single-layer pull still getting the qcow2, and a missing layer answered
+  `None`. Unit tests cover the annotation round trip and the refusals.
+- **Real registry** (`registry:2` on `127.0.0.1:5055`, 2026-11-27): `vm image push` of the samba
+  image wrote one manifest whose three layers are `…qcow2`, `…kernel` and `…initrd`. The kernel
+  and initrd layer digests are the `boot.*-sha256` annotations. `vm image pull` into an empty
+  state root brought back the qcow2, `samba_p2.vmlinuz` and `samba_p2.initrd` with those sha256,
+  and `describe` showed `Boot: direct`. `vm create` from the **pulled** image on libvirt put that
+  kernel in the domain, and inside the VM `/proc/cmdline` was the image's, with `smbd` and `ssh`
+  active.
 
